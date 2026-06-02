@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use ffcore::db::Settings;
 use ffcore::detect::{detect_workspaces, DetectedWorkspace};
 use ffcore::engine::{BaseInfo, ChangeSummary};
-use ffcore::git::{self, GitFileChange, RefList};
+use ffcore::git::{self, GitFileChange, RefList, WorkingStatus};
 use ffcore::query::{FileChange, MonitorRow, SnapshotRow};
 use ffcore::revert::HunkInfo;
 use ffcore::sysmon::ResourceUsage;
@@ -237,6 +237,26 @@ pub fn git_revert_hunks(repo_path: String, from: String, to: String, path: Strin
 #[tauri::command]
 pub fn git_write_working(repo_path: String, path: String, content: String) -> R<()> {
     err(git::write_working(&PathBuf::from(repo_path), &path, &content))
+}
+
+#[tauri::command]
+pub fn git_status(repo_path: String) -> R<WorkingStatus> {
+    err(git::working_status(&PathBuf::from(repo_path)))
+}
+
+#[tauri::command]
+pub fn git_stage(repo_path: String, paths: Vec<String>) -> R<()> {
+    err(git::stage_paths(&PathBuf::from(repo_path), &paths))
+}
+
+#[tauri::command]
+pub fn git_unstage(repo_path: String, paths: Vec<String>) -> R<()> {
+    err(git::unstage_paths(&PathBuf::from(repo_path), &paths))
+}
+
+#[tauri::command]
+pub fn git_commit(repo_path: String, message: String) -> R<String> {
+    err(git::commit(&PathBuf::from(repo_path), &message))
 }
 
 #[tauri::command]

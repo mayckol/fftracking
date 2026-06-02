@@ -4,6 +4,29 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.4.0] — 2026-06-03
+
+### Added
+
+- **Git staging & commit** in the Git tab: a **Commit** mode that lists staged vs
+  unstaged/untracked files, with per-file and bulk **Stage / Unstage**, a
+  commit-message box, and **Commit** — so you choose exactly which files go in.
+  The existing ref-to-ref **Compare** mode is now a toggle beside it.
+- **`fft pause` / `fft resume`** (CLI + MCP): pause a folder's tracking without
+  losing history, then resume it later.
+- **macOS ad-hoc signing** of release builds (`signingIdentity: "-"`), so the app
+  no longer reports as "damaged" — first launch is the normal right-click → Open.
+
+### Changed
+
+- A monitor's **first breaking point** shows no changes (it is the baseline)
+  instead of listing every file as "added".
+
+### Fixed
+
+- README now documents the `fft` CLI, the MCP server, and the git-aware
+  comparison base.
+
 ## [0.3.0] — 2026-06-02
 
 ### Added

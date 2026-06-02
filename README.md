@@ -17,6 +17,9 @@ fftracking watches your folders recursively and captures **breaking points**
 diff any point side-by-side, and revert by block, file, or folder. It also has a
 local **git compare** tab with per-block revert and a merge-conflict resolver.
 
+Drive it from the desktop app, the **`fft` command line**, or the built-in
+**MCP server** so AI agents can checkpoint and revert your work.
+
 <p align="center">
   <img src="assets/screenshots/history.png" alt="fftracking history view" width="100%" />
 </p>
@@ -33,11 +36,18 @@ local **git compare** tab with per-block revert and a merge-conflict resolver.
   arrows, and an always-visible **⟲ revert icon** on every changed block.
 - **Revert anything** — per block (gutter ⟲), per file, or per folder; right-click
   the changed-files tree to revert; in-diff editing with Cmd+Z / Cmd+Shift+Z.
+- **Git-aware comparison** — inside a repo, breaking points diff against the
+  **current branch (HEAD)** with one-click **Reset to branch**; outside git, against
+  the **previous point**. Every point shows added / modified / deleted badges.
+- **CLI + MCP** — the headless **`fft`** binary (and an `fft mcp` stdio server)
+  drive the same store as the app, so scripts and AI agents can track, snapshot,
+  diff, and revert.
 - **Labels** — name any breaking point (e.g. "before refactor").
 - **Editor auto-detect** — opens a folder in VSCode or Zed and fftracking starts
   tracking the focused workspace automatically (no extensions).
-- **Local git** — diff branches / commits / working tree, per-block apply, and a
-  3-way merge-conflict resolver (accept ours / theirs / both).
+- **Local git** — **stage & commit** (pick files, write a message, commit), diff
+  branches / commits / working tree, per-block apply, and a 3-way merge-conflict
+  resolver (accept ours / theirs / both).
 - **Smart retention** — today stays dense, past days coalesce, anything past the
   window is pruned, and the store is capped (default 1 GB).
 - **Lightweight** — runs in the tray, shows live CPU / memory in the title bar.
@@ -72,8 +82,9 @@ curl -fsSL https://raw.githubusercontent.com/mayckol/fftracking/main/scripts/ins
 ```
 
 Installs the latest release — `fftracking.app` to `/Applications` on macOS
-(Apple Silicon), or the AppImage to `~/.local/bin/fftracking` on Linux (x86_64).
-Pin a version with `FFTRACKING_VERSION=v0.1.0`.
+(Apple Silicon), or the AppImage to `~/.local/bin/fftracking` on Linux (x86_64) —
+plus the headless **`fft`** CLI (+ MCP server) at `~/.local/bin/fft`.
+Pin a version with `FFTRACKING_VERSION=v0.3.1`.
 
 ### Homebrew (macOS)
 
@@ -136,10 +147,46 @@ cargo test -p ffcore  # engine tests
    **split / inline**. Use **↑ ↓** to jump between changes.
 4. Revert with the gutter **⟲**, the **Revert file / folder** buttons, or
    right-click in the changed-files tree. Label a point with **🏷**, delete with **×**.
-5. **Git** tab — pick a repo and two refs (or the working tree) to compare, apply
-   blocks, and resolve merge conflicts.
+5. **Git** tab — **Commit** mode to stage files (`+` / `−`), write a message, and
+   commit; **Compare** mode to diff two refs (or the working tree), apply blocks,
+   and resolve merge conflicts.
 6. **Settings** — interval, min gap, retention, disk cap, ignore globs, respect
    `.gitignore` (off by default — like local history), launch on login.
+
+## Command line & AI agents (`fft`)
+
+`fft` is a headless front-end to the same store as the desktop app — anything it
+does shows up live in the GUI, and vice versa. The quick-install script and the
+Homebrew cask place it at `~/.local/bin/fft`.
+
+```bash
+fft track    --path ~/proj                 # start tracking (+ first point)
+fft snapshot --path ~/proj --label "wip"   # capture a breaking point now
+fft points   --path ~/proj                 # list points with +A ~M -D counts
+fft changes  --path ~/proj                 # what changed at the latest point
+fft diff     --path ~/proj --file src/a.ts # unified diff vs branch / prev point
+fft revert   --path ~/proj --point 42 --file src/a.ts
+fft reset    --path ~/proj --file src/a.ts # restore from the current git branch
+fft <cmd> --json                           # machine-readable output
+fft --help                                 # full reference
+```
+
+Comparison follows the same rule as the app: the **current git branch (HEAD)** in
+a repo, otherwise the **previous breaking point**.
+
+### MCP (Model Context Protocol)
+
+`fft mcp` is a stdio MCP server exposing `track`, `snapshot`, `points`, `changes`,
+`diff`, `revert`, `reset`, `label`, and `untrack` as tools, so an AI agent can
+checkpoint and revert your work. Register it (e.g. with Claude):
+
+```bash
+claude mcp add fftracking -- fft mcp
+```
+
+```json
+{ "mcpServers": { "fftracking": { "command": "fft", "args": ["mcp"] } } }
+```
 
 ## Data
 
@@ -158,6 +205,8 @@ skips heavy dirs (`.git`, `node_modules`, `target`, `dist`, …) plus files > 5 
   unit-tested, no UI deps.
 - **`src-tauri`** — Tauri v2 shell: IPC commands, tray, autostart, detect daemon.
 - **`src`** — React + Monaco diff UI.
+- **`crates/ffcli`** — the `fft` CLI + stdio MCP server (ffcore only, no UI deps);
+  shares the desktop app's data store.
 
 ## License
 

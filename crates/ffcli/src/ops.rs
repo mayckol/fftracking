@@ -230,6 +230,14 @@ pub fn label(engine: &Engine, path: &Path, point: i64, text: &str) -> OpResult {
     Ok(json!({ "monitor_id": id, "point": point, "label": text }))
 }
 
+/// Pauses (active=false) or resumes (active=true) tracking without touching
+/// history. The desktop app resumes only active monitors on launch.
+pub fn set_active(engine: &Engine, path: &Path, active: bool) -> OpResult {
+    let id = resolve_monitor(engine, path)?;
+    e(engine.set_monitor_active(id, active))?;
+    Ok(json!({ "monitor_id": id, "active": active }))
+}
+
 pub fn untrack(engine: &Engine, path: &Path, purge: bool) -> OpResult {
     let id = resolve_monitor(engine, path)?;
     if purge {

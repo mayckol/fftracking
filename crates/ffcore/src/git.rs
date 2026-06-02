@@ -248,6 +248,134 @@ pub fn changed_files(repo_path: &Path, from: &str, to: &str) -> Result<Vec<GitFi
     Ok(out)
 }
 
+/// Working-tree status split into what is staged (index vs HEAD) and what is not
+/// (working tree vs index), plus the current branch — the data a commit panel needs.
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkingStatus {
+    pub branch: String,
+    pub staged: Vec<GitFileChange>,
+    pub unstaged: Vec<GitFileChange>,
+}
+
+fn index_status(s: git2::Status) -> Option<ChangeStatus> {
+    if s.contains(git2::Status::INDEX_NEW) {
+        Some(ChangeStatus::Added)
+    } else if s.contains(git2::Status::INDEX_DELETED) {
+        Some(ChangeStatus::Deleted)
+    } else if s.intersects(git2::Status::INDEX_MODIFIED | git2::Status::INDEX_RENAMED | git2::Status::INDEX_TYPECHANGE) {
+        Some(ChangeStatus::Modified)
+    } else {
+        None
+    }
+}
+
+fn worktree_status(s: git2::Status) -> Option<ChangeStatus> {
+    if s.contains(git2::Status::WT_NEW) {
+        Some(ChangeStatus::Added)
+    } else if s.contains(git2::Status::WT_DELETED) {
+        Some(ChangeStatus::Deleted)
+    } else if s.intersects(git2::Status::WT_MODIFIED | git2::Status::WT_RENAMED | git2::Status::WT_TYPECHANGE) {
+        Some(ChangeStatus::Modified)
+    } else {
+        None
+    }
+}
+
+pub fn working_status(repo_path: &Path) -> Result<WorkingStatus> {
+    let repo = open(repo_path)?;
+    let mut opts = git2::StatusOptions::new();
+    opts.include_untracked(true).recurse_untracked_dirs(true).include_ignored(false);
+    let statuses = repo.statuses(Some(&mut opts))?;
+
+    let mut staged = Vec::new();
+    let mut unstaged = Vec::new();
+    for entry in statuses.iter() {
+        let Some(path) = entry.path().map(str::to_string) else { continue };
+        let s = entry.status();
+        if let Some(status) = index_status(s) {
+            staged.push(GitFileChange { path: path.clone(), status });
+        }
+        if let Some(status) = worktree_status(s) {
+            unstaged.push(GitFileChange { path, status });
+        }
+    }
+    staged.sort_by(|a, b| a.path.cmp(&b.path));
+    unstaged.sort_by(|a, b| a.path.cmp(&b.path));
+
+    let branch = repo
+        .head()
+        .ok()
+        .and_then(|h| h.shorthand().map(str::to_string))
+        .unwrap_or_else(|| "HEAD".to_string());
+    Ok(WorkingStatus { branch, staged, unstaged })
+}
+
+/// Stages each path: adds it to the index, or removes it from the index when the
+/// file is gone from disk (a staged deletion).
+pub fn stage_paths(repo_path: &Path, paths: &[String]) -> Result<()> {
+    let repo = open(repo_path)?;
+    let workdir = repo.workdir().ok_or_else(|| Error::Msg("bare repo has no working tree".into()))?.to_path_buf();
+    let mut index = repo.index()?;
+    for p in paths {
+        let rel = Path::new(p);
+        // symlink_metadata (not exists) so a broken symlink still counts as
+        // present and is staged, rather than mistaken for a deletion.
+        if workdir.join(rel).symlink_metadata().is_ok() {
+            index.add_path(rel)?;
+        } else {
+            index.remove_path(rel)?;
+        }
+    }
+    index.write()?;
+    Ok(())
+}
+
+/// Unstages each path, resetting its index entry to HEAD (or dropping it from the
+/// index when there is no commit yet).
+pub fn unstage_paths(repo_path: &Path, paths: &[String]) -> Result<()> {
+    let repo = open(repo_path)?;
+    match repo.head().ok().and_then(|h| h.peel(git2::ObjectType::Commit).ok()) {
+        Some(head) => repo.reset_default(Some(&head), paths.iter().map(String::as_str))?,
+        None => {
+            let mut index = repo.index()?;
+            for p in paths {
+                let _ = index.remove_path(Path::new(p));
+            }
+            index.write()?;
+        }
+    }
+    Ok(())
+}
+
+/// Commits whatever is currently staged with `message`. Errors if the message is
+/// empty, nothing is staged, or the committer identity is unset.
+pub fn commit(repo_path: &Path, message: &str) -> Result<String> {
+    if message.trim().is_empty() {
+        return Err(Error::Msg("commit message is empty".into()));
+    }
+    let repo = open(repo_path)?;
+    let sig = repo
+        .signature()
+        .map_err(|_| Error::Msg("set git user.name and user.email to commit".into()))?;
+
+    let mut index = repo.index()?;
+    let tree_oid = index.write_tree()?;
+    let tree = repo.find_tree(tree_oid)?;
+    let parent = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
+
+    match &parent {
+        Some(p) if p.tree_id() == tree_oid => {
+            return Err(Error::Msg("nothing staged to commit".into()))
+        }
+        None if tree.len() == 0 => return Err(Error::Msg("nothing staged to commit".into())),
+        _ => {}
+    }
+
+    let parents: Vec<&git2::Commit> = parent.iter().collect();
+    let oid = repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)?;
+    Ok(oid.to_string()[..12].to_string())
+}
+
 fn workdir_path(repo: &Repository, rel: &str) -> Result<std::path::PathBuf> {
     Ok(repo
         .workdir()
