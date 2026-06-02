@@ -1,6 +1,6 @@
 [package]
 name = "ffcore"
-version = "0.4.1"
+version = "0.4.2"
 edition.workspace = true
 license.workspace = true
 
@@ -14,7 +14,11 @@ rusqlite.workspace = true
 ignore.workspace = true
 notify-debouncer-full = "0.3"
 similar = "2"
-git2 = "0.19"
+# Local git only (status/diff/commit/conflicts) — no network transports, so
+# default features (https/ssh) are off to avoid linking Homebrew's OpenSSL +
+# libssh2. That external link otherwise crashes the app on machines without
+# them and clashes with ad-hoc code signing (Team-ID mismatch).
+git2 = { version = "0.19", default-features = false }
 sysinfo = "0.32"
 
 [dev-dependencies]

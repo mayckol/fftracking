@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.4.2] — 2026-06-03
+
+### Fixed
+
+- **App/CLI crashed on launch on other machines** (`Library not loaded:
+  …/openssl@3/…/libssl.3.dylib`). `git2` was linking Homebrew's OpenSSL + libssh2
+  via its default `https`/`ssh` features; combined with ad-hoc signing this also
+  tripped a code-signing Team-ID mismatch. We only use **local** git, so those
+  features are now disabled — the binaries are self-contained.
+- The Homebrew cask now strips the download quarantine on install (`postflight`),
+  so the app opens on a double-click instead of being blocked by Gatekeeper.
+
 ## [0.4.1] — 2026-06-03
 
 ### Fixed
