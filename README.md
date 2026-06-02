@@ -17,6 +17,12 @@ fftracking watches your folders recursively and captures **breaking points**
 diff any point side-by-side, and revert by block, file, or folder. It also has a
 local **git compare** tab with per-block revert and a merge-conflict resolver.
 
+<p align="center">
+  <img src="assets/screenshots/history.png" alt="fftracking history view" width="100%" />
+</p>
+
+<p align="center"><em>Timeline of breaking points · nested changed-files tree · side-by-side diff with per-block ⟲ revert.</em></p>
+
 ## Features
 
 - **Automatic breaking points** — captured on file save (debounced) and on an
@@ -35,6 +41,27 @@ local **git compare** tab with per-block revert and a merge-conflict resolver.
 - **Smart retention** — today stays dense, past days coalesce, anything past the
   window is pruned, and the store is capped (default 1 GB).
 - **Lightweight** — runs in the tray, shows live CPU / memory in the title bar.
+
+## Screenshots
+
+### Local git — diff branches, commits, or the working tree
+
+<p align="center">
+  <img src="assets/screenshots/git-compare.png" alt="git compare view" width="100%" />
+</p>
+
+Compare any two refs (here `develop → main`). Each changed block gets a **⟲**
+icon that applies that side's version into your working tree — works branch↔branch
+or against the working tree.
+
+### Resolve merge conflicts
+
+<p align="center">
+  <img src="assets/screenshots/conflict-resolver.png" alt="merge conflict resolver" width="100%" />
+</p>
+
+A 3-way resolver per conflict region — **Accept ours / theirs / keep both** — with
+an editable result. **Mark resolved & stage** writes the file and stages it.
 
 ## Install
 
