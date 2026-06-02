@@ -1,16 +1,17 @@
 import { useMemo } from "react";
-import type { SnapshotRow } from "../lib/types";
+import type { ChangeSummary, SnapshotRow } from "../lib/types";
 import { dayLabel, fmtTime } from "../lib/util";
 
 interface Props {
   snapshots: SnapshotRow[];
+  summaries?: Record<number, ChangeSummary>;
   selected: number | null;
   onSelect: (id: number) => void;
   onDelete: (id: number) => void;
   onLabel: (id: number, current: string | null) => void;
 }
 
-export default function Timeline({ snapshots, selected, onSelect, onDelete, onLabel }: Props) {
+export default function Timeline({ snapshots, summaries, selected, onSelect, onDelete, onLabel }: Props) {
   const groups = useMemo(() => {
     const out: { day: string; rows: SnapshotRow[] }[] = [];
     for (const s of snapshots) {
@@ -54,7 +55,19 @@ export default function Timeline({ snapshots, selected, onSelect, onDelete, onLa
                 <div className="sub">
                   <span className={`trig ${s.trigger}`}>{s.trigger.replace("_", " ")}</span>
                   {s.label && <span className="changecount">{fmtTime(s.ts)}</span>}
-                  <span className="changecount">{s.file_count} files</span>
+                  {(() => {
+                    const sum = summaries?.[s.id];
+                    if (sum && (sum.added || sum.modified || sum.deleted)) {
+                      return (
+                        <span className="sum" title="Changes vs the comparison base">
+                          {sum.added > 0 && <span className="sum-pill add">+{sum.added}</span>}
+                          {sum.modified > 0 && <span className="sum-pill mod">~{sum.modified}</span>}
+                          {sum.deleted > 0 && <span className="sum-pill del">−{sum.deleted}</span>}
+                        </span>
+                      );
+                    }
+                    return <span className="changecount">{s.file_count} files</span>;
+                  })()}
                 </div>
               </div>
               <button

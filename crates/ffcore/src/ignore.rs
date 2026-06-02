@@ -1,7 +1,8 @@
 use std::path::{Path, MAIN_SEPARATOR};
 
-use ignore::overrides::OverrideBuilder;
-use ignore::WalkBuilder;
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use ignore::overrides::{Override, OverrideBuilder};
+use ignore::{Match, WalkBuilder};
 
 use crate::store::{BlobStore, Manifest};
 use crate::Result;
@@ -27,7 +28,54 @@ const BUILTIN_IGNORES: &[&str] = &[
 
 /// Files larger than this are skipped — local history is for source, not large
 /// binaries, and storing them would burn through the disk cap fast.
-const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
+pub const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
+
+/// Whether a committed (git HEAD) file is too large to participate in the
+/// breaking-point vs-branch comparison (the monitor never captures it, so it
+/// must not be reported as a deletion when diffing a snapshot against HEAD).
+pub fn within_size(len: u64) -> bool {
+    len <= MAX_FILE_BYTES
+}
+
+/// A path-testing matcher that mirrors the capture walk's path exclusions
+/// (built-in dirs, user globs, and — when enabled — .gitignore). Unlike the
+/// walker it tests arbitrary relative paths, so it can be applied to git HEAD
+/// entries that may not currently exist on disk. Keeping both sides of the
+/// snapshot↔HEAD diff on the same exclusion rules avoids phantom deletions.
+pub struct PathFilter {
+    ov: Override,
+    gi: Option<Gitignore>,
+}
+
+impl PathFilter {
+    pub fn build(root: &Path, extra_globs: &[String], respect_gitignore: bool) -> Result<Self> {
+        let mut ovb = OverrideBuilder::new(root);
+        for g in BUILTIN_IGNORES {
+            ovb.add(&format!("!{g}"))?;
+            ovb.add(&format!("!**/{g}/**"))?;
+        }
+        for g in extra_globs {
+            ovb.add(&format!("!{g}"))?;
+        }
+        let gi = if respect_gitignore {
+            let mut gb = GitignoreBuilder::new(root);
+            gb.add(root.join(".gitignore"));
+            Some(gb.build()?)
+        } else {
+            None
+        };
+        Ok(Self { ov: ovb.build()?, gi })
+    }
+
+    /// True when `rel` (forward-slash, treated as a file) would be skipped by
+    /// the monitor's capture rules.
+    pub fn ignored(&self, rel: &str) -> bool {
+        if matches!(self.ov.matched(rel, false), Match::Ignore(_)) {
+            return true;
+        }
+        matches!(&self.gi, Some(gi) if matches!(gi.matched(rel, false), Match::Ignore(_)))
+    }
+}
 
 fn configure(root: &Path, extra_globs: &[String], respect_gitignore: bool) -> Result<WalkBuilder> {
     let mut ov = OverrideBuilder::new(root);

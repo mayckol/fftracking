@@ -11,7 +11,8 @@
 #   FFTRACKING_REPO     override repo slug (default: mayckol/fftracking)
 #
 # macOS: installs fftracking.app to /Applications (Apple Silicon).
-# Linux: installs the AppImage to $PREFIX/bin/fftracking (x86_64).
+# Linux: installs the AppImage to $PREFIX/bin/fftracking (x86_64) and registers a
+#        desktop launcher + icon under $PREFIX/share so it appears in the app menu.
 
 set -eu
 
@@ -59,10 +60,47 @@ case "$os_raw" in
     case "$arch_raw" in x86_64|amd64) : ;; *) fail "Linux build is x86_64 only; got $arch_raw" ;; esac
     ASSET="fftracking_${VER_NUM}_amd64.AppImage"
     BIN_DIR="$PREFIX/bin"; mkdir -p "$BIN_DIR"
+    BIN="$BIN_DIR/fftracking"
     log "downloading $ASSET"
-    $DL "$BASE/$ASSET" > "$BIN_DIR/fftracking" || fail "download failed: $BASE/$ASSET"
-    chmod +x "$BIN_DIR/fftracking"
-    log "installed: $BIN_DIR/fftracking"
+    $DL "$BASE/$ASSET" > "$BIN" || fail "download failed: $BASE/$ASSET"
+    chmod +x "$BIN"
+    log "installed: $BIN"
+
+    # Desktop integration: a .desktop launcher + icon under XDG dirs so the app
+    # shows in the application menu with an icon (the binary alone does not).
+    APPS_DIR="$PREFIX/share/applications"
+    ICON_DIR="$PREFIX/share/icons/hicolor/256x256/apps"
+    mkdir -p "$APPS_DIR" "$ICON_DIR"
+
+    # Pull the icon out of the AppImage (extraction needs no FUSE); fall back to
+    # the repo's bundled icon if the runtime can't extract.
+    ( cd "$TMP" && "$BIN" --appimage-extract 'usr/share/icons/*' >/dev/null 2>&1 ) || true
+    ICON_SRC="$(find "$TMP/squashfs-root" -name 'fftracking.png' -printf '%s %p\n' 2>/dev/null | sort -rn | head -n1 | cut -d' ' -f2-)"
+    if [ -n "${ICON_SRC:-}" ] && [ -f "$ICON_SRC" ]; then
+      cp "$ICON_SRC" "$ICON_DIR/fftracking.png"
+    else
+      $DL "https://raw.githubusercontent.com/$REPO/main/src-tauri/icons/128x128@2x.png" > "$ICON_DIR/fftracking.png" 2>/dev/null || \
+        log "could not install an icon (menu entry will use a generic one)"
+    fi
+    rm -rf "$TMP/squashfs-root" 2>/dev/null || true
+
+    cat > "$APPS_DIR/fftracking.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=fftracking
+Comment=Local file-history & breaking-point tracker
+Exec="$BIN"
+Icon=fftracking
+Terminal=false
+Categories=Development;Utility;
+StartupWMClass=fftracking
+EOF
+    chmod 644 "$APPS_DIR/fftracking.desktop"
+
+    command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS_DIR" >/dev/null 2>&1 || true
+    command -v gtk-update-icon-cache  >/dev/null 2>&1 && gtk-update-icon-cache -f "$PREFIX/share/icons/hicolor" >/dev/null 2>&1 || true
+
+    log "menu entry: $APPS_DIR/fftracking.desktop"
     case ":$PATH:" in *":$BIN_DIR:"*) : ;; *) log "add $BIN_DIR to your PATH" ;; esac
     ;;
   *) fail "unsupported OS: $os_raw" ;;

@@ -89,12 +89,14 @@ pub fn load_manifest(db: &Db, store: &BlobStore, snapshot_id: i64) -> Result<Man
 /// The snapshot immediately preceding `snapshot_id` for the same monitor — the
 /// baseline a breaking point's changes are shown against.
 pub fn previous_snapshot(db: &Db, snapshot_id: i64) -> Result<Option<i64>> {
+    // Row-value compare on (ts, id): ts has 1-second resolution, so a same-second
+    // predecessor is still ordered correctly by id rather than being skipped.
     Ok(db
         .conn
         .query_row(
             "SELECT id FROM snapshots
              WHERE monitor_id = (SELECT monitor_id FROM snapshots WHERE id = ?1)
-               AND ts < (SELECT ts FROM snapshots WHERE id = ?1)
+               AND (ts, id) < (SELECT ts, id FROM snapshots WHERE id = ?1)
              ORDER BY ts DESC, id DESC LIMIT 1",
             [snapshot_id],
             |r| r.get(0),

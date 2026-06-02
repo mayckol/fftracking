@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
 import { api } from "../lib/ipc";
-import type { FileChange, HunkInfo, SnapshotRow } from "../lib/types";
+import type { BaseInfo, ChangeSummary, FileChange, HunkInfo, SnapshotRow } from "../lib/types";
 import { basename, dirname, langOf } from "../lib/util";
 import ChangedTree from "./ChangedTree";
 import Timeline from "./Timeline";
@@ -16,7 +16,8 @@ interface Props {
 export default function HistoryView({ monitorId, toast }: Props) {
   const [snaps, setSnaps] = useState<SnapshotRow[]>([]);
   const [snap, setSnap] = useState<number | null>(null);
-  const [baseline, setBaseline] = useState<number | null>(null);
+  const [base, setBase] = useState<BaseInfo | null>(null);
+  const [summaries, setSummaries] = useState<Record<number, ChangeSummary>>({});
   const [changes, setChanges] = useState<FileChange[]>([]);
   const [file, setFile] = useState<string | null>(null);
   const [left, setLeft] = useState("");
@@ -27,9 +28,14 @@ export default function HistoryView({ monitorId, toast }: Props) {
   const [inline, setInline] = useState(false);
   const [hunks, setHunks] = useState<HunkInfo[]>([]);
   const diffApi = useRef<DiffHandle>(null);
+  const summariesKey = useRef("");
+  const diffReq = useRef(0);
+  const isGit = base?.kind === "git";
   // window.prompt/confirm don't work in the Tauri webview — use a custom modal.
   const [dialog, setDialog] = useState<
-    { kind: "label"; id: number; value: string } | { kind: "folder"; prefix: string; remove: boolean } | null
+    | { kind: "label"; id: number; value: string }
+    | { kind: "folder"; prefix: string; remove: boolean; target: "point" | "branch" }
+    | null
   >(null);
 
   const loadSnaps = useCallback(
@@ -37,6 +43,21 @@ export default function HistoryView({ monitorId, toast }: Props) {
       const rows = await api.listSnapshots(monitorId);
       setSnaps(rows);
       setSnap((cur) => keep ?? cur ?? (rows[0]?.id ?? null));
+      // Refresh the comparison base each poll so the branch label and badges
+      // track a moved HEAD / branch switch, not just new breaking points.
+      const info = await api.monitorBaseInfo(monitorId).catch(() => null);
+      setBase(info);
+      // Badges depend on both the set of points and the base (git HEAD oid).
+      const key = `${info?.head ?? ""}|${rows.map((r) => r.id).join(",")}`;
+      if (key !== summariesKey.current) {
+        summariesKey.current = key;
+        try {
+          const sums = await api.snapshotSummaries(monitorId);
+          setSummaries(Object.fromEntries(sums.map((s) => [s.id, s])));
+        } catch {
+          setSummaries({});
+        }
+      }
     },
     [monitorId],
   );
@@ -44,6 +65,8 @@ export default function HistoryView({ monitorId, toast }: Props) {
   useEffect(() => {
     setSnap(null);
     setFile(null);
+    setBase(null);
+    summariesKey.current = "";
     loadSnaps();
   }, [monitorId, loadSnaps]);
 
@@ -54,7 +77,8 @@ export default function HistoryView({ monitorId, toast }: Props) {
     return () => window.clearInterval(t);
   }, [loadSnaps]);
 
-  // Resolve baseline + changed files for the selected breaking point.
+  // Changed files for the selected breaking point, diffed against its base —
+  // the current git branch (HEAD) in a repo, else the preceding point.
   useEffect(() => {
     if (snap == null) {
       setChanges([]);
@@ -62,12 +86,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
     }
     let alive = true;
     (async () => {
-      const prev = await api.previousSnapshot(snap);
-      if (!alive) return;
-      setBaseline(prev);
-      const list = prev
-        ? await api.changedFiles(prev, snap)
-        : (await api.snapshotFiles(snap)).map((path) => ({ path, status: "added" as const }));
+      const list = await api.breakingPointChanges(monitorId, snap);
       if (!alive) return;
       setChanges(list);
       setFile((cur) => (cur && list.some((c) => c.path === cur) ? cur : list[0]?.path ?? null));
@@ -75,12 +94,15 @@ export default function HistoryView({ monitorId, toast }: Props) {
     return () => {
       alive = false;
     };
-  }, [snap]);
+  }, [snap, monitorId]);
 
   // Load both sides of the diff + the per-block hunks for the selected file.
   // Hunks come from the displayed (left vs right) diff, so the ⟲ icon appears
   // on every shown change and reverts that block toward the left side.
   const loadDiff = useCallback(async () => {
+    // Monotonic token: a slower in-flight load must not clobber the panes (and
+    // the hunk indices that drive gutter-revert) of a newer selection.
+    const req = ++diffReq.current;
     if (snap == null || !file) {
       setLeft("");
       setRight("");
@@ -90,16 +112,18 @@ export default function HistoryView({ monitorId, toast }: Props) {
     let l = "";
     let r = "";
     if (mode === "before") {
-      l = (baseline ? await api.fileAt(baseline, file) : "") ?? "";
+      l = (await api.baseFile(monitorId, snap, file)) ?? "";
       r = (await api.fileAt(snap, file)) ?? "";
     } else {
       l = (await api.fileAt(snap, file)) ?? "";
       r = (await api.workingFile(monitorId, file)) ?? "";
     }
+    const hk = await api.textHunks(l, r);
+    if (req !== diffReq.current) return;
     setLeft(l);
     setRight(r);
-    setHunks(await api.textHunks(l, r));
-  }, [snap, file, mode, baseline, monitorId]);
+    setHunks(hk);
+  }, [snap, file, mode, monitorId]);
 
   useEffect(() => {
     loadDiff();
@@ -108,7 +132,11 @@ export default function HistoryView({ monitorId, toast }: Props) {
   async function afterRevert(msg: string) {
     toast(msg);
     await loadSnaps(snap ?? undefined);
-    await loadDiff();
+    // The revert writes the working tree. In "vs before" the panes show the base
+    // vs the point (neither is the tree), so switch to "vs now" to show the
+    // result; in "vs now" reload the right pane in place.
+    if (mode === "before") setMode("now");
+    else await loadDiff();
   }
 
   async function revertFile() {
@@ -123,7 +151,35 @@ export default function HistoryView({ monitorId, toast }: Props) {
 
   function revertFolder() {
     if (snap == null || !file) return;
-    setDialog({ kind: "folder", prefix: dirname(file).replace(/\/$/, ""), remove: false });
+    setDialog({ kind: "folder", prefix: dirname(file).replace(/\/$/, ""), remove: false, target: "point" });
+  }
+
+  async function resetFile() {
+    if (!file) return;
+    try {
+      await api.gitResetFile(monitorId, file);
+      await afterRevert(`Reset ${basename(file)} to ${base?.branch ?? "branch"}`);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  function resetFolder() {
+    if (!file) return;
+    setDialog({ kind: "folder", prefix: dirname(file).replace(/\/$/, ""), remove: false, target: "branch" });
+  }
+
+  async function resetPath(path: string) {
+    try {
+      await api.gitResetFile(monitorId, path);
+      await afterRevert(`Reset ${basename(path)} to ${base?.branch ?? "branch"}`);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  function resetFolderPath(prefix: string) {
+    setDialog({ kind: "folder", prefix, remove: false, target: "branch" });
   }
 
   async function deleteSnap(id: number) {
@@ -161,7 +217,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
   }
 
   function revertFolderPath(prefix: string) {
-    setDialog({ kind: "folder", prefix, remove: false });
+    setDialog({ kind: "folder", prefix, remove: false, target: "point" });
   }
 
   function labelSnap(id: number, current: string | null) {
@@ -182,8 +238,13 @@ export default function HistoryView({ monitorId, toast }: Props) {
   async function applyFolderRevert() {
     if (dialog?.kind !== "folder" || snap == null) return;
     try {
-      await api.revertFolder(snap, dialog.prefix, dialog.remove);
-      await afterRevert(`Reverted folder ${dialog.prefix || "/"}`);
+      if (dialog.target === "branch") {
+        await api.gitResetFolder(monitorId, dialog.prefix, dialog.remove);
+        await afterRevert(`Reset folder ${dialog.prefix || "/"} to ${base?.branch ?? "branch"}`);
+      } else {
+        await api.revertFolder(snap, dialog.prefix, dialog.remove);
+        await afterRevert(`Reverted folder ${dialog.prefix || "/"} to this point`);
+      }
     } catch (e) {
       toast(String(e), true);
     }
@@ -218,17 +279,24 @@ export default function HistoryView({ monitorId, toast }: Props) {
     );
   }
 
+  const counts = { added: 0, modified: 0, deleted: 0 };
+  for (const c of changes) counts[c.status]++;
+
   return (
     <>
       <div className="col">
         <div className="col-head">
           <h2>Breaking Points</h2>
+          <span className="base-tag" title={isGit ? "Compared against the current git branch" : "Compared against the previous breaking point"}>
+            {isGit ? `⎇ ${base?.branch}` : "⟸ previous point"}
+          </span>
         </div>
         <div className="split">
           <div className="col" style={{ borderRight: "none" }}>
             <div className="col-scroll">
               <Timeline
                 snapshots={snaps}
+                summaries={summaries}
                 selected={snap}
                 onSelect={setSnap}
                 onDelete={deleteSnap}
@@ -239,7 +307,16 @@ export default function HistoryView({ monitorId, toast }: Props) {
           <div className="col" style={{ borderRight: "none" }}>
             <div className="col-head">
               <h2>Changed Files</h2>
-              <span className="changecount">{changes.length}</span>
+              <span className="vs-tag">{isGit ? `vs ${base?.branch}` : "vs previous point"}</span>
+              {changes.length > 0 ? (
+                <span className="sum">
+                  {counts.added > 0 && <span className="sum-pill add">+{counts.added}</span>}
+                  {counts.modified > 0 && <span className="sum-pill mod">~{counts.modified}</span>}
+                  {counts.deleted > 0 && <span className="sum-pill del">−{counts.deleted}</span>}
+                </span>
+              ) : (
+                <span className="changecount">0</span>
+              )}
             </div>
             <div className="col-scroll">
               <ChangedTree
@@ -248,6 +325,9 @@ export default function HistoryView({ monitorId, toast }: Props) {
                 onSelect={setFile}
                 onRevertFile={revertPath}
                 onRevertFolder={revertFolderPath}
+                gitBranch={isGit ? base?.branch ?? null : null}
+                onResetFile={isGit ? resetPath : undefined}
+                onResetFolder={isGit ? resetFolderPath : undefined}
               />
             </div>
           </div>
@@ -272,7 +352,11 @@ export default function HistoryView({ monitorId, toast }: Props) {
                 onClick={() => setMode(mode === "before" ? "now" : "before")}
                 title="What to compare against"
               >
-                {mode === "before" ? "↔ vs before" : "↔ vs now"}
+                {mode === "before"
+                  ? isGit
+                    ? `↔ vs ${base?.branch}`
+                    : "↔ vs before"
+                  : "↔ vs now"}
               </button>
               <button
                 className="tbtn"
@@ -287,10 +371,20 @@ export default function HistoryView({ monitorId, toast }: Props) {
                 </span>
               )}
               <div className="diff-actions">
-                <button className="tbtn" onClick={revertFile}>
+                {isGit && (
+                  <>
+                    <button className="tbtn" onClick={resetFile} title={`Reset this file to ${base?.branch}`}>
+                      ⎇ Reset file
+                    </button>
+                    <button className="tbtn danger" onClick={resetFolder} title={`Reset this folder to ${base?.branch}`}>
+                      ⎇ Reset folder
+                    </button>
+                  </>
+                )}
+                <button className="tbtn" onClick={revertFile} title="Restore this file to the selected breaking point">
                   Revert file
                 </button>
-                <button className="tbtn danger" onClick={revertFolder}>
+                <button className="tbtn danger" onClick={revertFolder} title="Restore this folder to the selected breaking point">
                   Revert folder
                 </button>
               </div>
@@ -345,9 +439,18 @@ export default function HistoryView({ monitorId, toast }: Props) {
       {dialog?.kind === "folder" && (
         <div className="modal-overlay" onClick={() => setDialog(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Revert folder</h3>
+            <h3>{dialog.target === "branch" ? "Reset folder to branch" : "Revert folder"}</h3>
             <p>
-              Restore everything under <b>{dialog.prefix || "/"}</b> to this breaking point.
+              {dialog.target === "branch" ? (
+                <>
+                  Restore everything under <b>{dialog.prefix || "/"}</b> to its version on{" "}
+                  <b>{base?.branch ?? "the current branch"}</b>.
+                </>
+              ) : (
+                <>
+                  Restore everything under <b>{dialog.prefix || "/"}</b> to this breaking point.
+                </>
+              )}
             </p>
             <label className="modal-check">
               <input
@@ -355,14 +458,16 @@ export default function HistoryView({ monitorId, toast }: Props) {
                 checked={dialog.remove}
                 onChange={(e) => setDialog({ ...dialog, remove: e.target.checked })}
               />
-              Also delete files that did not exist at this point
+              {dialog.target === "branch"
+                ? "Also delete files not committed on the branch"
+                : "Also delete files that did not exist at this point"}
             </label>
             <div className="modal-actions">
               <button className="tbtn" onClick={() => setDialog(null)}>
                 Cancel
               </button>
               <button className="tbtn primary" onClick={applyFolderRevert}>
-                Revert folder
+                {dialog.target === "branch" ? "Reset folder" : "Revert folder"}
               </button>
             </div>
           </div>

@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  BaseInfo,
+  ChangeSummary,
   FileChange,
   GitFileChange,
   HunkInfo,
@@ -28,6 +30,17 @@ export const api = {
   previousSnapshot: (snapshotId: number) =>
     invoke<number | null>("previous_snapshot", { snapshotId }),
   changedFiles: (from: number, to: number) => invoke<FileChange[]>("changed_files", { from, to }),
+  monitorBaseInfo: (monitorId: number) => invoke<BaseInfo>("monitor_base_info", { monitorId }),
+  breakingPointChanges: (monitorId: number, snapshotId: number) =>
+    invoke<FileChange[]>("breaking_point_changes", { monitorId, snapshotId }),
+  baseFile: (monitorId: number, snapshotId: number, path: string) =>
+    invoke<string | null>("base_file", { monitorId, snapshotId, path }),
+  snapshotSummaries: (monitorId: number) =>
+    invoke<ChangeSummary[]>("snapshot_summaries", { monitorId }),
+  gitResetFile: (monitorId: number, path: string) =>
+    invoke<void>("git_reset_file", { monitorId, path }),
+  gitResetFolder: (monitorId: number, prefix: string, removeExtraneous: boolean) =>
+    invoke<void>("git_reset_folder", { monitorId, prefix, removeExtraneous }),
   snapshotFiles: (snapshotId: number) => invoke<string[]>("snapshot_files", { snapshotId }),
   fileAt: (snapshotId: number, path: string) =>
     invoke<string | null>("file_at", { snapshotId, path }),

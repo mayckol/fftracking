@@ -27,6 +27,20 @@ export interface FileChange {
   status: ChangeStatus;
 }
 
+export interface BaseInfo {
+  kind: "git" | "snapshot";
+  branch: string | null;
+  repo_root: string | null;
+  head: string | null;
+}
+
+export interface ChangeSummary {
+  id: number;
+  added: number;
+  modified: number;
+  deleted: number;
+}
+
 export interface HunkInfo {
   index: number;
   old_start: number;
