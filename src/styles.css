@@ -1006,6 +1006,15 @@ textarea:focus {
   max-height: 220px;
   overflow: auto;
 }
+.resolved-editor {
+  margin-top: 6px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.hunk-side pre .mtk1 {
+  color: var(--tx-0);
+}
 .hunk-acts {
   display: flex;
   gap: var(--s1);

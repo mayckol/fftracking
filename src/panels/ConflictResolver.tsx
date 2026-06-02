@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { Editor, loader } from "@monaco-editor/react";
 import { api, WORKDIR } from "../lib/ipc";
-import { basename } from "../lib/util";
+import { basename, langOf } from "../lib/util";
+import { defineTheme, THEME } from "../components/monacoTheme";
 
 type Segment =
   | { kind: "ctx"; text: string }
@@ -25,7 +27,6 @@ function parse(raw: string): Segment[] {
       while (i < lines.length && !lines[i].startsWith("=======") && !lines[i].startsWith("|||||||")) {
         ours.push(lines[i++]);
       }
-      // skip an optional diff3 base section
       while (i < lines.length && !lines[i].startsWith("=======")) i++;
       i++; // past =======
       const theirs: string[] = [];
@@ -44,6 +45,18 @@ function parse(raw: string): Segment[] {
 
 type Choice = "ours" | "theirs" | "both";
 
+function resolve(segs: Segment[], choices: Record<number, Choice>): string {
+  return segs
+    .map((s, i) => {
+      if (s.kind === "ctx") return s.text;
+      const c = choices[i] ?? "ours";
+      if (c === "ours") return s.ours;
+      if (c === "theirs") return s.theirs;
+      return [s.ours, s.theirs].filter(Boolean).join("\n");
+    })
+    .join("\n");
+}
+
 interface Props {
   repoPath: string;
   path: string;
@@ -55,7 +68,7 @@ export default function ConflictResolver({ repoPath, path, toast, onResolved }: 
   const [segs, setSegs] = useState<Segment[]>([]);
   const [choices, setChoices] = useState<Record<number, Choice>>({});
   const [text, setText] = useState("");
-  const [edited, setEdited] = useState(false);
+  const [colored, setColored] = useState<Record<number, { ours: string; theirs: string }>>({});
 
   useEffect(() => {
     let alive = true;
@@ -63,36 +76,48 @@ export default function ConflictResolver({ repoPath, path, toast, onResolved }: 
       const raw = (await api.gitFile(repoPath, WORKDIR, path)) ?? "";
       if (!alive) return;
       const parsed = parse(raw);
-      setSegs(parsed);
       const c: Record<number, Choice> = {};
       parsed.forEach((s, i) => {
         if (s.kind === "conflict") c[i] = "ours";
       });
+      setSegs(parsed);
       setChoices(c);
-      setEdited(false);
+      setText(resolve(parsed, c));
     })();
     return () => {
       alive = false;
     };
   }, [repoPath, path]);
 
-  const computed = useMemo(() => {
-    return segs
-      .map((s, i) => {
-        if (s.kind === "ctx") return s.text;
-        const c = choices[i] ?? "ours";
-        if (c === "ours") return s.ours;
-        if (c === "theirs") return s.theirs;
-        return [s.ours, s.theirs].filter(Boolean).join("\n");
-      })
-      .join("\n");
-  }, [segs, choices]);
-
+  // Syntax-highlight each ours/theirs region with Monaco's colorizer.
   useEffect(() => {
-    if (!edited) setText(computed);
-  }, [computed, edited]);
+    let alive = true;
+    loader.init().then((monaco) => {
+      const lang = langOf(path);
+      const jobs = segs.map(async (s, i) =>
+        s.kind === "conflict"
+          ? ([i, { ours: await monaco.editor.colorize(s.ours || " ", lang, {}), theirs: await monaco.editor.colorize(s.theirs || " ", lang, {}) }] as const)
+          : null,
+      );
+      Promise.all(jobs).then((rs) => {
+        if (!alive) return;
+        const m: Record<number, { ours: string; theirs: string }> = {};
+        rs.forEach((r) => r && (m[r[0]] = r[1]));
+        setColored(m);
+      });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [segs, path]);
 
   const conflictCount = segs.filter((s) => s.kind === "conflict").length;
+
+  function choose(idx: number, opt: Choice) {
+    const next = { ...choices, [idx]: opt };
+    setChoices(next);
+    setText(resolve(segs, next));
+  }
 
   async function save() {
     try {
@@ -104,7 +129,7 @@ export default function ConflictResolver({ repoPath, path, toast, onResolved }: 
     }
   }
 
-  let blockIdx = 0;
+  let n = 0;
   return (
     <div className="col main">
       <div className="conflict-banner">
@@ -125,7 +150,7 @@ export default function ConflictResolver({ repoPath, path, toast, onResolved }: 
               <div key={i}>
                 {head.map((l, j) => (
                   <div className="ctx-line" key={j}>
-                    {l || " "}
+                    {l || " "}
                   </div>
                 ))}
                 {more > 0 && <div className="ctx-line">… {more} more lines</div>}
@@ -133,32 +158,23 @@ export default function ConflictResolver({ repoPath, path, toast, onResolved }: 
             );
           }
           const idx = i;
-          const n = ++blockIdx;
           const c = choices[idx];
+          const col = colored[idx];
           return (
             <div className="hunk" key={i}>
               <div className="hunk-side ours">
                 <div className="lbl">
-                  ◀ Ours · region {n} {c === "ours" && "✓"}
+                  ◀ Ours · region {++n} {c === "ours" && "✓"}
                 </div>
-                <pre>{s.ours || "(empty)"}</pre>
+                {col ? <pre dangerouslySetInnerHTML={{ __html: col.ours }} /> : <pre>{s.ours || "(empty)"}</pre>}
               </div>
               <div className="hunk-side theirs">
-                <div className="lbl">
-                  Theirs ▶ {c === "theirs" && "✓"}
-                </div>
-                <pre>{s.theirs || "(empty)"}</pre>
+                <div className="lbl">Theirs ▶ {c === "theirs" && "✓"}</div>
+                {col ? <pre dangerouslySetInnerHTML={{ __html: col.theirs }} /> : <pre>{s.theirs || "(empty)"}</pre>}
               </div>
               <div className="hunk-acts">
                 {(["ours", "theirs", "both"] as Choice[]).map((opt) => (
-                  <button
-                    key={opt}
-                    className={`tbtn${c === opt ? " primary" : ""}`}
-                    onClick={() => {
-                      setChoices({ ...choices, [idx]: opt });
-                      setEdited(false);
-                    }}
-                  >
+                  <button key={opt} className={`tbtn${c === opt ? " primary" : ""}`} onClick={() => choose(idx, opt)}>
                     {opt === "ours" ? "Accept ours" : opt === "theirs" ? "Accept theirs" : "Keep both"}
                   </button>
                 ))}
@@ -168,14 +184,26 @@ export default function ConflictResolver({ repoPath, path, toast, onResolved }: 
         })}
 
         <div className="section-title">Resolved result (editable)</div>
-        <textarea
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            setEdited(true);
-          }}
-          style={{ minHeight: 200 }}
-        />
+        <div className="resolved-editor">
+          <Editor
+            height="320px"
+            theme={THEME}
+            language={langOf(path)}
+            value={text}
+            beforeMount={defineTheme}
+            onChange={(v) => setText(v ?? "")}
+            options={{
+              fontFamily: "JetBrains Mono",
+              fontSize: 12.5,
+              lineHeight: 19,
+              minimap: { enabled: false },
+              renderLineHighlight: "none",
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              padding: { top: 8, bottom: 8 },
+            }}
+          />
+        </div>
       </div>
     </div>
   );
