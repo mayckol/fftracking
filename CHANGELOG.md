@@ -4,6 +4,27 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.3.0] — 2026-06-02
+
+### Added
+
+- **`fft` CLI.** A headless command-line binary (no GUI) that shares the desktop
+  app's store: `track`, `snapshot`, `list`, `points`, `changes`, `diff`, `revert`,
+  `reset`, `label`, `untrack`, `watch`. Rich `--help` and a global `--json` flag
+  for scripts and AI agents. Comparison follows the same tiered base as the GUI
+  (git branch in a repo, else the previous breaking point).
+- **MCP server (`fft mcp`).** A stdio Model Context Protocol server exposing the
+  operations as MCP tools, so Claude and other agents can drive fftracking
+  directly. Register with `claude mcp add fftracking -- fft mcp`.
+- The installer and release now build and ship the `fft` binary (`~/.local/bin/fft`)
+  alongside the desktop app.
+
+### Fixed
+
+- Release artifacts are versioned correctly again: `tauri.conf.json` had not been
+  bumped, so v0.2.0 assets were mislabeled `0.1.0` (and `install.sh` could not find
+  them by version). v0.3.0 supersedes that release.
+
 ## [0.2.0] — 2026-06-02
 
 ### Added
