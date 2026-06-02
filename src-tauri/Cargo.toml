@@ -1,0 +1,21 @@
+[package]
+name = "fftracking"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+default-run = "fftracking"
+
+[lib]
+name = "fftracking_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+ffcore = { path = "../crates/ffcore" }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-autostart = "2"
+serde.workspace = true
+serde_json.workspace = true

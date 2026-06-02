@@ -1,0 +1,105 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-14
+            target: aarch64-apple-darwin
+            args: "--target aarch64-apple-darwin"
+          - platform: ubuntu-22.04
+            target: ""
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "fftracking ${{ github.ref_name }}"
+          releaseBody: "See CHANGELOG.md for details."
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  # Update the Homebrew cask in mayckol/homebrew-tap with the new dmg + sha256.
+  # Requires a HOMEBREW_TAP_GITHUB_TOKEN secret with push access to the tap.
+  cask:
+    needs: build
+    runs-on: macos-14
+    if: ${{ !github.event.repository.private }}
+    steps:
+      - name: Build & push cask
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "${TAP_TOKEN:-}" ] || { echo "HOMEBREW_TAP_GITHUB_TOKEN not set — skipping cask update"; exit 0; }
+          TAG="${GITHUB_REF_NAME}"; VER="${TAG#v}"
+          DMG="fftracking_${VER}_aarch64.dmg"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$DMG" --dir .
+          SHA="$(shasum -a 256 "$DMG" | awk '{print $1}')"
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/mayckol/homebrew-tap.git" tap
+          mkdir -p tap/Casks
+          cat > tap/Casks/fftracking.rb <<EOF
+          cask "fftracking" do
+            version "${VER}"
+            sha256 "${SHA}"
+
+            url "https://github.com/mayckol/fftracking/releases/download/v#{version}/fftracking_#{version}_aarch64.dmg"
+            name "fftracking"
+            desc "Local file-history & breaking-point tracker"
+            homepage "https://github.com/mayckol/fftracking"
+
+            depends_on macos: ">= :big_sur"
+            depends_on arch: :arm64
+
+            app "fftracking.app"
+
+            zap trash: [
+              "~/Library/Application Support/com.fftracking.app",
+            ]
+          end
+          EOF
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/fftracking.rb
+          git commit -m "fftracking ${VER}" || { echo "no changes"; exit 0; }
+          git push

@@ -1,0 +1,9 @@
+/target
+/dist
+node_modules
+.playwright-mcp
+src-tauri/gen
+node_modules/.tmp
+*.log
+.DS_Store
+/.idea
