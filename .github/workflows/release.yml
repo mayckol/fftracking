@@ -17,9 +17,13 @@ jobs:
           - platform: macos-14
             target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
+            cli_bin: target/aarch64-apple-darwin/release/fft
+            cli_asset: fft-aarch64-apple-darwin
           - platform: ubuntu-22.04
             target: ""
             args: ""
+            cli_bin: target/release/fft
+            cli_asset: fft-x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +60,17 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      # Headless CLI + MCP server, attached to the same release.
+      - name: Build fft CLI
+        run: cargo build --release -p ffcli ${{ matrix.args }}
+
+      - name: Attach fft CLI to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp "${{ matrix.cli_bin }}" "${{ matrix.cli_asset }}"
+          gh release upload "${{ github.ref_name }}" "${{ matrix.cli_asset }}" --clobber
 
   # Update the Homebrew cask in mayckol/homebrew-tap with the new dmg + sha256.
   # Requires a HOMEBREW_TAP_GITHUB_TOKEN secret with push access to the tap.

@@ -13,6 +13,7 @@
 # macOS: installs fftracking.app to /Applications (Apple Silicon).
 # Linux: installs the AppImage to $PREFIX/bin/fftracking (x86_64) and registers a
 #        desktop launcher + icon under $PREFIX/share so it appears in the app menu.
+# Both: also installs the headless `fft` CLI (+ MCP server) to ~/.local/bin/fft.
 
 set -eu
 
@@ -40,6 +41,24 @@ BASE="https://github.com/$REPO/releases/download/$VERSION"
 TMP="$(mktemp -d 2>/dev/null || mktemp -d -t fftracking)"
 trap 'rm -rf "$TMP"' EXIT INT HUP TERM
 
+# Installs the headless `fft` CLI (+ MCP server) into ~/.local/bin. Gracefully
+# skips when a release predates the CLI and has no such asset.
+install_cli() {
+  asset="$1"
+  cli_dir="$HOME/.local/bin"; mkdir -p "$cli_dir"
+  log "downloading $asset"
+  if $DL "$BASE/$asset" > "$cli_dir/fft" 2>/dev/null && [ -s "$cli_dir/fft" ]; then
+    chmod +x "$cli_dir/fft"
+    [ "$os_raw" = "Darwin" ] && xattr -dr com.apple.quarantine "$cli_dir/fft" 2>/dev/null || true
+    log "installed CLI: $cli_dir/fft"
+    case ":$PATH:" in *":$cli_dir:"*) : ;; *) log "add $cli_dir to your PATH to use 'fft'" ;; esac
+    log "AI agents: register the MCP server with  claude mcp add fftracking -- fft mcp"
+  else
+    rm -f "$cli_dir/fft" 2>/dev/null || true
+    log "no fft CLI asset for this release ($asset) — skipping"
+  fi
+}
+
 case "$os_raw" in
   Darwin)
     [ "$arch_raw" = "arm64" ] || fail "macOS build is Apple Silicon (arm64) only; got $arch_raw"
@@ -55,6 +74,7 @@ case "$os_raw" in
     xattr -dr com.apple.quarantine /Applications/fftracking.app 2>/dev/null || true
     log "installed: /Applications/fftracking.app"
     log "first launch: right-click → Open (unsigned build)"
+    install_cli "fft-aarch64-apple-darwin"
     ;;
   Linux)
     case "$arch_raw" in x86_64|amd64) : ;; *) fail "Linux build is x86_64 only; got $arch_raw" ;; esac
@@ -102,6 +122,7 @@ EOF
 
     log "menu entry: $APPS_DIR/fftracking.desktop"
     case ":$PATH:" in *":$BIN_DIR:"*) : ;; *) log "add $BIN_DIR to your PATH" ;; esac
+    install_cli "fft-x86_64-unknown-linux-gnu"
     ;;
   *) fail "unsupported OS: $os_raw" ;;
 esac
