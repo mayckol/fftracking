@@ -36,7 +36,10 @@ pub fn list_monitors(state: State<AppState>) -> R<Vec<MonitorRow>> {
 pub fn start_monitor(state: State<AppState>, monitor_id: i64) -> R<()> {
     let root = PathBuf::from(err(state.engine.monitor_root_path(monitor_id))?);
     let interval = err(state.engine.get_settings())?.default_interval_secs;
-    err(state.manager.start(monitor_id, &root, interval))
+    err(state.manager.start(monitor_id, &root, interval))?;
+    err(state.engine.set_monitor_active(monitor_id, true))?;
+    err(state.engine.snapshot_now(monitor_id, "manual"))?;
+    Ok(())
 }
 
 #[tauri::command]

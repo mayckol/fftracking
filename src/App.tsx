@@ -14,6 +14,7 @@ export default function App() {
   const [selected, setSelected] = useState<number | null>(null);
   const [toast, setToast] = useState<{ msg: string; error: boolean } | null>(null);
   const [res, setRes] = useState<ResourceUsage | null>(null);
+  const [confirmDel, setConfirmDel] = useState<MonitorRow | null>(null);
   const toastTimer = useRef<number>();
 
   // Suppress the webview's native right-click menu (the "Reload" popup);
@@ -63,17 +64,28 @@ export default function App() {
     }
   }
 
-  async function removeFolder(id: number) {
-    if (!confirm("Stop tracking this folder and delete all its breaking points?")) return;
+  async function toggleFolder(m: MonitorRow) {
+    try {
+      if (m.active) await api.stopMonitor(m.id);
+      else await api.startMonitor(m.id);
+      await loadMonitors();
+      notify(m.active ? "Stopped tracking (history kept)" : "Tracking resumed");
+    } catch (e) {
+      notify(String(e), true);
+    }
+  }
+
+  async function deleteFolder(id: number) {
     try {
       await api.removeMonitor(id);
       const rows = await api.listMonitors();
       setMonitors(rows);
       setSelected((cur) => (cur === id ? rows[0]?.id ?? null : cur));
-      notify("Folder removed");
+      notify("Folder & history deleted");
     } catch (e) {
       notify(String(e), true);
     }
+    setConfirmDel(null);
   }
 
   async function snapshotNow() {
@@ -130,7 +142,8 @@ export default function App() {
             selected={selected}
             onSelect={setSelected}
             onAdd={addFolder}
-            onRemove={removeFolder}
+            onToggle={toggleFolder}
+            onDelete={setConfirmDel}
           />
           {selected != null ? (
             <HistoryView key={selected} monitorId={selected} toast={notify} />
@@ -158,6 +171,26 @@ export default function App() {
       {tab === "settings" && (
         <div className="work" style={{ gridTemplateColumns: "1fr" }}>
           <SettingsView toast={notify} />
+        </div>
+      )}
+
+      {confirmDel && (
+        <div className="modal-overlay" onClick={() => setConfirmDel(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Delete folder &amp; history</h3>
+            <p>
+              Permanently delete all breaking points for <b>{confirmDel.root_path}</b> and stop
+              tracking it? This cannot be undone. To pause without losing history, use <b>⏸ Stop</b> instead.
+            </p>
+            <div className="modal-actions">
+              <button className="tbtn" onClick={() => setConfirmDel(null)}>
+                Cancel
+              </button>
+              <button className="tbtn danger" onClick={() => deleteFolder(confirmDel.id)}>
+                Delete everything
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
