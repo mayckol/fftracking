@@ -4,6 +4,15 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.4.1] — 2026-06-03
+
+### Fixed
+
+- Git Commit mode: a file edited/reverted to match HEAD is deselected instead of
+  leaving an empty diff that highlights no list row.
+- Committing now reloads conflict state (so finishing a merge commit clears the
+  conflict banner) and reports the current branch.
+
 ## [0.4.0] — 2026-06-03
 
 ### Added

@@ -34,17 +34,29 @@ export default function GitView({ initialRepo, toast }: Props) {
   const diffApi = useRef<DiffHandle>(null);
   const statusReq = useRef(0);
 
-  const loadStatus = useCallback(async (path: string) => {
+  const loadStatus = useCallback(async (path: string): Promise<WorkingStatus | null> => {
     // Monotonic token: the 3s poll must not clobber a fresher status fetched
     // right after a stage/unstage/commit.
     const req = ++statusReq.current;
     try {
       const s = await api.gitStatus(path);
       if (req === statusReq.current) setStatus(s);
+      return s;
     } catch {
       if (req === statusReq.current) setStatus(null);
+      return null;
     }
   }, []);
+
+  // Drop a selection once its file no longer differs (e.g. an edit/revert made
+  // it match HEAD), so we never leave an empty diff highlighting no list row.
+  const dropFileIfClean = (s: WorkingStatus | null) => {
+    setFile((cur) =>
+      cur && s && !s.staged.some((f) => f.path === cur) && !s.unstaged.some((f) => f.path === cur)
+        ? null
+        : cur,
+    );
+  };
 
   const loadRepo = useCallback(
     async (path: string) => {
@@ -159,6 +171,8 @@ export default function GitView({ initialRepo, toast }: Props) {
       setFile(null);
       await loadStatus(repo);
       setRefs(await api.gitListRefs(repo));
+      // A commit can finish an in-progress merge → its conflicts are now cleared.
+      setConflicts(await api.gitConflicts(repo));
     } catch (e) {
       toast(String(e), true);
     }
@@ -171,7 +185,7 @@ export default function GitView({ initialRepo, toast }: Props) {
       toast(`Applied ${from} version of a block to working tree`);
       if (to === WORKDIR) setRight((await api.gitFile(repo, to, file)) ?? "");
       setHunks(await api.gitFileHunks(repo, from, to, file));
-      if (repo && mode === "commit") loadStatus(repo);
+      if (mode === "commit") dropFileIfClean(await loadStatus(repo));
     } catch (e) {
       toast(String(e), true);
     }
@@ -183,7 +197,7 @@ export default function GitView({ initialRepo, toast }: Props) {
       await api.gitWriteWorking(repo, file, value);
       if (to === WORKDIR) setRight(value);
       setHunks(await api.gitFileHunks(repo, from, to, file));
-      if (mode === "commit") loadStatus(repo);
+      if (mode === "commit") dropFileIfClean(await loadStatus(repo));
     } catch (e) {
       toast(String(e), true);
     }
