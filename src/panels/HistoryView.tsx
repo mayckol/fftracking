@@ -197,7 +197,10 @@ export default function HistoryView({ monitorId, toast }: Props) {
       await api.applyTextRevert(monitorId, file, left, right, [index]);
       toast(`Reverted change in ${basename(file)}`);
       await loadSnaps(snap ?? undefined);
-      await loadDiff();
+      // The revert always writes the working tree. In "vs before" the panes show
+      // two past snapshots (unchanged), so switch to "vs now" to show the result.
+      if (mode === "before") setMode("now");
+      else await loadDiff();
     } catch (e) {
       toast(String(e), true);
     }
