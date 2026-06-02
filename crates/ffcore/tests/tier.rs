@@ -78,7 +78,13 @@ fn non_git_folder_compares_against_previous_point() {
 
     write(root, "a.txt", "one\n");
     let mid = engine.add_monitor(root, 900, "manual").unwrap();
-    engine.snapshot_now(mid, "manual").unwrap().unwrap();
+    let s1 = engine.snapshot_now(mid, "manual").unwrap().unwrap();
+
+    // The first breaking point is the baseline: no changes, not "all added".
+    assert!(engine.breaking_point_changes(mid, s1).unwrap().is_empty());
+    let first_summary = engine.snapshot_change_summaries(mid).unwrap();
+    let s1sum = first_summary.iter().find(|s| s.id == s1).unwrap();
+    assert_eq!((s1sum.added, s1sum.modified, s1sum.deleted), (0, 0, 0));
 
     write(root, "a.txt", "two\n");
     write(root, "b.txt", "new\n");

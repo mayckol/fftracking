@@ -10,6 +10,7 @@ import type {
   ResourceUsage,
   Settings,
   SnapshotRow,
+  WorkingStatus,
 } from "./types";
 
 export const WORKDIR = "WORKDIR";
@@ -77,6 +78,10 @@ export const api = {
     invoke<void>("git_revert_hunks", { repoPath, from, to, path, selected }),
   gitWriteWorking: (repoPath: string, path: string, content: string) =>
     invoke<void>("git_write_working", { repoPath, path, content }),
+  gitStatus: (repoPath: string) => invoke<WorkingStatus>("git_status", { repoPath }),
+  gitStage: (repoPath: string, paths: string[]) => invoke<void>("git_stage", { repoPath, paths }),
+  gitUnstage: (repoPath: string, paths: string[]) => invoke<void>("git_unstage", { repoPath, paths }),
+  gitCommit: (repoPath: string, message: string) => invoke<string>("git_commit", { repoPath, message }),
   gitConflicts: (repoPath: string) => invoke<string[]>("git_conflicts", { repoPath }),
   gitResolveConflict: (repoPath: string, path: string, content: string) =>
     invoke<void>("git_resolve_conflict", { repoPath, path, content }),

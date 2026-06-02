@@ -75,6 +75,12 @@ export interface GitFileChange {
   status: ChangeStatus;
 }
 
+export interface WorkingStatus {
+  branch: string;
+  staged: GitFileChange[];
+  unstaged: GitFileChange[];
+}
+
 export interface DetectedWorkspace {
   path: string;
   source: EditorSource;

@@ -127,6 +127,16 @@ enum Cmd {
         #[arg(long)]
         text: String,
     },
+    /// Pause tracking a folder (keeps history; stop capturing)
+    Pause {
+        #[arg(long)]
+        path: PathBuf,
+    },
+    /// Resume tracking a paused folder
+    Resume {
+        #[arg(long)]
+        path: PathBuf,
+    },
     /// Stop tracking a folder (use --purge to also delete its history)
     Untrack {
         #[arg(long)]
@@ -155,6 +165,8 @@ EXAMPLES:
   fft diff --path ~/proj --file src/app.ts     diff a file (vs branch / prev point)
   fft revert --path ~/proj --point 42 --file src/app.ts
   fft reset  --path ~/proj --file src/app.ts   restore from the current git branch
+  fft pause  --path ~/proj                      pause tracking (keeps history)
+  fft resume --path ~/proj                      resume tracking
   fft <cmd> --json                             machine-readable output
 
 MCP (AI agents):
@@ -196,6 +208,8 @@ fn run(cli: Cli) -> Result<(), String> {
             ops::reset(&engine, path, file.as_deref(), *all, *remove_extraneous)
         }
         Cmd::Label { path, point, text } => ops::label(&engine, path, *point, text),
+        Cmd::Pause { path } => ops::set_active(&engine, path, false),
+        Cmd::Resume { path } => ops::set_active(&engine, path, true),
         Cmd::Untrack { path, purge } => ops::untrack(&engine, path, *purge),
         Cmd::Mcp | Cmd::Watch { .. } => unreachable!(),
     }?;
@@ -312,6 +326,8 @@ fn print_human(command: &Cmd, v: &Value) {
             v["branch"].as_str().unwrap_or("?")
         ),
         Cmd::Label { .. } => println!("Labeled point {}: {}", v["point"], v["label"].as_str().unwrap_or("")),
+        Cmd::Pause { .. } => println!("Paused tracking (monitor {}); history kept", v["monitor_id"]),
+        Cmd::Resume { .. } => println!("Resumed tracking (monitor {})", v["monitor_id"]),
         Cmd::Untrack { .. } => {
             if v["history_deleted"].as_bool() == Some(true) {
                 println!("Stopped tracking and deleted history (monitor {})", v["monitor_id"]);

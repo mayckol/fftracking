@@ -980,6 +980,113 @@ select:focus {
   font-family: var(--mono);
 }
 
+/* commit/compare segmented toggle */
+.git-mode {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius, 6px);
+  overflow: hidden;
+}
+.git-mode .seg {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tx-2);
+  padding: 4px 10px;
+  background: var(--bg-1);
+}
+.git-mode .seg:hover {
+  color: var(--tx-1);
+  background: var(--bg-2);
+}
+.git-mode .seg.on {
+  color: var(--tx-0);
+  background: var(--bg-3);
+}
+
+/* staging lists */
+.stage-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 6px var(--s3);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tx-2);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.stage-head .linklike {
+  margin-left: auto;
+}
+.linklike {
+  font-size: var(--fs-xs);
+  color: var(--ac);
+  background: none;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.linklike:hover {
+  text-decoration: underline;
+}
+.stage-empty {
+  padding: 8px var(--s3);
+  font-size: var(--fs-sm);
+  color: var(--tx-2);
+}
+.frow .stage-btn {
+  margin-left: auto;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--tx-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg-1);
+  opacity: 0;
+}
+.frow:hover .stage-btn,
+.frow.on .stage-btn {
+  opacity: 1;
+}
+.frow .stage-btn:hover {
+  color: var(--tx-0);
+  border-color: var(--ac);
+  background: var(--bg-3);
+}
+
+/* commit message box, pinned to the bottom of the column */
+.commit-box {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3);
+  border-top: 1px solid var(--line);
+  background: var(--bg-1);
+}
+.commit-box textarea {
+  width: 100%;
+  min-height: 60px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.commit-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 textarea {
   font-family: var(--mono);
   font-size: var(--fs-sm);

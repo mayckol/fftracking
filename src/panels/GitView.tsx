@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
 import { api, WORKDIR } from "../lib/ipc";
-import type { GitFileChange, HunkInfo, RefList } from "../lib/types";
+import type { GitFileChange, HunkInfo, RefList, WorkingStatus } from "../lib/types";
 import { basename, langOf } from "../lib/util";
 import ChangedTree from "./ChangedTree";
 import ConflictResolver from "./ConflictResolver";
+
+type GitMode = "commit" | "compare";
+
+const GLYPH = { added: "A", modified: "M", deleted: "D" } as const;
 
 interface Props {
   initialRepo: string | null;
@@ -13,10 +17,13 @@ interface Props {
 
 export default function GitView({ initialRepo, toast }: Props) {
   const [repo, setRepo] = useState<string | null>(initialRepo);
+  const [mode, setMode] = useState<GitMode>("commit");
   const [refs, setRefs] = useState<RefList | null>(null);
   const [from, setFrom] = useState("HEAD");
   const [to, setTo] = useState(WORKDIR);
   const [changes, setChanges] = useState<GitFileChange[]>([]);
+  const [status, setStatus] = useState<WorkingStatus | null>(null);
+  const [commitMsg, setCommitMsg] = useState("");
   const [file, setFile] = useState<string | null>(null);
   const [left, setLeft] = useState("");
   const [right, setRight] = useState("");
@@ -25,6 +32,19 @@ export default function GitView({ initialRepo, toast }: Props) {
   const [inline, setInline] = useState(false);
   const [hunks, setHunks] = useState<HunkInfo[]>([]);
   const diffApi = useRef<DiffHandle>(null);
+  const statusReq = useRef(0);
+
+  const loadStatus = useCallback(async (path: string) => {
+    // Monotonic token: the 3s poll must not clobber a fresher status fetched
+    // right after a stage/unstage/commit.
+    const req = ++statusReq.current;
+    try {
+      const s = await api.gitStatus(path);
+      if (req === statusReq.current) setStatus(s);
+    } catch {
+      if (req === statusReq.current) setStatus(null);
+    }
+  }, []);
 
   const loadRepo = useCallback(
     async (path: string) => {
@@ -33,16 +53,24 @@ export default function GitView({ initialRepo, toast }: Props) {
         setRefs(r);
         setRepo(path);
         setConflicts(await api.gitConflicts(path));
+        await loadStatus(path);
       } catch (e) {
         toast(String(e), true);
       }
     },
-    [toast],
+    [toast, loadStatus],
   );
 
   useEffect(() => {
     if (initialRepo) loadRepo(initialRepo);
   }, [initialRepo, loadRepo]);
+
+  // Keep the working-tree status fresh while staging.
+  useEffect(() => {
+    if (!repo || mode !== "commit") return;
+    const t = window.setInterval(() => loadStatus(repo), 3000);
+    return () => window.clearInterval(t);
+  }, [repo, mode, loadStatus]);
 
   async function pick() {
     const p = await api.pickFolder();
@@ -61,6 +89,7 @@ export default function GitView({ initialRepo, toast }: Props) {
     }
   }
 
+  // Shared diff loader. In commit mode from/to are pinned to HEAD → working tree.
   useEffect(() => {
     if (!repo || !file) {
       setLeft("");
@@ -71,7 +100,6 @@ export default function GitView({ initialRepo, toast }: Props) {
     (async () => {
       const l = (await api.gitFile(repo, from, file)) ?? "";
       const r = (await api.gitFile(repo, to, file)) ?? "";
-      // Revert icons apply the `from` version of a block into the working tree.
       const hk = await api.gitFileHunks(repo, from, to, file);
       if (alive) {
         setLeft(l);
@@ -84,6 +112,58 @@ export default function GitView({ initialRepo, toast }: Props) {
     };
   }, [repo, file, from, to]);
 
+  function switchMode(m: GitMode) {
+    setMode(m);
+    setFile(null);
+    setConflictFile(null);
+    if (m === "commit") {
+      setFrom("HEAD");
+      setTo(WORKDIR);
+      if (repo) loadStatus(repo);
+    }
+  }
+
+  function openWorkingFile(path: string) {
+    setConflictFile(null);
+    if (from !== "HEAD") setFrom("HEAD");
+    if (to !== WORKDIR) setTo(WORKDIR);
+    setFile(path);
+  }
+
+  async function stage(paths: string[]) {
+    if (!repo || paths.length === 0) return;
+    try {
+      await api.gitStage(repo, paths);
+      await loadStatus(repo);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  async function unstage(paths: string[]) {
+    if (!repo || paths.length === 0) return;
+    try {
+      await api.gitUnstage(repo, paths);
+      await loadStatus(repo);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  async function doCommit() {
+    if (!repo) return;
+    try {
+      const oid = await api.gitCommit(repo, commitMsg);
+      toast(`Committed ${oid} on ${status?.branch ?? "HEAD"}`);
+      setCommitMsg("");
+      setFile(null);
+      await loadStatus(repo);
+      setRefs(await api.gitListRefs(repo));
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
   async function revertHunk(index: number) {
     if (!repo || !file) return;
     try {
@@ -91,6 +171,7 @@ export default function GitView({ initialRepo, toast }: Props) {
       toast(`Applied ${from} version of a block to working tree`);
       if (to === WORKDIR) setRight((await api.gitFile(repo, to, file)) ?? "");
       setHunks(await api.gitFileHunks(repo, from, to, file));
+      if (repo && mode === "commit") loadStatus(repo);
     } catch (e) {
       toast(String(e), true);
     }
@@ -102,6 +183,7 @@ export default function GitView({ initialRepo, toast }: Props) {
       await api.gitWriteWorking(repo, file, value);
       if (to === WORKDIR) setRight(value);
       setHunks(await api.gitFileHunks(repo, from, to, file));
+      if (mode === "commit") loadStatus(repo);
     } catch (e) {
       toast(String(e), true);
     }
@@ -132,10 +214,41 @@ export default function GitView({ initialRepo, toast }: Props) {
     </>
   );
 
+  const stagedCount = status?.staged.length ?? 0;
+
+  const fileRow = (f: GitFileChange, staged: boolean) => (
+    <div
+      key={(staged ? "s:" : "u:") + f.path}
+      className={`frow${file === f.path ? " on" : ""}`}
+      onClick={() => openWorkingFile(f.path)}
+      title={f.path}
+    >
+      <span className={`stat ${f.status}`}>{GLYPH[f.status]}</span>
+      <span className="fname">{f.path}</span>
+      <button
+        className="stage-btn"
+        title={staged ? "Unstage" : "Stage"}
+        onClick={(e) => {
+          e.stopPropagation();
+          (staged ? unstage : stage)([f.path]);
+        }}
+      >
+        {staged ? "−" : "+"}
+      </button>
+    </div>
+  );
+
   return (
     <>
       <div className="col">
         <div className="git-bar">
+          <div className="git-mode">
+            {(["commit", "compare"] as GitMode[]).map((m) => (
+              <button key={m} className={`seg${mode === m ? " on" : ""}`} onClick={() => switchMode(m)}>
+                {m}
+              </button>
+            ))}
+          </div>
           <button className="tbtn primary" onClick={pick}>
             {repo ? "Change repo" : "Open repo…"}
           </button>
@@ -144,7 +257,7 @@ export default function GitView({ initialRepo, toast }: Props) {
               {basename(repo)}
             </span>
           )}
-          {repo && (
+          {repo && mode === "compare" && (
             <>
               <select className="ref" value={from} onChange={(e) => setFrom(e.target.value)}>
                 {refOptions(false)}
@@ -158,45 +271,114 @@ export default function GitView({ initialRepo, toast }: Props) {
               </button>
             </>
           )}
+          {repo && mode === "commit" && status && (
+            <span className="repo-name" title="Current branch">
+              ⎇ {status.branch}
+            </span>
+          )}
         </div>
-        {repo && (
-          <div className="col-head">
-            <h2>Changed Files</h2>
-            <span className="changecount">{changes.length}</span>
-          </div>
-        )}
-        {conflicts.length > 0 && (
-          <div className="conflict-banner">
-            ⚠ {conflicts.length} conflict(s)
-          </div>
-        )}
-        <div className="col-scroll">
-          {conflicts.map((p) => (
-            <div
-              key={p}
-              className={`frow${conflictFile === p ? " on" : ""}`}
-              onClick={() => {
-                setConflictFile(p);
-                setFile(null);
-              }}
-            >
-              <span className="stat deleted" style={{ color: "var(--conflict)", background: "var(--conflict-bg)" }}>
-                !
-              </span>
-              <span className="fname">
-                <b>{p}</b>
-              </span>
+
+        {conflicts.length > 0 && <div className="conflict-banner">⚠ {conflicts.length} conflict(s)</div>}
+
+        {mode === "commit" ? (
+          <>
+            <div className="col-scroll">
+              {conflicts.map((p) => (
+                <div
+                  key={p}
+                  className={`frow${conflictFile === p ? " on" : ""}`}
+                  onClick={() => {
+                    setConflictFile(p);
+                    setFile(null);
+                  }}
+                >
+                  <span className="stat deleted" style={{ color: "var(--conflict)", background: "var(--conflict-bg)" }}>
+                    !
+                  </span>
+                  <span className="fname">
+                    <b>{p}</b>
+                  </span>
+                </div>
+              ))}
+
+              <div className="stage-head">
+                <span>Staged</span>
+                <span className="changecount">{stagedCount}</span>
+                {stagedCount > 0 && (
+                  <button className="linklike" onClick={() => unstage(status!.staged.map((s) => s.path))}>
+                    Unstage all
+                  </button>
+                )}
+              </div>
+              {stagedCount === 0 && <div className="stage-empty">Nothing staged</div>}
+              {status?.staged.map((f) => fileRow(f, true))}
+
+              <div className="stage-head">
+                <span>Changes</span>
+                <span className="changecount">{status?.unstaged.length ?? 0}</span>
+                {(status?.unstaged.length ?? 0) > 0 && (
+                  <button className="linklike" onClick={() => stage(status!.unstaged.map((s) => s.path))}>
+                    Stage all
+                  </button>
+                )}
+              </div>
+              {(status?.unstaged.length ?? 0) === 0 && <div className="stage-empty">No changes</div>}
+              {status?.unstaged.map((f) => fileRow(f, false))}
             </div>
-          ))}
-          <ChangedTree
-            changes={changes}
-            selected={file}
-            onSelect={(p) => {
-              setFile(p);
-              setConflictFile(null);
-            }}
-          />
-        </div>
+
+            <div className="commit-box">
+              <textarea
+                value={commitMsg}
+                placeholder={`Commit message${status ? ` (${status.branch})` : ""}`}
+                onChange={(e) => setCommitMsg(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) doCommit();
+                }}
+              />
+              <button
+                className="tbtn primary commit-btn"
+                disabled={stagedCount === 0 || !commitMsg.trim()}
+                onClick={doCommit}
+              >
+                Commit {stagedCount} file{stagedCount === 1 ? "" : "s"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="col-head">
+              <h2>Changed Files</h2>
+              <span className="changecount">{changes.length}</span>
+            </div>
+            <div className="col-scroll">
+              {conflicts.map((p) => (
+                <div
+                  key={p}
+                  className={`frow${conflictFile === p ? " on" : ""}`}
+                  onClick={() => {
+                    setConflictFile(p);
+                    setFile(null);
+                  }}
+                >
+                  <span className="stat deleted" style={{ color: "var(--conflict)", background: "var(--conflict-bg)" }}>
+                    !
+                  </span>
+                  <span className="fname">
+                    <b>{p}</b>
+                  </span>
+                </div>
+              ))}
+              <ChangedTree
+                changes={changes}
+                selected={file}
+                onSelect={(p) => {
+                  setFile(p);
+                  setConflictFile(null);
+                }}
+              />
+            </div>
+          </>
+        )}
       </div>
 
       {conflictFile && repo ? (
@@ -207,6 +389,7 @@ export default function GitView({ initialRepo, toast }: Props) {
           onResolved={async () => {
             setConflicts(await api.gitConflicts(repo));
             setConflictFile(null);
+            loadStatus(repo);
           }}
         />
       ) : file ? (
@@ -229,9 +412,22 @@ export default function GitView({ initialRepo, toast }: Props) {
                 {hunks.length} change{hunks.length === 1 ? "" : "s"} · ⟲ applies {from} → working
               </span>
             )}
+            {mode === "commit" && file && (
+              <div className="diff-actions">
+                {status?.staged.some((s) => s.path === file) ? (
+                  <button className="tbtn" onClick={() => unstage([file])}>
+                    − Unstage
+                  </button>
+                ) : (
+                  <button className="tbtn" onClick={() => stage([file])}>
+                    + Stage
+                  </button>
+                )}
+              </div>
+            )}
             <button
               className="tbtn"
-              style={{ marginLeft: "auto" }}
+              style={{ marginLeft: mode === "commit" ? undefined : "auto" }}
               onClick={() => setInline(!inline)}
               title="Diff layout: side-by-side or inline"
             >
@@ -254,11 +450,13 @@ export default function GitView({ initialRepo, toast }: Props) {
         <div className="col main">
           <div className="empty">
             <div className="glyph">⎇</div>
-            <h3>{repo ? "Compare revisions" : "Open a git repository"}</h3>
+            <h3>{repo ? (mode === "commit" ? "Stage & commit" : "Compare revisions") : "Open a git repository"}</h3>
             <p>
-              {repo
-                ? "Pick two refs above and hit Compare. Conflicts from an in-progress merge show up on the left."
-                : "Choose a local repo to diff branches, commits, the working tree — and resolve merge conflicts."}
+              {!repo
+                ? "Choose a local repo to stage, commit, diff branches/commits — and resolve merge conflicts."
+                : mode === "commit"
+                  ? "Stage files with +, review the diff, write a message, and commit. Conflicts from an in-progress merge show up on top."
+                  : "Pick two refs above and hit Compare."}
             </p>
           </div>
         </div>

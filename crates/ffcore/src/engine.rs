@@ -184,13 +184,12 @@ impl Engine {
                 let target = self.target_map(snapshot_id, Some(&g))?;
                 Ok(diff_maps(&base, &target))
             }
-            None => {
-                let base = match self.previous_snapshot(snapshot_id)? {
-                    Some(prev) => self.manifest_map(prev)?,
-                    None => PathMap::new(),
-                };
-                Ok(diff_maps(&base, &self.manifest_map(snapshot_id)?))
-            }
+            None => match self.previous_snapshot(snapshot_id)? {
+                Some(prev) => Ok(diff_maps(&self.manifest_map(prev)?, &self.manifest_map(snapshot_id)?)),
+                // The first breaking point is the baseline — nothing existed before
+                // it, so it has no changes rather than "every file added".
+                None => Ok(Vec::new()),
+            },
         }
     }
 
@@ -226,16 +225,14 @@ impl Engine {
             Some((root, g)) => Some(self.head_hashes(root, g)?),
             None => None,
         };
-        let empty = PathMap::new();
-
         let mut out = Vec::with_capacity(ids.len());
         for (i, id) in ids.iter().enumerate() {
-            let base = match &head_map {
-                Some(h) => h,
-                None if i == 0 => &empty,
-                None => &maps[i - 1],
+            let changes = match &head_map {
+                Some(h) => diff_maps(h, &maps[i]),
+                // First non-git point is the baseline → no changes (not all-added).
+                None if i == 0 => Vec::new(),
+                None => diff_maps(&maps[i - 1], &maps[i]),
             };
-            let changes = diff_maps(base, &maps[i]);
             let count = |s: ChangeStatus| changes.iter().filter(|c| c.status == s).count() as i64;
             out.push(ChangeSummary {
                 id: *id,
