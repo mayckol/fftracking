@@ -69,9 +69,21 @@ interface Props {
   onSelect: (path: string) => void;
   onRevertFile?: (path: string) => void;
   onRevertFolder?: (prefix: string) => void;
+  gitBranch?: string | null;
+  onResetFile?: (path: string) => void;
+  onResetFolder?: (prefix: string) => void;
 }
 
-export default function ChangedTree({ changes, selected, onSelect, onRevertFile, onRevertFolder }: Props) {
+export default function ChangedTree({
+  changes,
+  selected,
+  onSelect,
+  onRevertFile,
+  onRevertFolder,
+  gitBranch,
+  onResetFile,
+  onResetFolder,
+}: Props) {
   const tree = useMemo(() => buildTree(changes), [changes]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -79,7 +91,7 @@ export default function ChangedTree({ changes, selected, onSelect, onRevertFile,
   if (changes.length === 0) {
     return (
       <div className="empty" style={{ padding: "24px 20px" }}>
-        <p>No file changes between this breaking point and the one before it.</p>
+        <p>No file changes between this breaking point and {gitBranch ? <b>{gitBranch}</b> : "the one before it"}.</p>
       </div>
     );
   }
@@ -104,7 +116,7 @@ export default function ChangedTree({ changes, selected, onSelect, onRevertFile,
             style={pad}
             onClick={() => toggle(node.path)}
             onContextMenu={(e) => {
-              if (!onRevertFolder) return;
+              if (!onRevertFolder && !onResetFolder) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "dir", path: node.path });
             }}
@@ -123,7 +135,7 @@ export default function ChangedTree({ changes, selected, onSelect, onRevertFile,
             style={pad}
             onClick={() => onSelect(node.path)}
             onContextMenu={(e) => {
-              if (!onRevertFile) return;
+              if (!onRevertFile && !onResetFile) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "file", path: node.path });
             }}
@@ -145,8 +157,18 @@ export default function ChangedTree({ changes, selected, onSelect, onRevertFile,
         <>
           <div className="ctx-backdrop" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
           <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
+            {menu.kind === "file" && onResetFile && (
+              <button onClick={() => { onResetFile(menu.path); setMenu(null); }}>
+                Reset this file to {gitBranch ?? "branch"}
+              </button>
+            )}
             {menu.kind === "file" && onRevertFile && (
               <button onClick={() => { onRevertFile(menu.path); setMenu(null); }}>Revert this file to point</button>
+            )}
+            {menu.kind === "dir" && onResetFolder && (
+              <button onClick={() => { onResetFolder(menu.path); setMenu(null); }}>
+                Reset this folder to {gitBranch ?? "branch"}
+              </button>
             )}
             {menu.kind === "dir" && onRevertFolder && (
               <button onClick={() => { onRevertFolder(menu.path); setMenu(null); }}>Revert this folder to point</button>

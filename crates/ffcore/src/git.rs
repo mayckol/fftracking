@@ -1,6 +1,7 @@
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, MAIN_SEPARATOR};
 
-use git2::{Delta, Repository, Tree};
+use git2::{Delta, ObjectType, Repository, Tree, TreeWalkMode, TreeWalkResult};
 use serde::Serialize;
 
 use crate::query::ChangeStatus;
@@ -9,6 +10,151 @@ use crate::{Error, Result};
 
 /// Sentinel revspec meaning "the working tree as it is on disk right now".
 pub const WORKDIR: &str = "WORKDIR";
+
+/// The git repo a monitored folder lives in, with the folder's position inside
+/// it. `prefix` is the monitored root relative to the repo working directory
+/// ("" when the folder *is* the repo root), used to translate a monitor-relative
+/// path to a repo-relative one. `submodules` are monitor-relative gitlink dirs
+/// (their working trees belong to nested repos, not this one).
+#[derive(Debug, Clone, Serialize)]
+pub struct GitInfo {
+    pub repo_root: String,
+    pub branch: String,
+    pub prefix: String,
+    pub head: Option<String>,
+    pub submodules: Vec<String>,
+}
+
+impl GitInfo {
+    /// Whether a monitor-relative path lives inside a submodule's working tree.
+    pub fn under_submodule(&self, rel: &str) -> bool {
+        self.submodules
+            .iter()
+            .any(|s| rel == s || rel.starts_with(&format!("{s}/")))
+    }
+}
+
+/// Discovers the git repo containing `path` and reports its current branch and
+/// the path's position within it. `None` when `path` is not inside a repo, or
+/// when its scope within the repo can't be determined (so callers fall back to
+/// breaking-point comparison rather than silently diffing against the whole repo).
+pub fn repo_info(path: &Path) -> Option<GitInfo> {
+    let repo = Repository::discover(path).ok()?;
+    let workdir = repo.workdir()?.to_path_buf();
+    let prefix = relative_prefix(path, &workdir)?;
+
+    let branch = repo
+        .head()
+        .ok()
+        .and_then(|h| h.shorthand().map(str::to_string))
+        .unwrap_or_else(|| "HEAD".to_string());
+    let head = repo
+        .head()
+        .ok()
+        .and_then(|h| h.target())
+        .map(|oid| oid.to_string()[..12].to_string());
+
+    let submodules = repo
+        .submodules()
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|s| {
+            let p = rel_string(s.path());
+            // Keep only submodules under the monitored prefix, expressed
+            // relative to it.
+            if prefix.is_empty() {
+                Some(p)
+            } else if p == prefix {
+                Some(String::new())
+            } else {
+                p.strip_prefix(&format!("{prefix}/")).map(str::to_string)
+            }
+        })
+        .filter(|p| !p.is_empty())
+        .collect();
+
+    Some(GitInfo {
+        repo_root: workdir.to_string_lossy().into_owned(),
+        branch,
+        prefix,
+        head,
+        submodules,
+    })
+}
+
+/// The monitored root relative to the repo working dir, forward-slashed and
+/// without a trailing slash. Tries a canonicalized compare first (so a symlinked
+/// root like /var vs /private/var on macOS resolves), then a plain lexical
+/// strip. `None` when `path` can't be shown to live under `workdir` — the caller
+/// treats that as "not a usable git monitor" instead of assuming repo-root scope.
+fn relative_prefix(path: &Path, workdir: &Path) -> Option<String> {
+    if let (Ok(p), Ok(w)) = (path.canonicalize(), workdir.canonicalize()) {
+        if let Ok(rel) = p.strip_prefix(&w) {
+            return Some(rel_string(rel).trim_end_matches('/').to_string());
+        }
+    }
+    path.strip_prefix(workdir)
+        .ok()
+        .map(|rel| rel_string(rel).trim_end_matches('/').to_string())
+}
+
+fn rel_string(p: &Path) -> String {
+    p.to_string_lossy().replace(MAIN_SEPARATOR, "/")
+}
+
+fn join_prefix(prefix: &str, rel: &str) -> String {
+    if prefix.is_empty() {
+        rel.to_string()
+    } else {
+        format!("{prefix}/{rel}")
+    }
+}
+
+/// Every blob in HEAD under `prefix`, keyed by path relative to `prefix` (i.e.
+/// relative to the monitored root). `filter` applies the monitor's own capture
+/// exclusions (built-in dirs, user globs, .gitignore) and oversized blobs are
+/// dropped, so the result lines up with what the monitor actually snapshots and
+/// the snapshot↔HEAD diff doesn't invent deletions. Empty on an unborn branch.
+pub fn head_files(repo_path: &Path, prefix: &str, filter: &crate::ignore::PathFilter) -> Result<HashMap<String, Vec<u8>>> {
+    let repo = open(repo_path)?;
+    let Some(tree) = repo.head().ok().and_then(|h| h.peel_to_tree().ok()) else {
+        return Ok(HashMap::new());
+    };
+    let pfx = if prefix.is_empty() { String::new() } else { format!("{prefix}/") };
+    let mut out = HashMap::new();
+    tree.walk(TreeWalkMode::PreOrder, |dir, entry| {
+        if entry.kind() == Some(ObjectType::Blob) {
+            let full = format!("{dir}{}", entry.name().unwrap_or(""));
+            if (pfx.is_empty() || full.starts_with(&pfx)) && full.len() > pfx.len() {
+                let rel = full[pfx.len()..].to_string();
+                if !filter.ignored(&rel) {
+                    if let Ok(blob) = repo.find_blob(entry.id()) {
+                        let content = blob.content().to_vec();
+                        if crate::ignore::within_size(content.len() as u64) {
+                            out.insert(rel, content);
+                        }
+                    }
+                }
+            }
+        }
+        TreeWalkResult::Ok
+    })?;
+    Ok(out)
+}
+
+/// Bytes of a single monitor-relative path as committed in HEAD, or `None` when
+/// HEAD has no such file (or no commits yet).
+pub fn head_blob_at(repo_path: &Path, prefix: &str, rel: &str) -> Result<Option<Vec<u8>>> {
+    let repo = open(repo_path)?;
+    let Some(tree) = repo.head().ok().and_then(|h| h.peel_to_tree().ok()) else {
+        return Ok(None);
+    };
+    match tree.get_path(Path::new(&join_prefix(prefix, rel))) {
+        Ok(entry) => Ok(Some(repo.find_blob(entry.id())?.content().to_vec())),
+        Err(_) => Ok(None),
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CommitInfo {

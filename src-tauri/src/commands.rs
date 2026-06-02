@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use ffcore::db::Settings;
 use ffcore::detect::{detect_workspaces, DetectedWorkspace};
+use ffcore::engine::{BaseInfo, ChangeSummary};
 use ffcore::git::{self, GitFileChange, RefList};
 use ffcore::query::{FileChange, MonitorRow, SnapshotRow};
 use ffcore::revert::HunkInfo;
@@ -82,6 +83,37 @@ pub fn previous_snapshot(state: State<AppState>, snapshot_id: i64) -> R<Option<i
 #[tauri::command]
 pub fn changed_files(state: State<AppState>, from: i64, to: i64) -> R<Vec<FileChange>> {
     err(state.engine.changed_files(from, to))
+}
+
+#[tauri::command]
+pub fn monitor_base_info(state: State<AppState>, monitor_id: i64) -> R<BaseInfo> {
+    err(state.engine.base_info(monitor_id))
+}
+
+#[tauri::command]
+pub fn breaking_point_changes(state: State<AppState>, monitor_id: i64, snapshot_id: i64) -> R<Vec<FileChange>> {
+    err(state.engine.breaking_point_changes(monitor_id, snapshot_id))
+}
+
+#[tauri::command]
+pub fn base_file(state: State<AppState>, monitor_id: i64, snapshot_id: i64, path: String) -> R<Option<String>> {
+    Ok(err(state.engine.base_file(monitor_id, snapshot_id, &path))?
+        .map(|b| String::from_utf8_lossy(&b).into_owned()))
+}
+
+#[tauri::command]
+pub fn snapshot_summaries(state: State<AppState>, monitor_id: i64) -> R<Vec<ChangeSummary>> {
+    err(state.engine.snapshot_change_summaries(monitor_id))
+}
+
+#[tauri::command]
+pub fn git_reset_file(state: State<AppState>, monitor_id: i64, path: String) -> R<()> {
+    err(state.engine.git_reset_file(monitor_id, &path))
+}
+
+#[tauri::command]
+pub fn git_reset_folder(state: State<AppState>, monitor_id: i64, prefix: String, remove_extraneous: bool) -> R<()> {
+    err(state.engine.git_reset_folder(monitor_id, &prefix, remove_extraneous))
 }
 
 #[tauri::command]

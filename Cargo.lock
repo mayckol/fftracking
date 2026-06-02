@@ -887,7 +887,7 @@ dependencies = [
 
 [[package]]
 name = "ffcore"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "chrono",
@@ -905,7 +905,7 @@ dependencies = [
 
 [[package]]
 name = "fftracking"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ffcore",
  "serde",

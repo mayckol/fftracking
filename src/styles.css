@@ -553,6 +553,52 @@ select:focus {
   color: var(--tx-2);
 }
 
+/* col-head: title on the left, tags/counts grouped on the right */
+.col-head {
+  gap: var(--s2);
+}
+.col-head h2 {
+  margin-right: auto;
+}
+.base-tag,
+.vs-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--tx-2);
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.sum {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.sum-pill {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  line-height: 1.45;
+}
+.sum-pill.add {
+  color: var(--add);
+  background: var(--add-bg);
+}
+.sum-pill.mod {
+  color: var(--mod);
+  background: var(--mod-bg);
+}
+.sum-pill.del {
+  color: var(--del);
+  background: var(--del-bg);
+}
+
 /* ---------- changed-file tree ---------- */
 .split {
   display: grid;
