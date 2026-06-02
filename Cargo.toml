@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ffcore", "src-tauri"]
+members = ["crates/ffcore", "crates/ffcli", "src-tauri"]
 
 [workspace.package]
 edition = "2021"
