@@ -6,10 +6,11 @@ interface Props {
   selected: number | null;
   onSelect: (id: number) => void;
   onAdd: () => void;
-  onRemove: (id: number) => void;
+  onToggle: (m: MonitorRow) => void;
+  onDelete: (m: MonitorRow) => void;
 }
 
-export default function Sidebar({ monitors, selected, onSelect, onAdd, onRemove }: Props) {
+export default function Sidebar({ monitors, selected, onSelect, onAdd, onToggle, onDelete }: Props) {
   return (
     <div className="col">
       <div className="col-head">
@@ -38,10 +39,20 @@ export default function Sidebar({ monitors, selected, onSelect, onAdd, onRemove 
             {m.source !== "manual" && <span className="src-chip">{m.source}</span>}
             <button
               className="row-x"
-              title="Stop tracking & delete history"
+              title={m.active ? "Stop tracking (keep history)" : "Start tracking"}
               onClick={(e) => {
                 e.stopPropagation();
-                onRemove(m.id);
+                onToggle(m);
+              }}
+            >
+              {m.active ? "⏸" : "▶"}
+            </button>
+            <button
+              className="row-x row-del"
+              title="Delete folder & all history"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(m);
               }}
             >
               ×

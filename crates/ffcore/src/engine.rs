@@ -154,9 +154,15 @@ impl Engine {
     }
 
     pub fn deactivate_monitor(&self, monitor_id: i64) -> Result<()> {
+        self.set_monitor_active(monitor_id, false)
+    }
+
+    pub fn set_monitor_active(&self, monitor_id: i64, active: bool) -> Result<()> {
         self.with_db(|db| {
-            db.conn
-                .execute("UPDATE monitors SET active = 0 WHERE id = ?1", [monitor_id])?;
+            db.conn.execute(
+                "UPDATE monitors SET active = ?1 WHERE id = ?2",
+                (active as i64, monitor_id),
+            )?;
             Ok(())
         })
     }
