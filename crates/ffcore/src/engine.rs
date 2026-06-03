@@ -165,12 +165,17 @@ impl Engine {
         Ok(manifest.entries.into_iter().map(|e| (e.path, e.hash)).collect())
     }
 
-    /// A snapshot's manifest map with submodule working-tree files removed —
-    /// their contents belong to nested repos, not this one's HEAD.
+    /// A snapshot's manifest map prepared for the vs-branch diff: submodule
+    /// working-tree files and git-ignored files are dropped (fftracking tracks
+    /// git-ignored files for local history, but they must not flood the
+    /// vs-branch view as "added" — they were never meant for the branch).
     fn target_map(&self, snapshot_id: i64, g: Option<&git::GitInfo>) -> Result<PathMap> {
         let mut m = self.manifest_map(snapshot_id)?;
         if let Some(g) = g {
             m.retain(|p, _| !g.under_submodule(p));
+            let paths: Vec<String> = m.keys().cloned().collect();
+            let ignored = git::ignored_set(Path::new(&g.repo_root), &g.prefix, &paths)?;
+            m.retain(|p, _| !ignored.contains(p));
         }
         Ok(m)
     }
@@ -178,18 +183,22 @@ impl Engine {
     /// Files that differ between a breaking point and its base (git branch or
     /// previous point) — the tiered replacement for raw `changed_files`.
     pub fn breaking_point_changes(&self, monitor_id: i64, snapshot_id: i64) -> Result<Vec<FileChange>> {
+        // The first breaking point is the baseline — nothing existed before it,
+        // so adding a folder starts clean instead of "every file added" (git too).
+        let prev = self.previous_snapshot(snapshot_id)?;
+        if prev.is_none() {
+            return Ok(Vec::new());
+        }
         match self.git_context(monitor_id)? {
             Some((root, g)) => {
                 let base = self.head_hashes(&root, &g)?;
                 let target = self.target_map(snapshot_id, Some(&g))?;
                 Ok(diff_maps(&base, &target))
             }
-            None => match self.previous_snapshot(snapshot_id)? {
-                Some(prev) => Ok(diff_maps(&self.manifest_map(prev)?, &self.manifest_map(snapshot_id)?)),
-                // The first breaking point is the baseline — nothing existed before
-                // it, so it has no changes rather than "every file added".
-                None => Ok(Vec::new()),
-            },
+            None => Ok(diff_maps(
+                &self.manifest_map(prev.expect("prev is Some here"))?,
+                &self.manifest_map(snapshot_id)?,
+            )),
         }
     }
 
@@ -227,11 +236,14 @@ impl Engine {
         };
         let mut out = Vec::with_capacity(ids.len());
         for (i, id) in ids.iter().enumerate() {
-            let changes = match &head_map {
-                Some(h) => diff_maps(h, &maps[i]),
-                // First non-git point is the baseline → no changes (not all-added).
-                None if i == 0 => Vec::new(),
-                None => diff_maps(&maps[i - 1], &maps[i]),
+            let changes = if i == 0 {
+                // First point is the baseline → no changes (git or not).
+                Vec::new()
+            } else {
+                match &head_map {
+                    Some(h) => diff_maps(h, &maps[i]),
+                    None => diff_maps(&maps[i - 1], &maps[i]),
+                }
             };
             let count = |s: ChangeStatus| changes.iter().filter(|c| c.status == s).count() as i64;
             out.push(ChangeSummary {

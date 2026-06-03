@@ -39,6 +39,9 @@ fn git_repo_compares_against_head_branch() {
     git(root, &["commit", "-q", "-m", "c1"]);
 
     let mid = engine.add_monitor(root, 900, "manual").unwrap();
+    // First point is the baseline (clean working tree == HEAD) → no changes.
+    let first = engine.snapshot_now(mid, "manual").unwrap().unwrap();
+    assert!(engine.breaking_point_changes(mid, first).unwrap().is_empty());
 
     // Working-tree divergence from HEAD: modify, add, delete.
     write(root, "keep.txt", "v2\n");
@@ -143,6 +146,7 @@ fn git_subdirectory_monitor_scopes_to_its_prefix() {
     // Monitor only the subdirectory.
     let sub = root.join("sub");
     let mid = engine.add_monitor(&sub, 900, "manual").unwrap();
+    engine.snapshot_now(mid, "manual").unwrap().unwrap(); // baseline (empty)
     write(root, "sub/a.txt", "v2\n");
     let snap = engine.snapshot_now(mid, "manual").unwrap().unwrap();
 
@@ -155,4 +159,35 @@ fn git_subdirectory_monitor_scopes_to_its_prefix() {
     assert_eq!(status_of(&ch, "a.txt"), Some(ChangeStatus::Modified));
     assert!(ch.iter().all(|c| c.path != "top.txt" && c.path != "sub/a.txt"), "got {ch:?}");
     assert_eq!(engine.base_file(mid, snap, "a.txt").unwrap().as_deref(), Some(b"v1\n".as_ref()));
+}
+
+#[test]
+fn git_ignored_files_excluded_from_branch_diff() {
+    let data = tempfile::tempdir().unwrap();
+    let proj = tempfile::tempdir().unwrap();
+    let root = proj.path();
+    let engine = Engine::open(data.path()).unwrap();
+
+    git(root, &["init", "-q", "-b", "main"]);
+    write(root, ".gitignore", "*.log\n");
+    write(root, "a.txt", "v1\n");
+    git(root, &["add", "."]);
+    git(root, &["commit", "-q", "-m", "c1"]);
+
+    // A git-ignored file present on disk — fftracking still tracks it for local
+    // history (respect_gitignore is off by default), but it must NOT flood the
+    // vs-branch diff as "added".
+    write(root, "secret.log", "noise\n");
+
+    let mid = engine.add_monitor(root, 900, "manual").unwrap();
+    engine.snapshot_now(mid, "manual").unwrap().unwrap(); // baseline
+    write(root, "a.txt", "v2\n");
+    let snap = engine.snapshot_now(mid, "manual").unwrap().unwrap();
+
+    let ch = engine.breaking_point_changes(mid, snap).unwrap();
+    assert_eq!(status_of(&ch, "a.txt"), Some(ChangeStatus::Modified));
+    assert!(
+        ch.iter().all(|c| c.path != "secret.log"),
+        "git-ignored file leaked into the vs-branch diff: {ch:?}"
+    );
 }

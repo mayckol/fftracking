@@ -106,7 +106,7 @@ export default function App() {
         <div className="brand">
           <span className="dot" />
           fftracking
-          <small>v0.4.2 · build {__BUILD_ID__}</small>
+          <small>v0.4.3 · build {__BUILD_ID__}</small>
         </div>
         <nav className="tabs">
           {(["history", "git", "settings"] as Tab[]).map((t) => (
