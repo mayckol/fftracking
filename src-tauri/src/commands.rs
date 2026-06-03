@@ -96,6 +96,11 @@ pub fn breaking_point_changes(state: State<AppState>, monitor_id: i64, snapshot_
 }
 
 #[tauri::command]
+pub fn snapshot_working_changes(state: State<AppState>, monitor_id: i64, snapshot_id: i64) -> R<Vec<FileChange>> {
+    err(state.engine.snapshot_working_changes(monitor_id, snapshot_id))
+}
+
+#[tauri::command]
 pub fn base_file(state: State<AppState>, monitor_id: i64, snapshot_id: i64, path: String) -> R<Option<String>> {
     Ok(err(state.engine.base_file(monitor_id, snapshot_id, &path))?
         .map(|b| String::from_utf8_lossy(&b).into_owned()))

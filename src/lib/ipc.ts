@@ -34,6 +34,8 @@ export const api = {
   monitorBaseInfo: (monitorId: number) => invoke<BaseInfo>("monitor_base_info", { monitorId }),
   breakingPointChanges: (monitorId: number, snapshotId: number) =>
     invoke<FileChange[]>("breaking_point_changes", { monitorId, snapshotId }),
+  snapshotWorkingChanges: (monitorId: number, snapshotId: number) =>
+    invoke<FileChange[]>("snapshot_working_changes", { monitorId, snapshotId }),
   baseFile: (monitorId: number, snapshotId: number, path: string) =>
     invoke<string | null>("base_file", { monitorId, snapshotId, path }),
   snapshotSummaries: (monitorId: number) =>

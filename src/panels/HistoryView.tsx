@@ -2,11 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
 import { api } from "../lib/ipc";
 import type { BaseInfo, ChangeSummary, FileChange, HunkInfo, SnapshotRow } from "../lib/types";
-import { basename, dirname, langOf } from "../lib/util";
+import { basename, dayLabel, dirname, fmtTime, langOf } from "../lib/util";
 import ChangedTree from "./ChangedTree";
 import Timeline from "./Timeline";
-
-type Mode = "before" | "now";
 
 interface Props {
   monitorId: number;
@@ -22,9 +20,6 @@ export default function HistoryView({ monitorId, toast }: Props) {
   const [file, setFile] = useState<string | null>(null);
   const [left, setLeft] = useState("");
   const [right, setRight] = useState("");
-  // Default to "before" so the diff matches the Changed Files deltas (what
-  // changed AT this point). Toggle to "now" for per-block revert vs the tree.
-  const [mode, setMode] = useState<Mode>("before");
   const [inline, setInline] = useState(false);
   const [hunks, setHunks] = useState<HunkInfo[]>([]);
   const [reload, setReload] = useState(0);
@@ -78,8 +73,9 @@ export default function HistoryView({ monitorId, toast }: Props) {
     return () => window.clearInterval(t);
   }, [loadSnaps]);
 
-  // Changed files for the selected breaking point, diffed against its base —
-  // the current git branch (HEAD) in a repo, else the preceding point.
+  // Local-History semantics: list the files that differ between the selected
+  // breaking point and the CURRENT working tree — the same pair the diff shows,
+  // so a row always opens a real Before↔Current diff.
   useEffect(() => {
     if (snap == null) {
       setChanges([]);
@@ -87,7 +83,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
     }
     let alive = true;
     (async () => {
-      const list = await api.breakingPointChanges(monitorId, snap);
+      const list = await api.snapshotWorkingChanges(monitorId, snap);
       if (!alive) return;
       setChanges(list);
       setFile((cur) => (cur && list.some((c) => c.path === cur) ? cur : list[0]?.path ?? null));
@@ -97,12 +93,10 @@ export default function HistoryView({ monitorId, toast }: Props) {
     };
   }, [snap, monitorId, reload]);
 
-  // Load both sides of the diff + the per-block hunks for the selected file.
-  // The RIGHT pane is always the working tree (editable), so the ⟲ gutter icon
-  // works in both modes: it restores that block to the LEFT side — the branch
-  // (HEAD) / previous point in "vs base", or the selected point in "vs now".
-  // Acting only on the working tree (never on two historical snapshots) is what
-  // keeps a block revert from blanking the whole file.
+  // The two panes: LEFT = the file as captured at the breaking point ("Before",
+  // read-only), RIGHT = the live working tree ("Current", editable). The ⟲
+  // gutter icon restores that block from Before into Current — exactly the
+  // JetBrains Local-History flow — and the edit is undoable (⌘Z / Ctrl+Z).
   const loadDiff = useCallback(async () => {
     // Monotonic token: a slower in-flight load must not clobber the panes (and
     // the hunk indices that drive gutter-revert) of a newer selection.
@@ -113,17 +107,14 @@ export default function HistoryView({ monitorId, toast }: Props) {
       setHunks([]);
       return;
     }
-    const l =
-      mode === "before"
-        ? (await api.baseFile(monitorId, snap, file)) ?? ""
-        : (await api.fileAt(snap, file)) ?? "";
+    const l = (await api.fileAt(snap, file)) ?? "";
     const r = (await api.workingFile(monitorId, file)) ?? "";
     const hk = await api.textHunks(l, r);
     if (req !== diffReq.current) return;
     setLeft(l);
     setRight(r);
     setHunks(hk);
-  }, [snap, file, mode, monitorId]);
+  }, [snap, file, monitorId]);
 
   useEffect(() => {
     loadDiff();
@@ -135,12 +126,12 @@ export default function HistoryView({ monitorId, toast }: Props) {
     if (snap == null || !file) return;
     const t = window.setTimeout(() => diffApi.current?.focusFirst(), 180);
     return () => window.clearTimeout(t);
-  }, [snap, file, mode]);
+  }, [snap, file]);
 
   async function afterRevert(msg: string) {
     toast(msg);
     await loadSnaps(snap ?? undefined);
-    // The right pane is the working tree in both modes, so just reload it.
+    setReload((n) => n + 1);
     await loadDiff();
   }
 
@@ -289,14 +280,16 @@ export default function HistoryView({ monitorId, toast }: Props) {
 
   const counts = { added: 0, modified: 0, deleted: 0 };
   for (const c of changes) counts[c.status]++;
+  const sel = snaps.find((s) => s.id === snap);
+  const beforeLabel = sel ? `${dayLabel(sel.day_bucket)}, ${fmtTime(sel.ts)}` : "Before";
 
   return (
     <>
       <div className="col">
         <div className="col-head">
           <h2>Breaking Points</h2>
-          <span className="base-tag" title={isGit ? "Compared against the current git branch" : "Compared against the previous breaking point"}>
-            {isGit ? `⎇ ${base?.branch}` : "⟸ previous point"}
+          <span className="base-tag" title="Each breaking point is compared with the current working tree (local history)">
+            ↔ Current
           </span>
         </div>
         <div className="split">
@@ -315,7 +308,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
           <div className="col" style={{ borderRight: "none" }}>
             <div className="col-head">
               <h2>Changed Files</h2>
-              <span className="vs-tag">{isGit ? `vs ${base?.branch}` : "vs previous point"}</span>
+              <span className="vs-tag">vs Current</span>
               {changes.length > 0 ? (
                 <span className="sum">
                   {counts.added > 0 && <span className="sum-pill add">+{counts.added}</span>}
@@ -359,17 +352,6 @@ export default function HistoryView({ monitorId, toast }: Props) {
               </button>
               <button
                 className="tbtn"
-                onClick={() => setMode(mode === "before" ? "now" : "before")}
-                title="What to compare against"
-              >
-                {mode === "before"
-                  ? isGit
-                    ? `↔ vs ${base?.branch}`
-                    : "↔ vs before"
-                  : "↔ vs now"}
-              </button>
-              <button
-                className="tbtn"
                 onClick={() => setInline(!inline)}
                 title="Diff layout: side-by-side or inline"
               >
@@ -378,9 +360,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
               {hunks.length > 0 && (
                 <span
                   className="changecount"
-                  title={`Click the ⟲ icon in the gutter to restore that block to ${
-                    mode === "now" ? "this point" : isGit ? base?.branch ?? "the branch" : "the previous point"
-                  }; ⌘Z / Ctrl+Z to undo`}
+                  title="Click the ⟲ icon in the gutter to restore that block to this breaking point; ⌘Z / Ctrl+Z to undo"
                 >
                   {hunks.length} change{hunks.length === 1 ? "" : "s"} · ⟲ in gutter to revert · ⌘Z undo
                 </span>
@@ -404,6 +384,16 @@ export default function HistoryView({ monitorId, toast }: Props) {
                 </button>
               </div>
             </div>
+            {!inline && (
+              <div className="pane-labels">
+                <span className="pane-label before" title="Read-only: the file as captured at this breaking point">
+                  🔒 Before · {beforeLabel}
+                </span>
+                <span className="pane-label current" title="Editable: your live working file">
+                  Current
+                </span>
+              </div>
+            )}
             <DiffEditor
               original={left}
               modified={right}

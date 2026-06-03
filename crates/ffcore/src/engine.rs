@@ -208,6 +208,33 @@ impl Engine {
         Ok(changes.into_iter().filter(|c| !filter.ignored(&c.path)).collect())
     }
 
+    /// Path→hash of the live working tree, under the monitor's capture rules.
+    /// The "Current" side of the Local-History (point ↔ current) comparison.
+    fn working_hashes(&self, root: &Path, s: &crate::db::Settings) -> Result<PathMap> {
+        let mut map = PathMap::new();
+        for rel in crate::ignore::list_paths(root, &s.ignore_globs, s.respect_gitignore)? {
+            let content = std::fs::read(root.join(&rel))?;
+            map.insert(rel, BlobStore::hash(&content));
+        }
+        Ok(map)
+    }
+
+    /// Files that differ between a breaking point and the CURRENT working tree
+    /// (JetBrains "Local History" semantics). `added` means present now but not
+    /// at the point (added since), `deleted` present at the point but gone now —
+    /// so reverting a row to the point is the exact inverse of its status.
+    pub fn snapshot_working_changes(&self, monitor_id: i64, snapshot_id: i64) -> Result<Vec<FileChange>> {
+        let s = self.get_settings()?;
+        let root = self.with_db(|db| monitor_root(db, monitor_id))?;
+        let point = self.manifest_map(snapshot_id)?;
+        let current = self.working_hashes(&root, &s)?;
+        let filter = crate::ignore::PathFilter::build(&root, &s.ignore_globs, s.respect_gitignore)?;
+        Ok(diff_maps(&point, &current)
+            .into_iter()
+            .filter(|c| !filter.ignored(&c.path))
+            .collect())
+    }
+
     /// The base-side content of a file for the breaking point's diff: the git
     /// HEAD version in a repo, else the file as captured in the previous point.
     pub fn base_file(&self, monitor_id: i64, snapshot_id: i64, path: &str) -> Result<Option<Vec<u8>>> {
