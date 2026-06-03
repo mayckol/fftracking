@@ -120,7 +120,7 @@ export default function App() {
         <div className="brand">
           <span className="dot" />
           fftracking
-          <small>v0.5.2 · build {__BUILD_ID__}</small>
+          <small>v0.5.3 · build {__BUILD_ID__}</small>
         </div>
         <nav className="tabs">
           {(["history", "git", "settings"] as Tab[]).map((t) => (
@@ -177,13 +177,13 @@ export default function App() {
       )}
 
       {tab === "git" && (
-        <div className="work" style={{ gridTemplateColumns: "340px 1fr" }}>
+        <div className="work" style={{ gridTemplateColumns: "340px minmax(0, 1fr)" }}>
           <GitView initialRepo={selectedMonitor?.root_path ?? null} toast={notify} />
         </div>
       )}
 
       {tab === "settings" && (
-        <div className="work" style={{ gridTemplateColumns: "1fr" }}>
+        <div className="work" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
           <SettingsView toast={notify} />
         </div>
       )}
