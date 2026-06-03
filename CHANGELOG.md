@@ -4,6 +4,15 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.5.4] — 2026-06-03
+
+### Fixed
+
+- **Homebrew now installs the `fft` CLI too.** The cask only shipped the GUI app,
+  so `fft` was missing after `brew install --cask fftracking`. The release now
+  publishes an `fft` formula to the tap and the cask depends on it, so the CLI
+  (+ MCP server) lands on PATH. Standalone: `brew install mayckol/tap/fft`.
+
 ## [0.5.3] — 2026-06-03
 
 ### Fixed

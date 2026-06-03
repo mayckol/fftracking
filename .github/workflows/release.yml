@@ -102,6 +102,9 @@ jobs:
 
             depends_on macos: ">= :big_sur"
             depends_on arch: :arm64
+            # Pull in the headless CLI (+ MCP server) so 'brew install --cask
+            # fftracking' also puts 'fft' on PATH, matching the install script.
+            depends_on formula: "mayckol/tap/fft"
 
             app "fftracking.app"
 
@@ -125,3 +128,39 @@ jobs:
           ARGS=(--method PUT repos/mayckol/homebrew-tap/contents/Casks/fftracking.rb -f "message=fftracking ${VER}" -f "content=${B64}")
           [ -n "${EXISTING}" ] && ARGS+=(-f "sha=${EXISTING}")
           GH_TOKEN="$TAP_TOKEN" gh api "${ARGS[@]}"
+
+          # --- fft CLI formula: `brew install mayckol/tap/fft` (and the cask
+          #     depends on it). Ships the prebuilt fft binary per platform. ---
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "fft-aarch64-apple-darwin" --pattern "fft-x86_64-unknown-linux-gnu" --dir cli
+          MAC_SHA="$(shasum -a 256 cli/fft-aarch64-apple-darwin | awk '{print $1}')"
+          LNX_SHA="$(shasum -a 256 cli/fft-x86_64-unknown-linux-gnu | awk '{print $1}')"
+          cat > fft.rb <<EOF
+          class Fft < Formula
+            desc "Headless CLI + MCP server for fftracking local history"
+            homepage "https://github.com/mayckol/fftracking"
+            version "${VER}"
+
+            on_macos do
+              url "https://github.com/mayckol/fftracking/releases/download/v#{version}/fft-aarch64-apple-darwin"
+              sha256 "${MAC_SHA}"
+            end
+            on_linux do
+              url "https://github.com/mayckol/fftracking/releases/download/v#{version}/fft-x86_64-unknown-linux-gnu"
+              sha256 "${LNX_SHA}"
+            end
+
+            def install
+              bin.install Dir["*"].first => "fft"
+            end
+
+            test do
+              assert_match "fft", shell_output("#{bin}/fft --help")
+            end
+          end
+          EOF
+          FB64="$(base64 -i fft.rb | tr -d '\n')"
+          FEXISTING="$(GH_TOKEN="$TAP_TOKEN" gh api repos/mayckol/homebrew-tap/contents/Formula/fft.rb --jq .sha 2>/dev/null || true)"
+          FARGS=(--method PUT repos/mayckol/homebrew-tap/contents/Formula/fft.rb -f "message=fft ${VER}" -f "content=${FB64}")
+          [ -n "${FEXISTING}" ] && FARGS+=(-f "sha=${FEXISTING}")
+          GH_TOKEN="$TAP_TOKEN" gh api "${FARGS[@]}"
