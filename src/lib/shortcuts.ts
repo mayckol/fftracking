@@ -11,12 +11,17 @@ export interface ActionDef {
   label: string;
   group: ActionGroup;
   default: string;
+  /** When "diff", the binding only fires while the diff editor has focus, so it
+   *  doesn't steal keys (e.g. ⌘Z) from other text fields. */
+  scope?: "diff";
 }
 
 export const ACTIONS: ActionDef[] = [
   { id: "diff.next", label: "Next change", group: "Diff", default: "Alt+ArrowDown" },
   { id: "diff.prev", label: "Previous change", group: "Diff", default: "Alt+ArrowUp" },
-  { id: "diff.revertBlock", label: "Revert current block to point", group: "Diff", default: "Alt+R" },
+  { id: "diff.revertBlock", label: "Revert current block", group: "Diff", default: "Alt+R" },
+  { id: "diff.undo", label: "Undo", group: "Diff", default: "Mod+Z", scope: "diff" },
+  { id: "diff.redo", label: "Redo", group: "Diff", default: "Mod+Shift+Z", scope: "diff" },
   { id: "diff.layout", label: "Toggle split / inline", group: "Diff", default: "Alt+L" },
   { id: "capture.snapshot", label: "Snapshot now", group: "Capture & revert", default: "Mod+Shift+S" },
   { id: "revert.file", label: "Revert file to point", group: "Capture & revert", default: "Mod+Alt+R" },
@@ -136,9 +141,15 @@ function onKeyDown(e: KeyboardEvent) {
   if (inTextField() && !/(^|\+)(Mod|Alt)(\+|$)/.test(combo)) return;
   const action = ACTIONS.find((a) => comboFor(a.id) === combo);
   if (!action) return;
+  const el = document.activeElement as HTMLElement | null;
+  // Diff-scoped bindings (undo/redo) only act when the diff editor is focused,
+  // so they don't steal ⌘Z from the commit box or other inputs.
+  if (action.scope === "diff" && !el?.closest(".editor-wrap")) return;
   const handler = registry.get(action.id);
   if (!handler) return;
+  // Capture-phase stop so the focused control (e.g. Monaco) doesn't also act.
   e.preventDefault();
+  e.stopPropagation();
   handler();
 }
 

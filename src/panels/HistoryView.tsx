@@ -287,6 +287,8 @@ export default function HistoryView({ monitorId, toast }: Props) {
   useShortcut("diff.prev", () => diffApi.current?.navigate("prev"), !!file);
   useShortcut("diff.layout", () => setInline((v) => !v), !!file);
   useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), !!file);
+  useShortcut("diff.undo", () => diffApi.current?.undo(), !!file);
+  useShortcut("diff.redo", () => diffApi.current?.redo(), !!file);
   useShortcut("revert.file", revertFile, !!file);
   useShortcut("file.copyPath", () => file && copyToClipboard(file, "path"), !!file);
   useShortcut(
@@ -393,6 +395,12 @@ export default function HistoryView({ monitorId, toast }: Props) {
               </button>
               <button className="tbtn" title="Next change" onClick={() => diffApi.current?.navigate("next")}>
                 ↓
+              </button>
+              <button className="tbtn" title="Undo (in this diff)" onClick={() => diffApi.current?.undo()}>
+                ↶
+              </button>
+              <button className="tbtn" title="Redo (in this diff)" onClick={() => diffApi.current?.redo()}>
+                ↷
               </button>
               <button
                 className="tbtn"

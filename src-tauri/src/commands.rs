@@ -273,6 +273,11 @@ pub fn git_write_working(repo_path: String, path: String, content: String) -> R<
 }
 
 #[tauri::command]
+pub fn git_discard_file(repo_path: String, path: String) -> R<()> {
+    err(git::discard_file(&PathBuf::from(repo_path), &path))
+}
+
+#[tauri::command]
 pub fn git_status(repo_path: String) -> R<WorkingStatus> {
     err(git::working_status(&PathBuf::from(repo_path)))
 }

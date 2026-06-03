@@ -87,6 +87,7 @@ pub fn run() {
             commands::git_file_hunks,
             commands::git_revert_hunks,
             commands::git_write_working,
+            commands::git_discard_file,
             commands::git_status,
             commands::git_stage,
             commands::git_unstage,

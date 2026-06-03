@@ -8,6 +8,8 @@ export interface DiffHandle {
   navigate: (dir: "next" | "prev") => void;
   focusFirst: () => void;
   revertCurrent: () => void;
+  undo: () => void;
+  redo: () => void;
 }
 
 interface Props {
@@ -69,6 +71,16 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
         Math.abs(lineOf(h) - line) < Math.abs(lineOf(best) - line) ? h : best,
       );
       revertHunk(hit);
+    },
+    undo() {
+      const me = diffRef.current?.getModifiedEditor();
+      me?.focus();
+      me?.trigger("ff", "undo", null);
+    },
+    redo() {
+      const me = diffRef.current?.getModifiedEditor();
+      me?.focus();
+      me?.trigger("ff", "redo", null);
     },
   }));
 

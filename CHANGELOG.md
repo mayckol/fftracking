@@ -4,6 +4,25 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.5.1] — 2026-06-03
+
+### Added
+
+- **Undo / Redo in the diff**, as toolbar buttons (↶ ↷) and bindable shortcuts
+  (default ⌘Z / ⌘⇧Z, scoped to the diff so they don't hijack other text fields).
+  Covers block reverts and in-diff edits.
+- **Git tab: discard a file's changes** — right-click a file under *Changes* →
+  *Discard changes (restore to HEAD)*, i.e. `git checkout -- <file>` (an untracked
+  file is removed). Confirmation required.
+- **Git tab: apply blocks when comparing revisions.** When comparing two refs the
+  panes are read-only; a new *↧ Apply against working tree* button switches the
+  right side to your working tree so the ⟲ gutter icon can apply blocks into it.
+
+### Fixed
+
+- Diff revert/redo is reliable now: the block-revert is an in-editor edit and
+  Undo/Redo drive the editor's own history directly.
+
 ## [0.5.0] — 2026-06-03
 
 ### Added
