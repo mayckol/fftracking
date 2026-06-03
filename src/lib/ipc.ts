@@ -36,6 +36,8 @@ export const api = {
     invoke<FileChange[]>("breaking_point_changes", { monitorId, snapshotId }),
   snapshotWorkingChanges: (monitorId: number, snapshotId: number) =>
     invoke<FileChange[]>("snapshot_working_changes", { monitorId, snapshotId }),
+  openPath: (monitorId: number, path: string) => invoke<void>("open_path", { monitorId, path }),
+  revealPath: (monitorId: number, path: string) => invoke<void>("reveal_path", { monitorId, path }),
   baseFile: (monitorId: number, snapshotId: number, path: string) =>
     invoke<string | null>("base_file", { monitorId, snapshotId, path }),
   snapshotSummaries: (monitorId: number) =>

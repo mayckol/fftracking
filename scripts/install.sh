@@ -47,14 +47,18 @@ install_cli() {
   asset="$1"
   cli_dir="$HOME/.local/bin"; mkdir -p "$cli_dir"
   log "downloading $asset"
-  if $DL "$BASE/$asset" > "$cli_dir/fft" 2>/dev/null && [ -s "$cli_dir/fft" ]; then
-    chmod +x "$cli_dir/fft"
-    [ "$os_raw" = "Darwin" ] && xattr -dr com.apple.quarantine "$cli_dir/fft" 2>/dev/null || true
+  # Download beside the target and rename into place: an atomic replace that
+  # succeeds even when the old `fft` is running (a direct `> "$cli_dir/fft"`
+  # truncates a busy binary and fails with "text file busy" on Linux).
+  if $DL "$BASE/$asset" > "$cli_dir/fft.new" 2>/dev/null && [ -s "$cli_dir/fft.new" ]; then
+    chmod +x "$cli_dir/fft.new"
+    [ "$os_raw" = "Darwin" ] && xattr -dr com.apple.quarantine "$cli_dir/fft.new" 2>/dev/null || true
+    mv -f "$cli_dir/fft.new" "$cli_dir/fft"
     log "installed CLI: $cli_dir/fft"
     case ":$PATH:" in *":$cli_dir:"*) : ;; *) log "add $cli_dir to your PATH to use 'fft'" ;; esac
     log "AI agents: register the MCP server with  claude mcp add fftracking -- fft mcp"
   else
-    rm -f "$cli_dir/fft" 2>/dev/null || true
+    rm -f "$cli_dir/fft.new" 2>/dev/null || true
     log "no fft CLI asset for this release ($asset) — skipping"
   fi
 }
@@ -82,8 +86,12 @@ case "$os_raw" in
     BIN_DIR="$PREFIX/bin"; mkdir -p "$BIN_DIR"
     BIN="$BIN_DIR/fftracking"
     log "downloading $ASSET"
-    $DL "$BASE/$ASSET" > "$BIN" || fail "download failed: $BASE/$ASSET"
-    chmod +x "$BIN"
+    # Download to a sibling temp file and atomically rename over the old one, so
+    # updating works while the app is running (writing a busy executable in place
+    # fails with "text file busy" and would force a manual delete first).
+    $DL "$BASE/$ASSET" > "$BIN.new" || { rm -f "$BIN.new"; fail "download failed: $BASE/$ASSET"; }
+    chmod +x "$BIN.new"
+    mv -f "$BIN.new" "$BIN"
     log "installed: $BIN"
 
     # Desktop integration: a .desktop launcher + icon under XDG dirs so the app

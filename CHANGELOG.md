@@ -4,6 +4,26 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.5.0] — 2026-06-03
+
+### Added
+
+- **Keyboard shortcuts, fully rebindable** (Settings → Shortcuts). Click a shortcut
+  and press a new combination (Esc to cancel); bindings persist locally. Covers
+  diff navigation (next/previous change, toggle split/inline, revert the current
+  block), capture & revert (snapshot now, revert file to point), changed-file ops
+  (copy path, copy contents, reveal in file manager, open file), and tab /
+  breaking-point navigation. "Mod" is ⌘ on macOS, Ctrl elsewhere; keys are
+  in-app (active while the window is focused).
+- Changed files can be opened or revealed in the OS file manager.
+
+### Fixed
+
+- **Linux update no longer needs a manual delete.** The installer now downloads
+  beside the existing binary and renames it into place, so re-running
+  `curl … | sh` while the app is running succeeds instead of failing with "text
+  file busy". To update: just re-run the install one-liner.
+
 ## [0.4.6] — 2026-06-03
 
 ### Changed
