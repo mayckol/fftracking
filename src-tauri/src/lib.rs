@@ -61,6 +61,7 @@ pub fn run() {
             commands::changed_files,
             commands::monitor_base_info,
             commands::breaking_point_changes,
+            commands::snapshot_working_changes,
             commands::base_file,
             commands::snapshot_summaries,
             commands::git_reset_file,

@@ -4,6 +4,21 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.4.6] — 2026-06-03
+
+### Changed
+
+- **The Breaking Points view is now true JetBrains-style Local History.** Selecting
+  a breaking point compares it directly with the **current working tree**: the left
+  pane is "🔒 Before · <time>" (the file as captured at that point, read-only) and
+  the right pane is "Current" (your live file, editable). The Changed Files list is
+  the point↔current delta too, so every row opens a real diff.
+- The ⟲ gutter icon restores that block from **Before** into **Current** (undoable
+  with ⌘Z / Ctrl+Z); "Revert file/folder" restores the whole file/folder to the
+  point. Branch/commit comparisons live in the **Git** tab; the History view no
+  longer mixes in a "vs branch" base (git "Reset to branch" actions remain
+  available per file/folder in a repo).
+
 ## [0.4.5] — 2026-06-03
 
 ### Changed

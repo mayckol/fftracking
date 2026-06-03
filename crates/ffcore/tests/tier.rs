@@ -222,3 +222,31 @@ fn user_ignore_glob_hides_path_from_changed_list() {
     );
     assert_eq!(status_of(&after, "src/keep.txt"), Some(ChangeStatus::Modified));
 }
+
+#[test]
+fn snapshot_working_changes_compares_point_to_current() {
+    let data = tempfile::tempdir().unwrap();
+    let proj = tempfile::tempdir().unwrap();
+    let root = proj.path();
+    let engine = Engine::open(data.path()).unwrap();
+
+    let mid = engine.add_monitor(root, 900, "manual").unwrap();
+    write(root, "keep.txt", "v1\n");
+    write(root, "drop_me.txt", "old\n");
+    let point = engine.snapshot_now(mid, "manual").unwrap().unwrap();
+
+    // No edits since the point → nothing differs from current.
+    assert!(engine.snapshot_working_changes(mid, point).unwrap().is_empty());
+
+    // Diverge the working tree from that point: modify, add, delete.
+    write(root, "keep.txt", "v2\n");
+    write(root, "added_after.txt", "new\n");
+    std::fs::remove_file(root.join("drop_me.txt")).unwrap();
+
+    let ch = engine.snapshot_working_changes(mid, point).unwrap();
+    assert_eq!(status_of(&ch, "keep.txt"), Some(ChangeStatus::Modified));
+    // Added since the point (present now, absent at the point).
+    assert_eq!(status_of(&ch, "added_after.txt"), Some(ChangeStatus::Added));
+    // Deleted since the point (present at the point, gone now).
+    assert_eq!(status_of(&ch, "drop_me.txt"), Some(ChangeStatus::Deleted));
+}

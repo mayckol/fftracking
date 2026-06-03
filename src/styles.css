@@ -820,6 +820,33 @@ select:focus {
   min-height: 0;
 }
 
+/* JetBrains-style "Before <ts> / Current" headers over the two diff panes */
+.pane-labels {
+  display: flex;
+  height: 26px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-1);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+.pane-label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--s3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pane-label.before {
+  color: var(--tx-3);
+  border-right: 1px solid var(--line);
+}
+.pane-label.current {
+  color: var(--ac);
+  font-weight: 600;
+}
+
 /* always-visible per-change revert icon in the diff gutter (JetBrains-style) */
 .ff-revert-glyph {
   cursor: pointer;
