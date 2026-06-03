@@ -27,6 +27,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
   const [mode, setMode] = useState<Mode>("before");
   const [inline, setInline] = useState(false);
   const [hunks, setHunks] = useState<HunkInfo[]>([]);
+  const [reload, setReload] = useState(0);
   const diffApi = useRef<DiffHandle>(null);
   const summariesKey = useRef("");
   const diffReq = useRef(0);
@@ -94,7 +95,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
     return () => {
       alive = false;
     };
-  }, [snap, monitorId]);
+  }, [snap, monitorId, reload]);
 
   // Load both sides of the diff + the per-block hunks for the selected file.
   // Hunks come from the displayed (left vs right) diff, so the ⟲ icon appears
@@ -128,6 +129,14 @@ export default function HistoryView({ monitorId, toast }: Props) {
   useEffect(() => {
     loadDiff();
   }, [loadDiff]);
+
+  // When a breaking point / file loads, jump the diff to its first change so the
+  // user lands on what actually changed instead of the top of the file.
+  useEffect(() => {
+    if (snap == null || !file) return;
+    const t = window.setTimeout(() => diffApi.current?.focusFirst(), 180);
+    return () => window.clearTimeout(t);
+  }, [snap, file, mode]);
 
   async function afterRevert(msg: string) {
     toast(msg);
@@ -194,12 +203,14 @@ export default function HistoryView({ monitorId, toast }: Props) {
   }
 
   // Persist an in-diff edit / gutter-revert (vs-now mode) to the working tree.
+  // We update `right` to the value the editor already holds (no model reset, so
+  // native undo/redo survives) and refresh the gutter hunks for the new content.
   async function persistWorking(value: string) {
     if (snap == null || !file) return;
     try {
       await api.writeWorkingFile(monitorId, file, value);
       setRight(value);
-      toast(`Saved ${basename(file)}`);
+      api.textHunks(left, value).then(setHunks).catch(() => {});
       await loadSnaps(snap ?? undefined);
     } catch (e) {
       toast(String(e), true);
@@ -251,17 +262,18 @@ export default function HistoryView({ monitorId, toast }: Props) {
     setDialog(null);
   }
 
-  // Revert one shown change (gutter ⟲) toward the left side, into the tree.
-  async function revertScope(index: number) {
-    if (!file) return;
+  async function ignorePath(path: string, isDir: boolean) {
+    const glob = isDir ? `${path}/**` : path;
     try {
-      await api.applyTextRevert(monitorId, file, left, right, [index]);
-      toast(`Reverted change in ${basename(file)}`);
-      await loadSnaps(snap ?? undefined);
-      // The revert always writes the working tree. In "vs before" the panes show
-      // two past snapshots (unchanged), so switch to "vs now" to show the result.
-      if (mode === "before") setMode("now");
-      else await loadDiff();
+      const cur = await api.getSettings();
+      if (cur.ignore_globs.includes(glob)) {
+        toast(`Already ignoring ${glob}`);
+        return;
+      }
+      await api.setSetting("ignore_globs", [...cur.ignore_globs, glob].join("\n"));
+      toast(`Ignoring ${glob}`);
+      setFile((cur2) => (cur2 === path || (isDir && cur2?.startsWith(`${path}/`)) ? null : cur2));
+      setReload((n) => n + 1);
     } catch (e) {
       toast(String(e), true);
     }
@@ -328,6 +340,8 @@ export default function HistoryView({ monitorId, toast }: Props) {
                 gitBranch={isGit ? base?.branch ?? null : null}
                 onResetFile={isGit ? resetPath : undefined}
                 onResetFolder={isGit ? resetFolderPath : undefined}
+                onIgnoreFile={(p) => ignorePath(p, false)}
+                onIgnoreFolder={(p) => ignorePath(p, true)}
               />
             </div>
           </div>
@@ -365,11 +379,16 @@ export default function HistoryView({ monitorId, toast }: Props) {
               >
                 {inline ? "≣ inline" : "⇆ split"}
               </button>
-              {hunks.length > 0 && (
-                <span className="changecount" title="Click the ⟲ icon in the gutter to revert that block">
-                  {hunks.length} change{hunks.length === 1 ? "" : "s"} · ⟲ in gutter to revert
-                </span>
-              )}
+              {hunks.length > 0 &&
+                (mode === "now" ? (
+                  <span className="changecount" title="Click the ⟲ icon in the gutter to revert a block to this point; ⌘Z / Ctrl+Z to undo">
+                    {hunks.length} change{hunks.length === 1 ? "" : "s"} · ⟲ in gutter to revert · ⌘Z undo
+                  </span>
+                ) : (
+                  <span className="changecount" title="Switch to ‘vs now’ to revert individual blocks into the working tree">
+                    {hunks.length} change{hunks.length === 1 ? "" : "s"} · switch to “vs now” to revert blocks
+                  </span>
+                ))}
               <div className="diff-actions">
                 {isGit && (
                   <>
@@ -397,7 +416,6 @@ export default function HistoryView({ monitorId, toast }: Props) {
               editable={mode === "now"}
               onCommit={persistWorking}
               hunks={hunks}
-              onRevertHunk={revertScope}
               ref={diffApi}
             />
           </>
