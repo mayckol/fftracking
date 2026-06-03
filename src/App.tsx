@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./lib/ipc";
 import { installShortcuts, useShortcut } from "./lib/shortcuts";
+import { isConfirmSuppressed } from "./lib/confirmPrefs";
+import ConfirmModal from "./components/ConfirmModal";
 import type { MonitorRow, ResourceUsage } from "./lib/types";
 import GitView from "./panels/GitView";
 import HistoryView from "./panels/HistoryView";
@@ -89,6 +91,11 @@ export default function App() {
     setConfirmDel(null);
   }
 
+  function askDelete(m: MonitorRow) {
+    if (isConfirmSuppressed("deleteFolder")) deleteFolder(m.id);
+    else setConfirmDel(m);
+  }
+
   async function snapshotNow() {
     if (selected == null) return;
     try {
@@ -113,7 +120,7 @@ export default function App() {
         <div className="brand">
           <span className="dot" />
           fftracking
-          <small>v0.5.1 · build {__BUILD_ID__}</small>
+          <small>v0.5.2 · build {__BUILD_ID__}</small>
         </div>
         <nav className="tabs">
           {(["history", "git", "settings"] as Tab[]).map((t) => (
@@ -150,7 +157,7 @@ export default function App() {
             onSelect={setSelected}
             onAdd={addFolder}
             onToggle={toggleFolder}
-            onDelete={setConfirmDel}
+            onDelete={askDelete}
           />
           {selected != null ? (
             <HistoryView key={selected} monitorId={selected} toast={notify} />
@@ -182,23 +189,20 @@ export default function App() {
       )}
 
       {confirmDel && (
-        <div className="modal-overlay" onClick={() => setConfirmDel(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Delete folder &amp; history</h3>
-            <p>
-              Permanently delete all breaking points for <b>{confirmDel.root_path}</b> and stop
-              tracking it? This cannot be undone. To pause without losing history, use <b>⏸ Stop</b> instead.
-            </p>
-            <div className="modal-actions">
-              <button className="tbtn" onClick={() => setConfirmDel(null)}>
-                Cancel
-              </button>
-              <button className="tbtn danger" onClick={() => deleteFolder(confirmDel.id)}>
-                Delete everything
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title="Delete folder & history"
+          danger
+          suppressId="deleteFolder"
+          message={
+            <>
+              Permanently delete all breaking points for <b>{confirmDel.root_path}</b> and stop tracking
+              it? This cannot be undone. To pause without losing history, use <b>⏸ Stop</b> instead.
+            </>
+          }
+          confirmLabel="Delete everything"
+          onConfirm={() => deleteFolder(confirmDel.id)}
+          onCancel={() => setConfirmDel(null)}
+        />
       )}
 
       {toast && <div className={`toast${toast.error ? " error" : ""}`}>{toast.msg}</div>}

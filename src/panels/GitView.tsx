@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
 import { api, WORKDIR } from "../lib/ipc";
 import { useShortcut } from "../lib/shortcuts";
+import { isConfirmSuppressed } from "../lib/confirmPrefs";
+import ConfirmModal from "../components/ConfirmModal";
 import type { GitFileChange, HunkInfo, RefList, WorkingStatus } from "../lib/types";
 import { basename, langOf } from "../lib/util";
 import ChangedTree from "./ChangedTree";
@@ -529,8 +531,10 @@ export default function GitView({ initialRepo, toast }: Props) {
           <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
             <button
               onClick={() => {
-                setDiscardPath(menu.path);
+                const p = menu.path;
                 setMenu(null);
+                if (isConfirmSuppressed("discardFile")) discardFile(p);
+                else setDiscardPath(p);
               }}
             >
               Discard changes (restore to HEAD)
@@ -548,30 +552,25 @@ export default function GitView({ initialRepo, toast }: Props) {
       )}
 
       {discardPath && (
-        <div className="modal-overlay" onClick={() => setDiscardPath(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Discard changes</h3>
-            <p>
-              Restore <b>{discardPath}</b> to its committed (HEAD) version, discarding your
-              working-tree changes? An untracked file is removed. This is <b>git checkout</b> — it
-              cannot be undone from here.
-            </p>
-            <div className="modal-actions">
-              <button className="tbtn" onClick={() => setDiscardPath(null)}>
-                Cancel
-              </button>
-              <button
-                className="tbtn danger"
-                onClick={() => {
-                  discardFile(discardPath);
-                  setDiscardPath(null);
-                }}
-              >
-                Discard changes
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title="Discard changes"
+          danger
+          suppressId="discardFile"
+          message={
+            <>
+              Restore <b>{discardPath}</b> to its committed (HEAD) version, discarding your working-tree
+              changes? An untracked file is removed. This is <b>git checkout</b> — it cannot be undone
+              from here.
+            </>
+          }
+          confirmLabel="Discard changes"
+          onConfirm={() => {
+            const p = discardPath;
+            setDiscardPath(null);
+            discardFile(p);
+          }}
+          onCancel={() => setDiscardPath(null)}
+        />
       )}
     </>
   );
