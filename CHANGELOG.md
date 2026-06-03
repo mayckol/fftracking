@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.4.5] — 2026-06-03
+
+### Changed
+
+- The diff's right pane is now the **working tree in both compare modes**, so the
+  ⟲ block-revert gutter icon works in the **vs branch / vs previous-point** view
+  too — not only **vs now**. Clicking it restores that block to the left side
+  (the branch HEAD / previous point, or the selected point) in the working tree,
+  undoable with ⌘Z / Ctrl+Z. (There is no "apply into the branch/history"
+  direction — git history and past breaking points are read-only; only restoring
+  into the working tree is meaningful.)
+
 ## [0.4.4] — 2026-06-03
 
 ### Added
