@@ -189,17 +189,23 @@ impl Engine {
         if prev.is_none() {
             return Ok(Vec::new());
         }
-        match self.git_context(monitor_id)? {
+        let s = self.get_settings()?;
+        let root = self.with_db(|db| monitor_root(db, monitor_id))?;
+        let filter = crate::ignore::PathFilter::build(&root, &s.ignore_globs, s.respect_gitignore)?;
+        let changes = match self.git_context(monitor_id)? {
             Some((root, g)) => {
                 let base = self.head_hashes(&root, &g)?;
                 let target = self.target_map(snapshot_id, Some(&g))?;
-                Ok(diff_maps(&base, &target))
+                diff_maps(&base, &target)
             }
-            None => Ok(diff_maps(
+            None => diff_maps(
                 &self.manifest_map(prev.expect("prev is Some here"))?,
                 &self.manifest_map(snapshot_id)?,
-            )),
-        }
+            ),
+        };
+        // Drop files the user globs cover: already-captured snapshots still hold
+        // them, but the changed view must reflect a newly-added ignore rule.
+        Ok(changes.into_iter().filter(|c| !filter.ignored(&c.path)).collect())
     }
 
     /// The base-side content of a file for the breaking point's diff: the git
@@ -234,9 +240,12 @@ impl Engine {
             Some((root, g)) => Some(self.head_hashes(root, g)?),
             None => None,
         };
+        let s = self.get_settings()?;
+        let root = self.with_db(|db| monitor_root(db, monitor_id))?;
+        let filter = crate::ignore::PathFilter::build(&root, &s.ignore_globs, s.respect_gitignore)?;
         let mut out = Vec::with_capacity(ids.len());
         for (i, id) in ids.iter().enumerate() {
-            let changes = if i == 0 {
+            let changes: Vec<FileChange> = if i == 0 {
                 // First point is the baseline → no changes (git or not).
                 Vec::new()
             } else {
@@ -244,6 +253,9 @@ impl Engine {
                     Some(h) => diff_maps(h, &maps[i]),
                     None => diff_maps(&maps[i - 1], &maps[i]),
                 }
+                .into_iter()
+                .filter(|c| !filter.ignored(&c.path))
+                .collect()
             };
             let count = |s: ChangeStatus| changes.iter().filter(|c| c.status == s).count() as i64;
             out.push(ChangeSummary {

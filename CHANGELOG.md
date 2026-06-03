@@ -4,6 +4,33 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.4.4] — 2026-06-03
+
+### Added
+
+- **Ignore a file or folder straight from the changed-files tree.** Right-click a
+  file → *Ignore this file*, or a folder → *Ignore this folder* (adds a
+  `path/**` glob, so nested files like `.serena/nested/*` are covered too). The
+  rule is appended to the ignore globs and the changed list updates immediately —
+  even for files already captured in earlier breaking points.
+
+### Changed
+
+- The per-block revert (⟲ in the diff gutter) now applies as an in-editor edit in
+  the **vs now** view, so it lands in the native undo stack — **⌘Z / Ctrl+Z** undo
+  and redo a block revert. The gutter icon is shown only in the editable vs-now
+  view (where reverting into the working tree is meaningful).
+- Selecting a breaking point now jumps the diff to its **first change** instead of
+  the top of the file.
+- The gutter revert icon is high-contrast and always visible, not only on hover.
+
+### Fixed
+
+- The gutter revert no longer blanks the whole file. In the vs-before view it had
+  written a two-snapshots diff straight to the working tree, which for an added
+  file (a single whole-file block) emptied it; reverts now target the working tree
+  in the vs-now view only.
+
 ## [0.4.3] — 2026-06-03
 
 ### Fixed

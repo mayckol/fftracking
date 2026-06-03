@@ -72,6 +72,8 @@ interface Props {
   gitBranch?: string | null;
   onResetFile?: (path: string) => void;
   onResetFolder?: (prefix: string) => void;
+  onIgnoreFile?: (path: string) => void;
+  onIgnoreFolder?: (prefix: string) => void;
 }
 
 export default function ChangedTree({
@@ -83,6 +85,8 @@ export default function ChangedTree({
   gitBranch,
   onResetFile,
   onResetFolder,
+  onIgnoreFile,
+  onIgnoreFolder,
 }: Props) {
   const tree = useMemo(() => buildTree(changes), [changes]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -116,7 +120,7 @@ export default function ChangedTree({
             style={pad}
             onClick={() => toggle(node.path)}
             onContextMenu={(e) => {
-              if (!onRevertFolder && !onResetFolder) return;
+              if (!onRevertFolder && !onResetFolder && !onIgnoreFolder) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "dir", path: node.path });
             }}
@@ -135,7 +139,7 @@ export default function ChangedTree({
             style={pad}
             onClick={() => onSelect(node.path)}
             onContextMenu={(e) => {
-              if (!onRevertFile && !onResetFile) return;
+              if (!onRevertFile && !onResetFile && !onIgnoreFile) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "file", path: node.path });
             }}
@@ -165,6 +169,9 @@ export default function ChangedTree({
             {menu.kind === "file" && onRevertFile && (
               <button onClick={() => { onRevertFile(menu.path); setMenu(null); }}>Revert this file to point</button>
             )}
+            {menu.kind === "file" && onIgnoreFile && (
+              <button onClick={() => { onIgnoreFile(menu.path); setMenu(null); }}>Ignore this file</button>
+            )}
             {menu.kind === "dir" && onResetFolder && (
               <button onClick={() => { onResetFolder(menu.path); setMenu(null); }}>
                 Reset this folder to {gitBranch ?? "branch"}
@@ -172,6 +179,11 @@ export default function ChangedTree({
             )}
             {menu.kind === "dir" && onRevertFolder && (
               <button onClick={() => { onRevertFolder(menu.path); setMenu(null); }}>Revert this folder to point</button>
+            )}
+            {menu.kind === "dir" && onIgnoreFolder && (
+              <button onClick={() => { onIgnoreFolder(menu.path); setMenu(null); }}>
+                Ignore this folder (<code>{menu.path}/**</code>)
+              </button>
             )}
           </div>
         </>

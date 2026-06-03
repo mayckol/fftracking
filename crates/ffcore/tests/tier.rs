@@ -191,3 +191,34 @@ fn git_ignored_files_excluded_from_branch_diff() {
         "git-ignored file leaked into the vs-branch diff: {ch:?}"
     );
 }
+
+#[test]
+fn user_ignore_glob_hides_path_from_changed_list() {
+    let data = tempfile::tempdir().unwrap();
+    let proj = tempfile::tempdir().unwrap();
+    let root = proj.path();
+    let engine = Engine::open(data.path()).unwrap();
+
+    let mid = engine.add_monitor(root, 900, "manual").unwrap();
+    write(root, "src/keep.txt", "v1\n");
+    let _first = engine.snapshot_now(mid, "manual").unwrap().unwrap();
+
+    write(root, "src/keep.txt", "v2\n");
+    write(root, ".serena/a.json", "{}\n");
+    write(root, ".serena/nested/b.json", "{}\n");
+    let snap = engine.snapshot_now(mid, "manual").unwrap().unwrap();
+
+    let before = engine.breaking_point_changes(mid, snap).unwrap();
+    assert_eq!(status_of(&before, ".serena/a.json"), Some(ChangeStatus::Added));
+    assert_eq!(status_of(&before, ".serena/nested/b.json"), Some(ChangeStatus::Added));
+
+    // Adding a glob for the folder hides it (and everything nested) immediately,
+    // even though the already-captured snapshot still holds those files.
+    engine.set_setting("ignore_globs", ".serena/**").unwrap();
+    let after = engine.breaking_point_changes(mid, snap).unwrap();
+    assert!(
+        after.iter().all(|c| !c.path.starts_with(".serena/")),
+        "ignored folder leaked into changed list: {after:?}"
+    );
+    assert_eq!(status_of(&after, "src/keep.txt"), Some(ChangeStatus::Modified));
+}

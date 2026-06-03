@@ -178,19 +178,6 @@ export default function GitView({ initialRepo, toast }: Props) {
     }
   }
 
-  async function revertHunk(index: number) {
-    if (!repo || !file) return;
-    try {
-      await api.gitRevertHunks(repo, from, to, file, [index]);
-      toast(`Applied ${from} version of a block to working tree`);
-      if (to === WORKDIR) setRight((await api.gitFile(repo, to, file)) ?? "");
-      setHunks(await api.gitFileHunks(repo, from, to, file));
-      if (mode === "commit") dropFileIfClean(await loadStatus(repo));
-    } catch (e) {
-      toast(String(e), true);
-    }
-  }
-
   async function persistWorking(value: string) {
     if (!repo || !file) return;
     try {
@@ -456,7 +443,6 @@ export default function GitView({ initialRepo, toast }: Props) {
             editable={to === WORKDIR}
             onCommit={persistWorking}
             hunks={hunks}
-            onRevertHunk={revertHunk}
             ref={diffApi}
           />
         </div>

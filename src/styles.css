@@ -834,15 +834,17 @@ select:focus {
   margin-top: 1px;
   border-radius: 4px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1;
-  color: var(--ac);
-  background: var(--ac-glow);
-  border: 1px solid var(--ac-dim);
-}
-.ff-revert-glyph:hover::after {
+  /* Always high-contrast (not hover-only): solid accent chip, dark glyph. */
   color: #0a0c10;
   background: var(--ac);
+  border: 1px solid var(--ac);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+.ff-revert-glyph:hover::after {
+  filter: brightness(1.18);
+  transform: scale(1.08);
 }
 
 /* per-scope revert toolbar (JetBrains-style change-block reverts) */

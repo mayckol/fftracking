@@ -6,6 +6,7 @@ import { defineTheme, THEME } from "./monacoTheme";
 
 export interface DiffHandle {
   navigate: (dir: "next" | "prev") => void;
+  focusFirst: () => void;
 }
 
 interface Props {
@@ -17,14 +18,13 @@ interface Props {
   onCommit?: (value: string) => void;
   /** Backend hunks; each gets an always-visible revert icon in the gutter. */
   hunks?: HunkInfo[];
-  onRevertHunk?: (index: number) => void;
   /** Which side the right/modified pane shows: false = current/working
    *  (hunk old_*), true = the target/point (hunk new_*). */
   targetSide?: boolean;
 }
 
 const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
-  { original, modified, language, inline = false, editable = false, onCommit, hunks = [], onRevertHunk, targetSide = false },
+  { original, modified, language, inline = false, editable = false, onCommit, hunks = [], targetSide = false },
   ref,
 ) {
   const modifiedRef = useRef(modified);
@@ -35,19 +35,28 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
   const decoRef = useRef<string[]>([]);
   const navRef = useRef(-1);
 
+  function reveal(idx: number, focus: boolean) {
+    const diff = diffRef.current;
+    const changes = diff?.getLineChanges() ?? [];
+    if (!diff || changes.length === 0) return;
+    navRef.current = idx;
+    const c = changes[idx];
+    const line = c.modifiedStartLineNumber > 0 ? c.modifiedStartLineNumber : c.modifiedEndLineNumber || 1;
+    const me = diff.getModifiedEditor();
+    me.revealLineNearTop(line);
+    me.setPosition({ lineNumber: line, column: 1 });
+    if (focus) me.focus();
+  }
+
   useImperativeHandle(ref, () => ({
     navigate(dir) {
-      const diff = diffRef.current;
-      const changes = diff?.getLineChanges() ?? [];
-      if (!diff || changes.length === 0) return;
+      const changes = diffRef.current?.getLineChanges() ?? [];
       const n = changes.length;
-      navRef.current = dir === "next" ? (navRef.current + 1) % n : (navRef.current - 1 + n) % n;
-      const c = changes[navRef.current];
-      const line = c.modifiedStartLineNumber > 0 ? c.modifiedStartLineNumber : c.modifiedEndLineNumber || 1;
-      const me = diff.getModifiedEditor();
-      me.revealLineNearTop(line);
-      me.setPosition({ lineNumber: line, column: 1 });
-      me.focus();
+      if (n === 0) return;
+      reveal(dir === "next" ? (navRef.current + 1) % n : (navRef.current - 1 + n) % n, true);
+    },
+    focusFirst() {
+      reveal(0, false);
     },
   }));
 
@@ -57,12 +66,35 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
     return Math.max(1, (targetSide ? h.new_start : h.old_start) + 1);
   }
 
+  // Restores one block of the modified (working) pane to the original (point)
+  // side via an editor edit — so it lands in the native undo stack (Cmd+Z /
+  // redo) and only touches that block, never blanking the file.
+  function revertHunk(h: HunkInfo) {
+    const diff = diffRef.current;
+    const monaco = monacoRef.current;
+    if (!diff || !monaco) return;
+    const orig = diff.getOriginalEditor().getModel();
+    if (!orig) return;
+    const repl =
+      h.new_len > 0
+        ? orig.getValueInRange(new monaco.Range(h.new_start + 1, 1, h.new_start + h.new_len + 1, 1))
+        : "";
+    const range = new monaco.Range(h.old_start + 1, 1, h.old_start + h.old_len + 1, 1);
+    const me = diff.getModifiedEditor();
+    me.executeEdits("ff-revert", [{ range, text: repl, forceMoveMarkers: true }]);
+    me.focus();
+  }
+
   function applyDecorations() {
     const diff = diffRef.current;
     const monaco = monacoRef.current;
     if (!diff || !monaco) return;
     const me = diff.getModifiedEditor();
-    const decos = hunksRef.current.map((h) => ({
+    // The ⟲ block-revert only makes sense against the working tree (editable
+    // "vs now"); in read-only "vs before" the panes are two past snapshots, so
+    // show no revert glyphs there.
+    const visible = editable ? hunksRef.current : [];
+    const decos = visible.map((h) => ({
       range: new monaco.Range(lineOf(h), 1, lineOf(h), 1),
       options: {
         glyphMarginClassName: "ff-revert-glyph",
@@ -82,16 +114,19 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
     diffRef.current = diff;
     monacoRef.current = monaco;
     // Force layout — without it the original pane can mount at ~0 width.
-    window.setTimeout(() => diff.layout(), 0);
+    window.setTimeout(() => {
+      diff.layout();
+      reveal(0, false);
+    }, 0);
     applyDecorations();
 
     const me = diff.getModifiedEditor();
     me.onMouseDown((e) => {
-      if (!onRevertHunk) return;
+      if (!editable) return;
       if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && e.target.position) {
         const ln = e.target.position.lineNumber;
         const hit = hunksRef.current.find((h) => lineOf(h) === ln);
-        if (hit) onRevertHunk(hit.index);
+        if (hit) revertHunk(hit);
       }
     });
 
