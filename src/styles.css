@@ -119,16 +119,35 @@ button {
   color: inherit;
 }
 
-input,
+input:not([type="checkbox"]):not([type="radio"]),
 select {
+  /* Strip native chrome so our dark colors actually apply in the webview
+     (otherwise the control + its option list render white-on-white). Checkboxes
+     keep their native rendering so they stay visible. */
+  appearance: none;
+  -webkit-appearance: none;
   font-family: var(--ui);
   font-size: var(--fs-sm);
   color: var(--tx-0);
-  background: var(--bg-0);
+  background-color: var(--bg-2);
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
   padding: 5px 8px;
   outline: none;
+}
+/* Dropdown gets a caret and room for it. */
+select {
+  padding-right: 24px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M1 1l4 4 4-4' fill='none' stroke='%239aa7b4' stroke-width='1.5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+/* The popup list: force readable dark rows (the webview otherwise inherits the
+   light option text onto a white menu). */
+select option,
+select optgroup {
+  background-color: var(--bg-1);
+  color: var(--tx-0);
 }
 input:focus,
 select:focus {

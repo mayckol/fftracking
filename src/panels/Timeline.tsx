@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { ChangeSummary, SnapshotRow } from "../lib/types";
 import { dayLabel, fmtTime } from "../lib/util";
 
@@ -9,9 +9,19 @@ interface Props {
   onSelect: (id: number) => void;
   onDelete: (id: number) => void;
   onLabel: (id: number, current: string | null) => void;
+  onRevertAll: (id: number) => void;
 }
 
-export default function Timeline({ snapshots, summaries, selected, onSelect, onDelete, onLabel }: Props) {
+export default function Timeline({
+  snapshots,
+  summaries,
+  selected,
+  onSelect,
+  onDelete,
+  onLabel,
+  onRevertAll,
+}: Props) {
+  const [menu, setMenu] = useState<{ x: number; y: number; id: number; label: string | null } | null>(null);
   const groups = useMemo(() => {
     const out: { day: string; rows: SnapshotRow[] }[] = [];
     for (const s of snapshots) {
@@ -44,6 +54,10 @@ export default function Timeline({ snapshots, summaries, selected, onSelect, onD
               className={`bp${selected === s.id ? " on" : ""}`}
               style={{ animationDelay: `${Math.min(i, 12) * 18}ms` }}
               onClick={() => onSelect(s.id)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ x: e.clientX, y: e.clientY, id: s.id, label: s.label });
+              }}
             >
               <div className="rail">
                 <span className="node" />
@@ -94,6 +108,45 @@ export default function Timeline({ snapshots, summaries, selected, onSelect, onD
           ))}
         </div>
       ))}
+      {menu && (
+        <>
+          <div
+            className="ctx-backdrop"
+            onClick={() => setMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu(null);
+            }}
+          />
+          <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
+            <button
+              onClick={() => {
+                onRevertAll(menu.id);
+                setMenu(null);
+              }}
+            >
+              Revert everything to this point
+            </button>
+            <button
+              onClick={() => {
+                onLabel(menu.id, menu.label);
+                setMenu(null);
+              }}
+            >
+              {menu.label ? "Edit label" : "Add label"}
+            </button>
+            <button
+              className="danger"
+              onClick={() => {
+                onDelete(menu.id);
+                setMenu(null);
+              }}
+            >
+              Delete this breaking point
+            </button>
+          </div>
+        </>
+      )}
     </>
   );
 }

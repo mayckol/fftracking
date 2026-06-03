@@ -4,6 +4,24 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.5.2] — 2026-06-03
+
+### Added
+
+- **Revert the whole folder to a breaking point from the timeline.** Right-click a
+  breaking point → *Revert everything to this point* — restores the entire folder
+  to that snapshot (modified files reverted, deleted recreated, files added since
+  removed). A safety breaking point is captured first.
+- **Confirmation dialogs now have "Don't show this again".** Applies to delete
+  folder, discard file, folder revert/reset, and revert-everything; the choice is
+  remembered locally and those actions then run without prompting.
+
+### Fixed
+
+- **Unreadable dropdowns in the Git tab.** The branch/commit `<select>` controls
+  and their option lists rendered white-on-white in the webview; they now use the
+  app's dark styling with a visible caret.
+
 ## [0.5.1] — 2026-06-03
 
 ### Added

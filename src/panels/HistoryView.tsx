@@ -4,6 +4,8 @@ import { api } from "../lib/ipc";
 import type { BaseInfo, ChangeSummary, FileChange, HunkInfo, SnapshotRow } from "../lib/types";
 import { basename, dayLabel, dirname, fmtTime, langOf } from "../lib/util";
 import { useShortcut } from "../lib/shortcuts";
+import { isConfirmSuppressed } from "../lib/confirmPrefs";
+import ConfirmModal from "../components/ConfirmModal";
 import ChangedTree from "./ChangedTree";
 import Timeline from "./Timeline";
 
@@ -24,6 +26,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
   const [inline, setInline] = useState(false);
   const [hunks, setHunks] = useState<HunkInfo[]>([]);
   const [reload, setReload] = useState(0);
+  const [revertAllId, setRevertAllId] = useState<number | null>(null);
   const diffApi = useRef<DiffHandle>(null);
   const summariesKey = useRef("");
   const diffReq = useRef(0);
@@ -148,7 +151,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
 
   function revertFolder() {
     if (snap == null || !file) return;
-    setDialog({ kind: "folder", prefix: dirname(file).replace(/\/$/, ""), remove: false, target: "point" });
+    openFolder("point", dirname(file).replace(/\/$/, ""));
   }
 
   async function resetFile() {
@@ -163,7 +166,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
 
   function resetFolder() {
     if (!file) return;
-    setDialog({ kind: "folder", prefix: dirname(file).replace(/\/$/, ""), remove: false, target: "branch" });
+    openFolder("branch", dirname(file).replace(/\/$/, ""));
   }
 
   async function resetPath(path: string) {
@@ -176,7 +179,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
   }
 
   function resetFolderPath(prefix: string) {
-    setDialog({ kind: "folder", prefix, remove: false, target: "branch" });
+    openFolder("branch", prefix);
   }
 
   async function deleteSnap(id: number) {
@@ -216,7 +219,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
   }
 
   function revertFolderPath(prefix: string) {
-    setDialog({ kind: "folder", prefix, remove: false, target: "point" });
+    openFolder("point", prefix);
   }
 
   function labelSnap(id: number, current: string | null) {
@@ -234,20 +237,26 @@ export default function HistoryView({ monitorId, toast }: Props) {
     setDialog(null);
   }
 
-  async function applyFolderRevert() {
-    if (dialog?.kind !== "folder" || snap == null) return;
+  async function runFolder(target: "point" | "branch", prefix: string, remove: boolean) {
+    if (snap == null) return;
     try {
-      if (dialog.target === "branch") {
-        await api.gitResetFolder(monitorId, dialog.prefix, dialog.remove);
-        await afterRevert(`Reset folder ${dialog.prefix || "/"} to ${base?.branch ?? "branch"}`);
+      if (target === "branch") {
+        await api.gitResetFolder(monitorId, prefix, remove);
+        await afterRevert(`Reset folder ${prefix || "/"} to ${base?.branch ?? "branch"}`);
       } else {
-        await api.revertFolder(snap, dialog.prefix, dialog.remove);
-        await afterRevert(`Reverted folder ${dialog.prefix || "/"} to this point`);
+        await api.revertFolder(snap, prefix, remove);
+        await afterRevert(`Reverted folder ${prefix || "/"} to this point`);
       }
     } catch (e) {
       toast(String(e), true);
     }
-    setDialog(null);
+  }
+
+  const folderKey = (t: "point" | "branch") => (t === "branch" ? "resetFolder" : "revertFolder");
+
+  function openFolder(target: "point" | "branch", prefix: string) {
+    if (isConfirmSuppressed(folderKey(target))) runFolder(target, prefix, false);
+    else setDialog({ kind: "folder", prefix, remove: false, target });
   }
 
   async function ignorePath(path: string, isDir: boolean) {
@@ -265,6 +274,25 @@ export default function HistoryView({ monitorId, toast }: Props) {
     } catch (e) {
       toast(String(e), true);
     }
+  }
+
+  async function doRevertAll(id: number) {
+    try {
+      // Whole monitor root, mirror the point exactly (delete files added since).
+      await api.revertFolder(id, "", true);
+      setSnap(id);
+      await loadSnaps(id);
+      setReload((n) => n + 1);
+      await loadDiff();
+      toast("Reverted everything to this breaking point");
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  function askRevertAll(id: number) {
+    if (isConfirmSuppressed("revertAll")) doRevertAll(id);
+    else setRevertAllId(id);
   }
 
   function gotoPoint(delta: number) {
@@ -348,6 +376,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
                 onSelect={setSnap}
                 onDelete={deleteSnap}
                 onLabel={labelSnap}
+                onRevertAll={askRevertAll}
               />
             </div>
           </div>
@@ -493,21 +522,23 @@ export default function HistoryView({ monitorId, toast }: Props) {
       )}
 
       {dialog?.kind === "folder" && (
-        <div className="modal-overlay" onClick={() => setDialog(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>{dialog.target === "branch" ? "Reset folder to branch" : "Revert folder"}</h3>
-            <p>
-              {dialog.target === "branch" ? (
-                <>
-                  Restore everything under <b>{dialog.prefix || "/"}</b> to its version on{" "}
-                  <b>{base?.branch ?? "the current branch"}</b>.
-                </>
-              ) : (
-                <>
-                  Restore everything under <b>{dialog.prefix || "/"}</b> to this breaking point.
-                </>
-              )}
-            </p>
+        <ConfirmModal
+          title={dialog.target === "branch" ? "Reset folder to branch" : "Revert folder"}
+          danger
+          suppressId={folderKey(dialog.target)}
+          message={
+            dialog.target === "branch" ? (
+              <>
+                Restore everything under <b>{dialog.prefix || "/"}</b> to its version on{" "}
+                <b>{base?.branch ?? "the current branch"}</b>.
+              </>
+            ) : (
+              <>
+                Restore everything under <b>{dialog.prefix || "/"}</b> to this breaking point.
+              </>
+            )
+          }
+          extra={
             <label className="modal-check">
               <input
                 type="checkbox"
@@ -518,16 +549,37 @@ export default function HistoryView({ monitorId, toast }: Props) {
                 ? "Also delete files not committed on the branch"
                 : "Also delete files that did not exist at this point"}
             </label>
-            <div className="modal-actions">
-              <button className="tbtn" onClick={() => setDialog(null)}>
-                Cancel
-              </button>
-              <button className="tbtn primary" onClick={applyFolderRevert}>
-                {dialog.target === "branch" ? "Reset folder" : "Revert folder"}
-              </button>
-            </div>
-          </div>
-        </div>
+          }
+          confirmLabel={dialog.target === "branch" ? "Reset folder" : "Revert folder"}
+          onConfirm={() => {
+            const { target, prefix, remove } = dialog;
+            setDialog(null);
+            runFolder(target, prefix, remove);
+          }}
+          onCancel={() => setDialog(null)}
+        />
+      )}
+
+      {revertAllId != null && (
+        <ConfirmModal
+          title="Revert everything to this point"
+          danger
+          suppressId="revertAll"
+          message={
+            <>
+              Restore the entire folder to this breaking point — modified files are reverted, deleted
+              files recreated, and files created since this point are removed. A safety breaking point
+              is captured first, so you can undo this.
+            </>
+          }
+          confirmLabel="Revert everything"
+          onConfirm={() => {
+            const id = revertAllId;
+            setRevertAllId(null);
+            doRevertAll(id);
+          }}
+          onCancel={() => setRevertAllId(null)}
+        />
       )}
     </>
   );
