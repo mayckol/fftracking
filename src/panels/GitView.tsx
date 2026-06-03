@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
 import { api, WORKDIR } from "../lib/ipc";
+import { useShortcut } from "../lib/shortcuts";
 import type { GitFileChange, HunkInfo, RefList, WorkingStatus } from "../lib/types";
 import { basename, langOf } from "../lib/util";
 import ChangedTree from "./ChangedTree";
@@ -31,6 +32,8 @@ export default function GitView({ initialRepo, toast }: Props) {
   const [conflictFile, setConflictFile] = useState<string | null>(null);
   const [inline, setInline] = useState(false);
   const [hunks, setHunks] = useState<HunkInfo[]>([]);
+  const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  const [discardPath, setDiscardPath] = useState<string | null>(null);
   const diffApi = useRef<DiffHandle>(null);
   const statusReq = useRef(0);
 
@@ -190,6 +193,26 @@ export default function GitView({ initialRepo, toast }: Props) {
     }
   }
 
+  async function discardFile(path: string) {
+    if (!repo) return;
+    try {
+      await api.gitDiscardFile(repo, path);
+      toast(`Discarded changes in ${basename(path)}`);
+      dropFileIfClean(await loadStatus(repo));
+      if (file === path) setFile(null);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  const editable = to === WORKDIR;
+  useShortcut("diff.next", () => diffApi.current?.navigate("next"), !!file);
+  useShortcut("diff.prev", () => diffApi.current?.navigate("prev"), !!file);
+  useShortcut("diff.layout", () => setInline((v) => !v), !!file);
+  useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), !!file && editable);
+  useShortcut("diff.undo", () => diffApi.current?.undo(), !!file && editable);
+  useShortcut("diff.redo", () => diffApi.current?.redo(), !!file && editable);
+
   const refOptions = (includeWorkdir: boolean) => (
     <>
       {includeWorkdir && <option value={WORKDIR}>Working tree</option>}
@@ -222,6 +245,10 @@ export default function GitView({ initialRepo, toast }: Props) {
       key={(staged ? "s:" : "u:") + f.path}
       className={`frow${file === f.path ? " on" : ""}`}
       onClick={() => openWorkingFile(f.path)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu({ x: e.clientX, y: e.clientY, path: f.path });
+      }}
       title={f.path}
     >
       <span className={`stat ${f.status}`}>{GLYPH[f.status]}</span>
@@ -405,12 +432,39 @@ export default function GitView({ initialRepo, toast }: Props) {
             <button className="tbtn" title="Next change" onClick={() => diffApi.current?.navigate("next")}>
               ↓
             </button>
+            {editable && (
+              <>
+                <button className="tbtn" title="Undo (in this diff)" onClick={() => diffApi.current?.undo()}>
+                  ↶
+                </button>
+                <button className="tbtn" title="Redo (in this diff)" onClick={() => diffApi.current?.redo()}>
+                  ↷
+                </button>
+              </>
+            )}
             <span className="vs">
               {from} → {to === WORKDIR ? "working tree" : to}
             </span>
+            {mode === "compare" && to !== WORKDIR && (
+              <button
+                className="tbtn"
+                title={`Compare ${from} against your working tree so you can apply its blocks into it`}
+                onClick={() => setTo(WORKDIR)}
+              >
+                ↧ Apply against working tree
+              </button>
+            )}
             {hunks.length > 0 && (
-              <span className="changecount" title={`Click ⟲ in the gutter to apply the ${from} version of a block to the working tree`}>
-                {hunks.length} change{hunks.length === 1 ? "" : "s"} · ⟲ applies {from} → working
+              <span
+                className="changecount"
+                title={
+                  to === WORKDIR
+                    ? `Click ⟲ in the gutter to apply the ${from} version of a block to the working tree; ⌘Z / Ctrl+Z to undo`
+                    : "Both sides are read-only revisions. Switch the right side to your working tree (↧) to apply blocks."
+                }
+              >
+                {hunks.length} change{hunks.length === 1 ? "" : "s"}
+                {to === WORKDIR ? ` · ⟲ applies ${from} → working · ⌘Z undo` : " · read-only (↧ to apply)"}
               </span>
             )}
             {mode === "commit" && file && (
@@ -458,6 +512,64 @@ export default function GitView({ initialRepo, toast }: Props) {
                   ? "Stage files with +, review the diff, write a message, and commit. Conflicts from an in-progress merge show up on top."
                   : "Pick two refs above and hit Compare."}
             </p>
+          </div>
+        </div>
+      )}
+
+      {menu && (
+        <>
+          <div
+            className="ctx-backdrop"
+            onClick={() => setMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu(null);
+            }}
+          />
+          <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
+            <button
+              onClick={() => {
+                setDiscardPath(menu.path);
+                setMenu(null);
+              }}
+            >
+              Discard changes (restore to HEAD)
+            </button>
+            <button
+              onClick={() => {
+                openWorkingFile(menu.path);
+                setMenu(null);
+              }}
+            >
+              Open diff
+            </button>
+          </div>
+        </>
+      )}
+
+      {discardPath && (
+        <div className="modal-overlay" onClick={() => setDiscardPath(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Discard changes</h3>
+            <p>
+              Restore <b>{discardPath}</b> to its committed (HEAD) version, discarding your
+              working-tree changes? An untracked file is removed. This is <b>git checkout</b> — it
+              cannot be undone from here.
+            </p>
+            <div className="modal-actions">
+              <button className="tbtn" onClick={() => setDiscardPath(null)}>
+                Cancel
+              </button>
+              <button
+                className="tbtn danger"
+                onClick={() => {
+                  discardFile(discardPath);
+                  setDiscardPath(null);
+                }}
+              >
+                Discard changes
+              </button>
+            </div>
           </div>
         </div>
       )}

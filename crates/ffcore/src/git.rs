@@ -437,6 +437,28 @@ pub fn write_working(repo_path: &Path, path: &str, content: &str) -> Result<()> 
     Ok(())
 }
 
+/// Discards working-tree changes to one file, restoring its committed (HEAD)
+/// version — like `git checkout -- <file>`. A file with no HEAD version (newly
+/// added / untracked) is removed.
+pub fn discard_file(repo_path: &Path, path: &str) -> Result<()> {
+    let repo = open(repo_path)?;
+    let dest = workdir_path(&repo, path)?;
+    match file_at_rev(repo_path, "HEAD", path)? {
+        Some(content) => {
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(dest, content)?;
+        }
+        None => {
+            if dest.exists() {
+                std::fs::remove_file(dest)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Paths with unresolved merge conflicts (index conflict stages). Empty when no
 /// merge is in progress. The on-disk file for each still contains the
 /// `<<<<<<< / ======= / >>>>>>>` markers, read via [`file_at_rev`] with `WORKDIR`.
