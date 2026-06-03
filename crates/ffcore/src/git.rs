@@ -143,6 +143,21 @@ pub fn head_files(repo_path: &Path, prefix: &str, filter: &crate::ignore::PathFi
     Ok(out)
 }
 
+/// Which of `rels` (monitor-relative file paths) git ignores. fftracking tracks
+/// git-ignored files for its own local history, but the vs-branch comparison
+/// must not flag them as additions against the branch — they were never meant
+/// to be committed. Tracked files are never reported ignored.
+pub fn ignored_set(repo_path: &Path, prefix: &str, rels: &[String]) -> Result<std::collections::HashSet<String>> {
+    let repo = open(repo_path)?;
+    let mut out = std::collections::HashSet::new();
+    for rel in rels {
+        if repo.is_path_ignored(join_prefix(prefix, rel)).unwrap_or(false) {
+            out.insert(rel.clone());
+        }
+    }
+    Ok(out)
+}
+
 /// Bytes of a single monitor-relative path as committed in HEAD, or `None` when
 /// HEAD has no such file (or no commits yet).
 pub fn head_blob_at(repo_path: &Path, prefix: &str, rel: &str) -> Result<Option<Vec<u8>>> {

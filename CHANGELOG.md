@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.4.3] — 2026-06-03
+
+### Fixed
+
+- **Adding a git project no longer floods the first breaking point with files.**
+  In a git repo, the vs-branch comparison now ignores git-ignored files (e.g.
+  `.env`, `coverage.*`, tool dirs) — fftracking still keeps their local history,
+  but they're no longer shown as "added vs branch". The first breaking point is
+  also treated as a clean baseline for git repos (matching non-git behavior).
+- The release workflow publishes the Homebrew cask via the GitHub Contents API
+  instead of a token-in-URL `git push` (which fine-grained PATs reject).
+
 ## [0.4.2] — 2026-06-03
 
 ### Fixed
