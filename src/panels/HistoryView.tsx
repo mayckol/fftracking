@@ -98,8 +98,11 @@ export default function HistoryView({ monitorId, toast }: Props) {
   }, [snap, monitorId, reload]);
 
   // Load both sides of the diff + the per-block hunks for the selected file.
-  // Hunks come from the displayed (left vs right) diff, so the ⟲ icon appears
-  // on every shown change and reverts that block toward the left side.
+  // The RIGHT pane is always the working tree (editable), so the ⟲ gutter icon
+  // works in both modes: it restores that block to the LEFT side — the branch
+  // (HEAD) / previous point in "vs base", or the selected point in "vs now".
+  // Acting only on the working tree (never on two historical snapshots) is what
+  // keeps a block revert from blanking the whole file.
   const loadDiff = useCallback(async () => {
     // Monotonic token: a slower in-flight load must not clobber the panes (and
     // the hunk indices that drive gutter-revert) of a newer selection.
@@ -110,15 +113,11 @@ export default function HistoryView({ monitorId, toast }: Props) {
       setHunks([]);
       return;
     }
-    let l = "";
-    let r = "";
-    if (mode === "before") {
-      l = (await api.baseFile(monitorId, snap, file)) ?? "";
-      r = (await api.fileAt(snap, file)) ?? "";
-    } else {
-      l = (await api.fileAt(snap, file)) ?? "";
-      r = (await api.workingFile(monitorId, file)) ?? "";
-    }
+    const l =
+      mode === "before"
+        ? (await api.baseFile(monitorId, snap, file)) ?? ""
+        : (await api.fileAt(snap, file)) ?? "";
+    const r = (await api.workingFile(monitorId, file)) ?? "";
     const hk = await api.textHunks(l, r);
     if (req !== diffReq.current) return;
     setLeft(l);
@@ -141,11 +140,8 @@ export default function HistoryView({ monitorId, toast }: Props) {
   async function afterRevert(msg: string) {
     toast(msg);
     await loadSnaps(snap ?? undefined);
-    // The revert writes the working tree. In "vs before" the panes show the base
-    // vs the point (neither is the tree), so switch to "vs now" to show the
-    // result; in "vs now" reload the right pane in place.
-    if (mode === "before") setMode("now");
-    else await loadDiff();
+    // The right pane is the working tree in both modes, so just reload it.
+    await loadDiff();
   }
 
   async function revertFile() {
@@ -379,16 +375,16 @@ export default function HistoryView({ monitorId, toast }: Props) {
               >
                 {inline ? "≣ inline" : "⇆ split"}
               </button>
-              {hunks.length > 0 &&
-                (mode === "now" ? (
-                  <span className="changecount" title="Click the ⟲ icon in the gutter to revert a block to this point; ⌘Z / Ctrl+Z to undo">
-                    {hunks.length} change{hunks.length === 1 ? "" : "s"} · ⟲ in gutter to revert · ⌘Z undo
-                  </span>
-                ) : (
-                  <span className="changecount" title="Switch to ‘vs now’ to revert individual blocks into the working tree">
-                    {hunks.length} change{hunks.length === 1 ? "" : "s"} · switch to “vs now” to revert blocks
-                  </span>
-                ))}
+              {hunks.length > 0 && (
+                <span
+                  className="changecount"
+                  title={`Click the ⟲ icon in the gutter to restore that block to ${
+                    mode === "now" ? "this point" : isGit ? base?.branch ?? "the branch" : "the previous point"
+                  }; ⌘Z / Ctrl+Z to undo`}
+                >
+                  {hunks.length} change{hunks.length === 1 ? "" : "s"} · ⟲ in gutter to revert · ⌘Z undo
+                </span>
+              )}
               <div className="diff-actions">
                 {isGit && (
                   <>
@@ -413,7 +409,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
               modified={right}
               language={langOf(file)}
               inline={inline}
-              editable={mode === "now"}
+              editable
               onCommit={persistWorking}
               hunks={hunks}
               ref={diffApi}
