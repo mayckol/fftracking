@@ -7,6 +7,7 @@ import { defineTheme, THEME } from "./monacoTheme";
 export interface DiffHandle {
   navigate: (dir: "next" | "prev") => void;
   focusFirst: () => void;
+  revertCurrent: () => void;
 }
 
 interface Props {
@@ -57,6 +58,17 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
     },
     focusFirst() {
       reveal(0, false);
+    },
+    revertCurrent() {
+      const diff = diffRef.current;
+      if (!diff || hunksRef.current.length === 0) return;
+      const line = diff.getModifiedEditor().getPosition()?.lineNumber ?? 1;
+      // The block whose start is nearest the cursor (so a keyboard revert acts on
+      // the change you navigated to).
+      const hit = hunksRef.current.reduce((best, h) =>
+        Math.abs(lineOf(h) - line) < Math.abs(lineOf(best) - line) ? h : best,
+      );
+      revertHunk(hit);
     },
   }));
 

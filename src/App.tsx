@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./lib/ipc";
+import { installShortcuts, useShortcut } from "./lib/shortcuts";
 import type { MonitorRow, ResourceUsage } from "./lib/types";
 import GitView from "./panels/GitView";
 import HistoryView from "./panels/HistoryView";
@@ -100,13 +101,19 @@ export default function App() {
 
   const selectedMonitor = monitors.find((m) => m.id === selected) ?? null;
 
+  useEffect(installShortcuts, []);
+  useShortcut("nav.history", () => setTab("history"));
+  useShortcut("nav.git", () => setTab("git"));
+  useShortcut("nav.settings", () => setTab("settings"));
+  useShortcut("capture.snapshot", snapshotNow, tab === "history" && selected != null);
+
   return (
     <div className="app">
       <header className="titlebar">
         <div className="brand">
           <span className="dot" />
           fftracking
-          <small>v0.4.6 · build {__BUILD_ID__}</small>
+          <small>v0.5.0 · build {__BUILD_ID__}</small>
         </div>
         <nav className="tabs">
           {(["history", "git", "settings"] as Tab[]).map((t) => (

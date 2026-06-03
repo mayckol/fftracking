@@ -3,6 +3,7 @@ import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
 import { api } from "../lib/ipc";
 import type { BaseInfo, ChangeSummary, FileChange, HunkInfo, SnapshotRow } from "../lib/types";
 import { basename, dayLabel, dirname, fmtTime, langOf } from "../lib/util";
+import { useShortcut } from "../lib/shortcuts";
 import ChangedTree from "./ChangedTree";
 import Timeline from "./Timeline";
 
@@ -265,6 +266,49 @@ export default function HistoryView({ monitorId, toast }: Props) {
       toast(String(e), true);
     }
   }
+
+  function gotoPoint(delta: number) {
+    if (snaps.length === 0) return;
+    const idx = snaps.findIndex((s) => s.id === snap);
+    const next = Math.min(snaps.length - 1, Math.max(0, (idx < 0 ? 0 : idx) + delta));
+    setSnap(snaps[next].id);
+  }
+
+  async function copyToClipboard(text: string, what: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(`Copied ${what}`);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  useShortcut("diff.next", () => diffApi.current?.navigate("next"), !!file);
+  useShortcut("diff.prev", () => diffApi.current?.navigate("prev"), !!file);
+  useShortcut("diff.layout", () => setInline((v) => !v), !!file);
+  useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), !!file);
+  useShortcut("revert.file", revertFile, !!file);
+  useShortcut("file.copyPath", () => file && copyToClipboard(file, "path"), !!file);
+  useShortcut(
+    "file.copyContent",
+    async () => {
+      if (!file) return;
+      copyToClipboard((await api.workingFile(monitorId, file)) ?? "", basename(file));
+    },
+    !!file,
+  );
+  useShortcut(
+    "file.reveal",
+    () => file && api.revealPath(monitorId, file).catch((e) => toast(String(e), true)),
+    !!file,
+  );
+  useShortcut(
+    "file.open",
+    () => file && api.openPath(monitorId, file).catch((e) => toast(String(e), true)),
+    !!file,
+  );
+  useShortcut("nav.nextPoint", () => gotoPoint(1));
+  useShortcut("nav.prevPoint", () => gotoPoint(-1));
 
   if (snaps.length === 0) {
     return (

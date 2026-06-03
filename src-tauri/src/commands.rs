@@ -100,6 +100,34 @@ pub fn snapshot_working_changes(state: State<AppState>, monitor_id: i64, snapsho
     err(state.engine.snapshot_working_changes(monitor_id, snapshot_id))
 }
 
+fn abs_path(state: &State<AppState>, monitor_id: i64, path: &str) -> R<PathBuf> {
+    Ok(PathBuf::from(err(state.engine.monitor_root_path(monitor_id))?).join(path))
+}
+
+/// Opens a working-tree file with the OS default application.
+#[tauri::command]
+pub fn open_path(state: State<AppState>, monitor_id: i64, path: String) -> R<()> {
+    let p = abs_path(&state, monitor_id, &path)?;
+    let prog = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    std::process::Command::new(prog).arg(&p).spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Reveals a working-tree file in the OS file manager (selects it on macOS,
+/// opens its parent directory on Linux).
+#[tauri::command]
+pub fn reveal_path(state: State<AppState>, monitor_id: i64, path: String) -> R<()> {
+    let p = abs_path(&state, monitor_id, &path)?;
+    if cfg!(target_os = "macos") {
+        std::process::Command::new("open").args(["-R".as_ref(), p.as_os_str()]).spawn()
+    } else {
+        let dir = p.parent().unwrap_or(&p);
+        std::process::Command::new("xdg-open").arg(dir).spawn()
+    }
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn base_file(state: State<AppState>, monitor_id: i64, snapshot_id: i64, path: String) -> R<Option<String>> {
     Ok(err(state.engine.base_file(monitor_id, snapshot_id, &path))?

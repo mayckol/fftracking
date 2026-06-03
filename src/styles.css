@@ -820,6 +820,35 @@ select:focus {
   min-height: 0;
 }
 
+/* Settings → Shortcuts rebinding rows */
+.keys {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.key-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.key-label {
+  flex: 1;
+  font-size: var(--fs-sm);
+  color: var(--tx-2);
+}
+.key-combo {
+  min-width: 120px;
+  justify-content: center;
+  font-family: var(--mono);
+}
+.key-combo.capturing {
+  color: var(--ac);
+  border-color: var(--ac);
+}
+.key-reset {
+  padding: 0 8px;
+}
+
 /* JetBrains-style "Before <ts> / Current" headers over the two diff panes */
 .pane-labels {
   display: flex;
