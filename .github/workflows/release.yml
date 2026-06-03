@@ -90,9 +90,7 @@ jobs:
           DMG="fftracking_${VER}_aarch64.dmg"
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$DMG" --dir .
           SHA="$(shasum -a 256 "$DMG" | awk '{print $1}')"
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/mayckol/homebrew-tap.git" tap
-          mkdir -p tap/Casks
-          cat > tap/Casks/fftracking.rb <<EOF
+          cat > fftracking.rb <<EOF
           cask "fftracking" do
             version "${VER}"
             sha256 "${SHA}"
@@ -119,9 +117,11 @@ jobs:
             ]
           end
           EOF
-          cd tap
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Casks/fftracking.rb
-          git commit -m "fftracking ${VER}" || { echo "no changes"; exit 0; }
-          git push
+          # Publish via the GitHub Contents API. A fine-grained PAT rejects the
+          # token-in-URL `git push` form ("password authentication not supported"),
+          # so write the file using the token as an API bearer instead.
+          B64="$(base64 -i fftracking.rb | tr -d '\n')"
+          EXISTING="$(GH_TOKEN="$TAP_TOKEN" gh api repos/mayckol/homebrew-tap/contents/Casks/fftracking.rb --jq .sha 2>/dev/null || true)"
+          ARGS=(--method PUT repos/mayckol/homebrew-tap/contents/Casks/fftracking.rb -f "message=fftracking ${VER}" -f "content=${B64}")
+          [ -n "${EXISTING}" ] && ARGS+=(-f "sha=${EXISTING}")
+          GH_TOKEN="$TAP_TOKEN" gh api "${ARGS[@]}"
