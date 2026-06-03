@@ -4,6 +4,15 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.5.3] — 2026-06-03
+
+### Fixed
+
+- **Diff was clipped off the right edge when the window was narrowed.** The diff
+  column had no lower width bound, so Monaco's wide content pushed the layout past
+  the window. The columns can now shrink (`minmax(0,1fr)`) and the editor scrolls
+  internally instead of being cut off; the diff toolbar no longer overflows either.
+
 ## [0.5.2] — 2026-06-03
 
 ### Added

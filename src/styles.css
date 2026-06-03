@@ -288,19 +288,26 @@ select:focus {
 /* ---------- workspace columns ---------- */
 .work {
   display: grid;
-  grid-template-columns: 232px 320px 1fr;
+  /* minmax(0,1fr): without the 0 floor the diff column inherits min-width:auto
+     and Monaco's wide content pushes the layout past the window, clipping the
+     right edge. The 0 floor lets it shrink and scroll internally instead. */
+  grid-template-columns: 232px 320px minmax(0, 1fr);
   min-height: 0;
+  overflow: hidden;
 }
 .col {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   border-right: 1px solid var(--line);
   background: var(--bg-1);
 }
 .col.main {
   border-right: none;
   background: var(--bg-0);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .col-head {
@@ -815,6 +822,7 @@ select:focus {
   padding: 0 var(--s3);
   border-bottom: 1px solid var(--line);
   background: var(--bg-1);
+  overflow: hidden;
 }
 .diff-head .file {
   font-family: var(--mono);
@@ -823,6 +831,8 @@ select:focus {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 .diff-head .vs {
   font-family: var(--mono);
@@ -837,6 +847,8 @@ select:focus {
 .editor-wrap {
   flex: 1;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* Settings → Shortcuts rebinding rows */
