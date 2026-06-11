@@ -11,6 +11,7 @@ import {
   type ImplLocation,
 } from "../lib/lsp";
 import { registerEditor } from "../lib/selection";
+import { runInTerminal } from "../lib/runner";
 import { comboFor, formatCombo } from "../lib/shortcuts";
 import { editorPrefOptions, getPrefs, useUIPrefs } from "../lib/uiPrefs";
 
@@ -103,6 +104,10 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   // Implementation-target picker (several results → JetBrains-style popup).
   const [implPick, setImplPick] = useState<{ x: number; y: number; locs: ImplLocation[] } | null>(null);
   const jumpToRef = useRef<(loc: ImplLocation) => void>(() => {});
+  // Test-run scope menu (function / file / package / table case).
+  const [testPick, setTestPick] = useState<{ x: number; y: number; items: { label: string; cmd: string }[] } | null>(
+    null,
+  );
   const [diag, setDiag] = useState({ errors: 0, warnings: 0 });
   const editorRef = useRef<MEditor.IStandaloneCodeEditor | null>(null);
 
@@ -191,6 +196,133 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       run(now - lastUnfold < 450 ? "editor.unfoldAll" : "editor.unfold");
       lastUnfold = now;
     });
+
+    // JetBrains-style run-test icons on `func TestX` and table-driven
+    // `t.Run("case", …)` lines. Click → scope menu; commands run in the
+    // integrated terminal from the workspace root.
+    if (language === "go" && path && root && path.endsWith("_test.go")) {
+      const tmodel = editor.getModel();
+      if (tmodel) {
+        const rel = path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+        const pkg = rel.includes("/") ? `./${rel.slice(0, rel.lastIndexOf("/"))}` : ".";
+        // go test renders subtest-name spaces as underscores; escape regex
+        // metas and turn quotes into single-char wildcards for safe quoting.
+        const caseRx = (s: string) =>
+          s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "_").replace(/['"]/g, ".");
+
+        interface TestMark {
+          kind: "test" | "case" | "pkg";
+          test: string;
+          sub?: string;
+        }
+        const testByLine = new Map<number, TestMark>();
+        let allTests: string[] = [];
+        let testDecos: string[] = [];
+
+        const scanTests = () => {
+          testByLine.clear();
+          allTests = [];
+          let current: string | null = null;
+          for (let i = 1; i <= tmodel.getLineCount(); i++) {
+            const text = tmodel.getLineContent(i);
+            if (/^package\s+[A-Za-z0-9_]+/.test(text)) {
+              testByLine.set(i, { kind: "pkg", test: "" });
+              continue;
+            }
+            const fm = /^func\s+(Test[A-Za-z0-9_]+)\s*\(/.exec(text);
+            if (fm) {
+              current = fm[1];
+              allTests.push(fm[1]);
+              testByLine.set(i, { kind: "test", test: fm[1] });
+              continue;
+            }
+            if (/^func\s/.test(text)) {
+              current = null;
+              continue;
+            }
+            if (current) {
+              // Explicit subtests, and table-driven entries by their name
+              // field (the string t.Run(tt.name, …) will receive).
+              const sm =
+                /\bt\.Run\(\s*["`]([^"`]+)["`]/.exec(text) ??
+                /^\s*(?:name|testName|desc|scenario)\s*:\s*["`]([^"`]+)["`]\s*,?\s*$/.exec(text);
+              if (sm) testByLine.set(i, { kind: "case", test: current, sub: sm[1] });
+            }
+          }
+          const hover = (m: TestMark) =>
+            m.kind === "pkg"
+              ? `Run package tests (**${pkg}**)`
+              : m.kind === "case"
+                ? `Run case **${m.sub}** (${formatCombo(comboFor("test.run"))})`
+                : `Run **${m.test}** (${formatCombo(comboFor("test.run"))})`;
+          testDecos = editor.deltaDecorations(
+            testDecos,
+            [...testByLine.entries()].map(([line, m]) => ({
+              range: new monaco.Range(line, 1, line, 1),
+              options: {
+                glyphMarginClassName: `test-glyph ${m.kind === "case" ? "test-case" : m.kind === "pkg" ? "test-pkg" : "test-fn"}`,
+                glyphMarginHoverMessage: { value: hover(m) },
+              },
+            })),
+          );
+        };
+
+        const cmdTest = (name: string) => `go test -v -run '^${name}$' ${pkg}`;
+        const cmdCase = (m: TestMark) => `go test -v -run '^${m.test}$/^${caseRx(m.sub ?? "")}$' ${pkg}`;
+        const cmdFile = () => `go test -v -run '^(${allTests.join("|")})$' ${pkg}`;
+        const cmdPkg = `go test -v ${pkg}`;
+
+        const menuFor = (m: TestMark): { label: string; cmd: string }[] => {
+          if (m.kind === "pkg") {
+            const items = [{ label: `Run package tests (${pkg})`, cmd: cmdPkg }];
+            if (allTests.length) items.push({ label: "Run file tests", cmd: cmdFile() });
+            return items;
+          }
+          const items =
+            m.kind === "case"
+              ? [
+                  { label: `Run case "${m.sub}"`, cmd: cmdCase(m) },
+                  { label: `Run ${m.test}`, cmd: cmdTest(m.test) },
+                ]
+              : [{ label: `Run ${m.test}`, cmd: cmdTest(m.test) }];
+          if (allTests.length > 1) items.push({ label: "Run file tests", cmd: cmdFile() });
+          items.push({ label: `Run package tests (${pkg})`, cmd: cmdPkg });
+          return items;
+        };
+
+        scanTests();
+        let testTimer = 0;
+        tmodel.onDidChangeContent(() => {
+          window.clearTimeout(testTimer);
+          testTimer = window.setTimeout(scanTests, 400);
+        });
+
+        editor.onMouseDown((e) => {
+          if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
+          const m = e.target.position ? testByLine.get(e.target.position.lineNumber) : undefined;
+          if (!m) return;
+          e.event.preventDefault();
+          const be = e.event.browserEvent;
+          setTestPick({ x: be.clientX, y: be.clientY, items: menuFor(m) });
+        });
+
+        // ^⇧R: run the nearest test context above the cursor, JetBrains-style —
+        // a table case when inside one, else the enclosing test function.
+        bind("test.run", () => {
+          const line = editor.getPosition()?.lineNumber ?? 1;
+          // Last mark at or above the cursor — the innermost test context
+          // (map iterates in insertion order, i.e. ascending lines).
+          let best: TestMark | null = null;
+          for (const [l, m] of testByLine) {
+            if (l > line) break;
+            best = m;
+          }
+          if (best?.kind === "pkg") runInTerminal(cmdPkg);
+          else if (best) runInTerminal(best.kind === "case" ? cmdCase(best) : cmdTest(best.test));
+          else if (allTests.length) runInTerminal(cmdFile());
+        });
+      }
+    }
 
     if (language === "go" && path && root) {
       const model = editor.getModel();
@@ -347,11 +479,11 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
         onMount={onMount}
         options={{
           readOnly: !!readOnly,
-          // Implementation markers live in the glyph margin; only LSP-backed
-          // files get one. Must be driven by state — this options object is
+          // Go files own the glyph margin: implementation markers (LSP) and
+          // test-run icons live there. Kept in this options object — it is
           // re-applied on every render, so a one-off updateOptions would be
           // silently reverted.
-          glyphMargin: lsp === "ready",
+          glyphMargin: language === "go",
           automaticLayout: true,
           lineHeight: 19,
           minimap: { enabled: false },
@@ -382,6 +514,32 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
                 }}
               >
                 {root && l.path.startsWith(`${root}/`) ? l.path.slice(root.length + 1) : l.path}:{l.line}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      {testPick && (
+        <>
+          <div
+            className="ctx-backdrop"
+            onClick={() => setTestPick(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setTestPick(null);
+            }}
+          />
+          <div className="ctx-menu" style={{ left: testPick.x, top: testPick.y }}>
+            {testPick.items.map((it) => (
+              <button
+                key={it.label}
+                title={it.cmd}
+                onClick={() => {
+                  setTestPick(null);
+                  runInTerminal(it.cmd);
+                }}
+              >
+                ▶ {it.label}
               </button>
             ))}
           </div>

@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { listen } from "@tauri-apps/api/event";
 import "@xterm/xterm/css/xterm.css";
 import { api } from "../lib/ipc";
+import { setTerminalSink } from "../lib/runner";
 
 interface Props {
   cwd: string | null;
@@ -91,6 +92,18 @@ export default function Terminal({ cwd, active, onExit }: Props) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The visible terminal accepts injected commands (test runner). Returns
+  // false until the PTY is open so the runner keeps the command queued.
+  useEffect(() => {
+    if (!active) return;
+    setTerminalSink((cmd) => {
+      if (idRef.current == null) return false;
+      api.terminalWrite(idRef.current, cmd + "\n");
+      return true;
+    });
+    return () => setTerminalSink(null);
+  }, [active]);
 
   // Becoming visible: re-fit (it was display:none, so size was 0) and focus.
   useEffect(() => {

@@ -1097,6 +1097,33 @@ button.vs-tag:hover {
   filter: brightness(1.4);
 }
 
+/* Run-test gutter icons (JetBrains-style) */
+.test-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.test-glyph.test-fn::before {
+  content: "▶";
+  color: var(--add);
+  font-size: 10px;
+}
+.test-glyph.test-case::before {
+  content: "▷";
+  color: var(--add);
+  font-size: 10px;
+}
+.test-glyph.test-pkg::before {
+  content: "▶▶";
+  color: var(--add);
+  font-size: 8px;
+  letter-spacing: -2px;
+}
+.test-glyph:hover::before {
+  filter: brightness(1.5);
+}
+
 /* ⌘-hover go-to-definition link inside Monaco */
 .goto-link-word {
   text-decoration: underline;
