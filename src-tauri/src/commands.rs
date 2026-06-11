@@ -105,6 +105,11 @@ pub fn snapshot_working_changes(state: State<AppState>, monitor_id: i64, snapsho
     err(state.engine.snapshot_working_changes(monitor_id, snapshot_id))
 }
 
+#[tauri::command]
+pub fn monitor_files(state: State<AppState>, monitor_id: i64) -> R<Vec<String>> {
+    err(state.engine.monitor_files(monitor_id))
+}
+
 fn abs_path(state: &State<AppState>, monitor_id: i64, path: &str) -> R<PathBuf> {
     Ok(PathBuf::from(err(state.engine.monitor_root_path(monitor_id))?).join(path))
 }

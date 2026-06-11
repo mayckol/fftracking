@@ -7,6 +7,7 @@ import { useShortcut } from "../lib/shortcuts";
 import { isConfirmSuppressed } from "../lib/confirmPrefs";
 import ConfirmModal from "../components/ConfirmModal";
 import ChangedTree from "./ChangedTree";
+import ProjectTree from "./ProjectTree";
 import Timeline from "./Timeline";
 
 interface Props {
@@ -26,6 +27,10 @@ export default function HistoryView({ monitorId, toast }: Props) {
   const [hunks, setHunks] = useState<HunkInfo[]>([]);
   const [reload, setReload] = useState(0);
   const [revertAllId, setRevertAllId] = useState<number | null>(null);
+  // Full on-disk file list for the project tree (all files, not just changes).
+  const [files, setFiles] = useState<string[]>([]);
+  const [showFiles, setShowFiles] = useState(true);
+  const [showChanges, setShowChanges] = useState(true);
   // What the changed-files list and diff compare the selected point against:
   // "point" = the changes this breaking point introduced (vs the git branch or
   // the previous point — the same base the timeline badges use), "current" =
@@ -77,6 +82,17 @@ export default function HistoryView({ monitorId, toast }: Props) {
     const t = window.setInterval(() => loadSnaps(), 3000);
     return () => window.clearInterval(t);
   }, [loadSnaps]);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .monitorFiles(monitorId)
+      .then((f) => alive && setFiles(f))
+      .catch(() => alive && setFiles([]));
+    return () => {
+      alive = false;
+    };
+  }, [monitorId, reload]);
 
   // List the files for the selected mode — the same pair the diff shows, so a
   // row always opens a real diff. "point" matches the timeline badges (what
@@ -371,6 +387,31 @@ export default function HistoryView({ monitorId, toast }: Props) {
           </div>
           <div className="col" style={{ borderRight: "none" }}>
             <div className="col-head">
+              <h2>Files</h2>
+              <span className="changecount">{files.length}</span>
+              <button
+                className="vs-tag"
+                style={{ marginLeft: "auto" }}
+                title={showFiles ? "Hide the project file tree" : "Show the project file tree"}
+                onClick={() => setShowFiles((v) => !v)}
+              >
+                {showFiles ? "hide" : "show"}
+              </button>
+            </div>
+            {showFiles && (
+              <div className="col-scroll">
+                <ProjectTree
+                  files={files}
+                  selected={file}
+                  onSelect={setFile}
+                  onOpen={(p) => api.openPath(monitorId, p).catch((e) => toast(String(e), true))}
+                  onReveal={(p) => api.revealPath(monitorId, p).catch((e) => toast(String(e), true))}
+                  onIgnoreFile={(p) => ignorePath(p, false)}
+                  onIgnoreFolder={(p) => ignorePath(p, true)}
+                />
+              </div>
+            )}
+            <div className="col-head">
               <h2>Changed Files</h2>
               <button
                 className="vs-tag"
@@ -392,18 +433,28 @@ export default function HistoryView({ monitorId, toast }: Props) {
               ) : (
                 <span className="changecount">0</span>
               )}
+              <button
+                className="vs-tag"
+                style={{ marginLeft: "auto" }}
+                title={showChanges ? "Hide the changed-files list" : "Show the changed-files list"}
+                onClick={() => setShowChanges((v) => !v)}
+              >
+                {showChanges ? "hide" : "show"}
+              </button>
             </div>
-            <div className="col-scroll">
-              <ChangedTree
-                changes={changes}
-                selected={file}
-                onSelect={setFile}
-                onRevertFile={revertPath}
-                onRevertFolder={revertFolderPath}
-                onIgnoreFile={(p) => ignorePath(p, false)}
-                onIgnoreFolder={(p) => ignorePath(p, true)}
-              />
-            </div>
+            {showChanges && (
+              <div className="col-scroll">
+                <ChangedTree
+                  changes={changes}
+                  selected={file}
+                  onSelect={setFile}
+                  onRevertFile={revertPath}
+                  onRevertFolder={revertFolderPath}
+                  onIgnoreFile={(p) => ignorePath(p, false)}
+                  onIgnoreFolder={(p) => ignorePath(p, true)}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>

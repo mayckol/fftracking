@@ -763,6 +763,15 @@ button.vs-tag:hover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.trow .ic {
+  flex-shrink: 0;
+}
+.trow .ic-folder {
+  color: var(--ac);
+}
+.trow .ic-file {
+  color: var(--tx-2);
+}
 
 .modal-overlay {
   position: fixed;
