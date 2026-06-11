@@ -67,6 +67,7 @@ pub fn run() {
             commands::breaking_point_changes,
             commands::snapshot_working_changes,
             commands::monitor_files,
+            commands::search_content,
             commands::open_path,
             commands::reveal_path,
             commands::base_file,

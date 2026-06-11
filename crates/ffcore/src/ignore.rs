@@ -77,7 +77,7 @@ impl PathFilter {
     }
 }
 
-fn configure(root: &Path, extra_globs: &[String], respect_gitignore: bool) -> Result<WalkBuilder> {
+pub(crate) fn configure(root: &Path, extra_globs: &[String], respect_gitignore: bool) -> Result<WalkBuilder> {
     let mut ov = OverrideBuilder::new(root);
     // In an Override, a leading `!` means "ignore" (inverted vs gitignore).
     for g in BUILTIN_IGNORES {

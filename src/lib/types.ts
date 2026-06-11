@@ -90,3 +90,23 @@ export interface ResourceUsage {
   cpu_percent: number;
   mem_bytes: number;
 }
+
+export interface SearchOptions {
+  query: string;
+  case_sensitive: boolean;
+  regex: boolean;
+  whole_word: boolean;
+}
+
+export interface SearchMatch {
+  path: string;
+  line: number;
+  text: string;
+  start: number;
+  end: number;
+}
+
+export interface SearchResults {
+  matches: SearchMatch[];
+  truncated: boolean;
+}

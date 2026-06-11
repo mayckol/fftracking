@@ -6,6 +6,7 @@ pub mod ignore;
 pub mod query;
 pub mod revert;
 pub mod runner;
+pub mod search;
 pub mod store;
 pub mod sysmon;
 pub mod watcher;

@@ -7,6 +7,7 @@ import { useShortcut } from "../lib/shortcuts";
 import { isConfirmSuppressed } from "../lib/confirmPrefs";
 import { getPrefs } from "../lib/uiPrefs";
 import { getErrorPaths, setNavHandler, subscribeDiagnostics } from "../lib/lsp";
+import { recordRecent } from "../lib/fuzzy";
 import ConfirmModal from "../components/ConfirmModal";
 import ChangedTree from "./ChangedTree";
 import ProjectTree from "./ProjectTree";
@@ -20,6 +21,8 @@ interface Props {
   root: string | null;
   historyMode?: boolean;
   onModeChange?: (history: boolean) => void;
+  /** File-open request from the search palette (n bumps on every accept). */
+  openReq?: { monitorId: number; path: string; line?: number; col?: number; n: number } | null;
   toast: (msg: string, error?: boolean) => void;
 }
 
@@ -29,7 +32,7 @@ interface EditorTab {
   kind: TabKind;
 }
 
-export default function HistoryView({ monitorId, root, historyMode, onModeChange, toast }: Props) {
+export default function HistoryView({ monitorId, root, historyMode, onModeChange, openReq, toast }: Props) {
   const [snaps, setSnaps] = useState<SnapshotRow[]>([]);
   const [snap, setSnap] = useState<number | null>(null);
   const [summaries, setSummaries] = useState<Record<number, ChangeSummary>>({});
@@ -128,7 +131,10 @@ export default function HistoryView({ monitorId, root, historyMode, onModeChange
     setOpenKind(t.kind);
     // Remember the last opened project file (not external packages) so the
     // monitor reopens it next time.
-    if (t.kind === "file" && !t.path.startsWith("/")) localStorage.setItem(lastFileKey(monitorId), t.path);
+    if (t.kind === "file" && !t.path.startsWith("/")) {
+      localStorage.setItem(lastFileKey(monitorId), t.path);
+      recordRecent(monitorId, t.path);
+    }
   };
 
   const openTab = (path: string, kind: TabKind) => {
@@ -277,6 +283,19 @@ export default function HistoryView({ monitorId, root, historyMode, onModeChange
     }
   };
   useEffect(() => setNavHandler((a, l, c) => navRef.current(a, l, c)), []);
+
+  // Search-palette opens. The monitorId guard keeps a remount (folder switch)
+  // from replaying a request that targeted another monitor.
+  const lastOpenReq = useRef(0);
+  useEffect(() => {
+    if (!openReq || openReq.monitorId !== monitorId || openReq.n === lastOpenReq.current) return;
+    lastOpenReq.current = openReq.n;
+    const { path, line, col } = openReq;
+    recordNav({ path, line: line ?? 1, col: col ?? 1 });
+    openTab(path, "file");
+    if (line != null) setPendingGoto({ path, line, col: col ?? 1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openReq, monitorId]);
 
   // Mouse thumb buttons: 3 = back (button 4), 4 = forward (button 5).
   useEffect(() => {
