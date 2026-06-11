@@ -292,6 +292,7 @@ select:focus {
 
 /* ---------- workspace columns ---------- */
 .work {
+  position: relative;
   display: grid;
   /* minmax(0,1fr): without the 0 floor the diff column inherits min-width:auto
      and Monaco's wide content pushes the layout past the window, clipping the
@@ -379,6 +380,66 @@ select:focus {
   flex: 1;
   min-width: 0;
 }
+
+/* ---------- editor file tabs ---------- */
+.tabbar {
+  display: flex;
+  flex: 0 0 auto;
+  overflow-x: auto;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: thin;
+}
+.tab-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 6px 8px 6px 10px;
+  font-size: 12px;
+  color: var(--tx-1);
+  background: var(--bg-2);
+  border-right: 1px solid var(--line);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.12s var(--ease), color 0.12s var(--ease);
+}
+.tab-item:hover {
+  background: var(--bg-3);
+  color: var(--tx-0);
+}
+.tab-item.on {
+  color: var(--tx-0);
+  background: var(--bg-3);
+  border-bottom-color: var(--ac);
+}
+.tab-item .tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab-item .tab-kind {
+  color: var(--ac);
+  opacity: 0.8;
+}
+.tab-x {
+  margin-left: 2px;
+  width: 16px;
+  height: 16px;
+  line-height: 14px;
+  text-align: center;
+  border-radius: 4px;
+  color: var(--tx-2);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.tab-x:hover {
+  color: var(--tx-0);
+  background: var(--bg-4);
+}
 .splitter {
   flex: 0 0 auto;
   background: transparent;
@@ -399,6 +460,39 @@ select:focus {
 .splitter:hover,
 .splitter:active {
   background: var(--ac);
+}
+
+/* ---------- auto-hide monitored sidebar ---------- */
+.side-float {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 232px;
+  z-index: 30;
+  /* Leave a 6px sliver on-screen as the hover hot-zone. */
+  transform: translateX(calc(-100% + 6px));
+  transition: transform 0.16s var(--ease);
+}
+.side-float::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--ac);
+  opacity: 0.5;
+}
+.side-float.open {
+  transform: translateX(0);
+  box-shadow: 10px 0 28px rgba(0, 0, 0, 0.45);
+}
+.side-float.open::after {
+  opacity: 0;
+}
+.side-float .col {
+  height: 100%;
 }
 
 /* ---------- integrated terminal ---------- */
@@ -1046,6 +1140,63 @@ button.vs-tag:hover {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+}
+
+/* ---------- editor status bar ---------- */
+.editor-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
+  height: 24px;
+  padding: 0 12px;
+  font-size: 11.5px;
+  color: var(--tx-1);
+  background: var(--bg-1);
+  border-top: 1px solid var(--line);
+  user-select: none;
+}
+.statusbar .sb-spacer {
+  flex: 1;
+}
+.statusbar .sb-pos {
+  font-variant-numeric: tabular-nums;
+}
+.statusbar .sb-diag {
+  display: inline-flex;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.statusbar .sb-err,
+.statusbar .sb-warn {
+  color: var(--tx-2);
+}
+.statusbar .sb-err.on {
+  color: #d2786a;
+}
+.statusbar .sb-warn.on {
+  color: #d6b16a;
+}
+/* tree rows whose file (or descendant) has an LSP error */
+.trow.file.err .tname,
+.trow.dir.err .dname {
+  color: #d2786a;
+}
+.statusbar .sb-lsp.ready {
+  color: #5fb37a;
+}
+.statusbar .sb-lsp.starting {
+  color: var(--tx-2);
+}
+.statusbar .sb-lsp.error {
+  color: #d2786a;
 }
 
 /* Settings → Shortcuts rebinding rows */

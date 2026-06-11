@@ -11,8 +11,9 @@ import {
   subscribe,
 } from "../lib/shortcuts";
 import type { Settings } from "../lib/types";
+import { FONT_CHOICES, type TabOverflow, setPref, useUIPrefs } from "../lib/uiPrefs";
 
-const GROUP_ORDER: ActionGroup[] = ["Diff", "Capture & revert", "Changed files", "Navigation"];
+const GROUP_ORDER: ActionGroup[] = ["Editor", "Diff", "Capture & revert", "Changed files", "Navigation"];
 
 interface Props {
   toast: (msg: string, error?: boolean) => void;
@@ -23,6 +24,7 @@ export default function SettingsView({ toast }: Props) {
   const [autostart, setAutostart] = useState(false);
   const [capturing, setCapturing] = useState<string | null>(null);
   const [, force] = useReducer((x) => x + 1, 0);
+  const prefs = useUIPrefs();
 
   useEffect(() => subscribe(force), []);
 
@@ -192,6 +194,123 @@ export default function SettingsView({ toast }: Props) {
             <input type="checkbox" checked={autostart} onChange={(e) => toggleAutostart(e.target.checked)} />
             <span className="changecount">{autostart ? "Enabled" : "Disabled"}</span>
           </label>
+        </div>
+
+        <div className="section-title">Interface</div>
+
+        <div className="field">
+          <label>
+            Editor font
+            <span className="hint">Font family for the file viewer and diff. Falls back to the system monospace.</span>
+          </label>
+          <select
+            value={prefs.fontFamily}
+            onChange={(e) => setPref("fontFamily", e.target.value)}
+            style={{ width: 200, fontFamily: `${prefs.fontFamily}, monospace` }}
+          >
+            {FONT_CHOICES.map((f) => (
+              <option key={f} value={f} style={{ fontFamily: `${f}, monospace` }}>
+                {f}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="field">
+          <label>
+            Editor font size
+            <span className="hint">In pixels.</span>
+          </label>
+          <input
+            type="number"
+            min={9}
+            max={28}
+            step={0.5}
+            value={prefs.fontSize}
+            onChange={(e) => setPref("fontSize", Math.max(9, Math.min(28, +e.target.value || 12.5)))}
+            style={{ width: 90 }}
+          />
+        </div>
+
+        <div className="field">
+          <label>
+            Indentation guides
+            <span className="hint">Vertical lines marking each indent level (block depth).</span>
+          </label>
+          <label style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={prefs.indentGuides}
+              onChange={(e) => setPref("indentGuides", e.target.checked)}
+            />
+            <span className="changecount">{prefs.indentGuides ? "Showing guides" : "Hidden"}</span>
+          </label>
+        </div>
+
+        <div className="field">
+          <label>
+            Auto-hide monitored sidebar
+            <span className="hint">
+              Hide the projects sidebar; reveal it by moving the pointer to the left edge (like the macOS menu bar).
+            </span>
+          </label>
+          <label style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={prefs.autohideSidebar}
+              onChange={(e) => setPref("autohideSidebar", e.target.checked)}
+            />
+            <span className="changecount">{prefs.autohideSidebar ? "Auto-hide on" : "Always visible"}</span>
+          </label>
+        </div>
+
+        <div className="field">
+          <label>
+            Max open file tabs
+            <span className="hint">Upper bound on editor tabs kept open at once.</span>
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={40}
+            value={prefs.maxTabs}
+            onChange={(e) => setPref("maxTabs", Math.max(1, Math.min(40, +e.target.value || 1)))}
+            style={{ width: 90 }}
+          />
+        </div>
+
+        <div className="field">
+          <label>
+            Format on save
+            <span className="hint">
+              Run the language formatter (gofmt for Go) before writing the file with ⌘S. Also available any time with ⌘⇧L.
+            </span>
+          </label>
+          <label style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={prefs.formatOnSave}
+              onChange={(e) => setPref("formatOnSave", e.target.checked)}
+            />
+            <span className="changecount">{prefs.formatOnSave ? "Format on save" : "Save as-is"}</span>
+          </label>
+        </div>
+
+        <div className="field">
+          <label>
+            When the tab limit is reached
+            <span className="hint">
+              Close oldest drops the least-recently opened tab to make room; Block keeps your tabs and refuses to open more until you close one.
+            </span>
+          </label>
+          <select
+            value={prefs.tabOverflow}
+            onChange={(e) => setPref("tabOverflow", e.target.value as TabOverflow)}
+            style={{ width: 200 }}
+          >
+            <option value="fifo">Close oldest (FIFO)</option>
+            <option value="block">Block new tabs</option>
+          </select>
         </div>
 
         <div className="section-title">Shortcuts</div>

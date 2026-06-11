@@ -3,6 +3,7 @@ import { DiffEditor as MonacoDiff, type Monaco } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import type { HunkInfo } from "../lib/types";
 import { defineTheme, THEME } from "./monacoTheme";
+import { editorPrefOptions, useUIPrefs } from "../lib/uiPrefs";
 
 export interface DiffHandle {
   /** Move to the next/prev change. Returns "boundary" when already at the last
@@ -33,6 +34,7 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
   { original, modified, language, inline = false, editable = false, onCommit, hunks = [], targetSide = false },
   ref,
 ) {
+  const prefs = useUIPrefs();
   const modifiedRef = useRef(modified);
   modifiedRef.current = modified;
   const diffRef = useRef<editor.IStandaloneDiffEditor | null>(null);
@@ -204,17 +206,15 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
         renderSideBySide: !inline,
         useInlineViewWhenSpaceIsLimited: false,
         automaticLayout: true,
-        fontFamily: "JetBrains Mono",
-        fontSize: 12.5,
         lineHeight: 19,
         minimap: { enabled: false },
         renderOverviewRuler: false,
         scrollBeyondLastLine: false,
         smoothScrolling: true,
-        guides: { indentation: false },
         renderLineHighlight: "none",
         padding: { top: 10, bottom: 10 },
         diffWordWrap: "off",
+        ...editorPrefOptions(prefs),
       }}
     />
   );

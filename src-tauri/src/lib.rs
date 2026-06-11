@@ -1,4 +1,5 @@
 mod commands;
+mod lsp;
 mod terminal;
 
 use std::collections::HashMap;
@@ -45,6 +46,7 @@ pub fn run() {
                 sysmon: Mutex::new(SelfMonitor::new()),
             });
             app.manage(terminal::TerminalManager::default());
+            app.manage(lsp::LspManager::default());
             setup_tray(app.handle())?;
             spawn_detect_daemon(engine, manager);
             Ok(())
@@ -75,6 +77,7 @@ pub fn run() {
             commands::file_at,
             commands::working_file,
             commands::write_working_file,
+            commands::read_text_file,
             commands::file_hunks,
             commands::text_hunks,
             commands::apply_text_revert,
@@ -105,6 +108,9 @@ pub fn run() {
             commands::terminal_write,
             commands::terminal_resize,
             commands::terminal_close,
+            commands::lsp_start,
+            commands::lsp_send,
+            commands::lsp_stop,
         ])
         .build(tauri::generate_context!())
         .expect("error building fftracking")
