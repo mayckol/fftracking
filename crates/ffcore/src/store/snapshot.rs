@@ -107,22 +107,58 @@ pub fn create_snapshot(db: &Db, store: &BlobStore, input: SnapshotInput) -> Resu
 }
 
 pub fn delete_snapshot(db: &Db, store: &BlobStore, snapshot_id: i64) -> Result<()> {
-    let manifest_hash: String = db.conn.query_row(
-        "SELECT manifest_hash FROM snapshots WHERE id = ?1",
-        [snapshot_id],
-        |r| r.get(0),
-    )?;
-    let manifest: Manifest = serde_json::from_slice(&store.get(&manifest_hash)?)?;
+    delete_snapshots(db, store, &[snapshot_id])
+}
 
-    db.conn
-        .execute("DELETE FROM snapshots WHERE id = ?1", [snapshot_id])?;
+/// Deletes a batch of snapshots in one transaction. Without the batching every
+/// per-blob statement commits (and fsyncs) individually, which makes removing
+/// a large monitor take minutes. Refcounts are decremented in bulk; orphaned
+/// blob files are unlinked only after the commit, so an aborted transaction
+/// can never leave a still-referenced blob missing from disk.
+pub fn delete_snapshots(db: &Db, store: &BlobStore, ids: &[i64]) -> Result<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let tx = db.conn.unchecked_transaction()?;
 
-    let mut hashes: Vec<String> = manifest.entries.into_iter().map(|e| e.hash).collect();
-    hashes.push(manifest_hash);
-    hashes.sort();
-    hashes.dedup();
-    for hash in hashes {
-        dec_ref(db, store, &hash)?;
+    let mut decrements: HashMap<String, i64> = HashMap::new();
+    {
+        let mut sel = db.conn.prepare("SELECT manifest_hash FROM snapshots WHERE id = ?1")?;
+        let mut del = db.conn.prepare("DELETE FROM snapshots WHERE id = ?1")?;
+        for id in ids {
+            let manifest_hash: String = sel.query_row([id], |r| r.get(0))?;
+            let manifest: Manifest = serde_json::from_slice(&store.get(&manifest_hash)?)?;
+            let mut hashes: Vec<String> =
+                manifest.entries.into_iter().map(|e| e.hash).collect();
+            hashes.push(manifest_hash);
+            hashes.sort();
+            hashes.dedup();
+            for h in hashes {
+                *decrements.entry(h).or_insert(0) += 1;
+            }
+            del.execute([id])?;
+        }
+    }
+
+    let mut orphans: Vec<String> = Vec::new();
+    {
+        let mut upd =
+            db.conn.prepare("UPDATE blobs SET refcount = refcount - ?1 WHERE hash = ?2")?;
+        let mut sel = db.conn.prepare("SELECT refcount FROM blobs WHERE hash = ?1")?;
+        let mut del = db.conn.prepare("DELETE FROM blobs WHERE hash = ?1")?;
+        for (hash, n) in &decrements {
+            upd.execute((n, hash))?;
+            let refcount: i64 = sel.query_row([hash], |r| r.get(0)).unwrap_or(0);
+            if refcount <= 0 {
+                del.execute([hash])?;
+                orphans.push(hash.clone());
+            }
+        }
+    }
+    tx.commit()?;
+
+    for hash in orphans {
+        store.remove(&hash)?;
     }
     Ok(())
 }
@@ -133,19 +169,5 @@ fn bump_ref(db: &Db, hash: &str, size: i64) -> Result<()> {
          ON CONFLICT(hash) DO UPDATE SET refcount = refcount + 1",
         (hash, size),
     )?;
-    Ok(())
-}
-
-fn dec_ref(db: &Db, store: &BlobStore, hash: &str) -> Result<()> {
-    db.conn
-        .execute("UPDATE blobs SET refcount = refcount - 1 WHERE hash = ?1", [hash])?;
-    let refcount: i64 = db
-        .conn
-        .query_row("SELECT refcount FROM blobs WHERE hash = ?1", [hash], |r| r.get(0))
-        .unwrap_or(0);
-    if refcount <= 0 {
-        store.remove(hash)?;
-        db.conn.execute("DELETE FROM blobs WHERE hash = ?1", [hash])?;
-    }
     Ok(())
 }

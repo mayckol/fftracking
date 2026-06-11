@@ -26,7 +26,7 @@ fn status_of<'a>(changes: &'a [ffcore::query::FileChange], path: &str) -> Option
 }
 
 #[test]
-fn git_repo_compares_against_head_branch() {
+fn git_repo_history_compares_against_previous_point() {
     let data = tempfile::tempdir().unwrap();
     let proj = tempfile::tempdir().unwrap();
     let root = proj.path();
@@ -49,17 +49,18 @@ fn git_repo_compares_against_head_branch() {
     std::fs::remove_file(root.join("gone.txt")).unwrap();
     let snap = engine.snapshot_now(mid, "manual").unwrap().unwrap();
 
+    // base_info still reports the git context (it gates reset-to-branch)…
     let base = engine.base_info(mid).unwrap();
     assert_eq!(base.kind, "git");
     assert_eq!(base.branch.as_deref(), Some("main"));
 
-    // Changes are computed against the current branch (HEAD), not the prior point.
+    // …but history is pure local history: changes vs the PREVIOUS point.
     let ch = engine.breaking_point_changes(mid, snap).unwrap();
     assert_eq!(status_of(&ch, "keep.txt"), Some(ChangeStatus::Modified));
     assert_eq!(status_of(&ch, "new.txt"), Some(ChangeStatus::Added));
     assert_eq!(status_of(&ch, "gone.txt"), Some(ChangeStatus::Deleted));
 
-    // Base content is the HEAD version.
+    // Base content is the previous point's version.
     assert_eq!(engine.base_file(mid, snap, "keep.txt").unwrap().as_deref(), Some(b"v1\n".as_ref()));
 
     // Reset to branch: restores a deleted file, drops an uncommitted one,
@@ -108,29 +109,6 @@ fn non_git_folder_compares_against_previous_point() {
 }
 
 #[test]
-fn git_head_set_honors_user_ignore_globs() {
-    let data = tempfile::tempdir().unwrap();
-    let proj = tempfile::tempdir().unwrap();
-    let root = proj.path();
-    let engine = Engine::open(data.path()).unwrap();
-
-    git(root, &["init", "-q", "-b", "main"]);
-    write(root, "a.txt", "v1\n");
-    write(root, "secret.log", "noise\n"); // committed, but the user ignores *.log
-    git(root, &["add", "."]);
-    git(root, &["commit", "-q", "-m", "c1"]);
-
-    let mid = engine.add_monitor(root, 900, "manual").unwrap();
-    engine.set_setting("ignore_globs", "*.log").unwrap();
-    let snap = engine.snapshot_now(mid, "manual").unwrap().unwrap();
-
-    // secret.log is excluded from BOTH the manifest and the HEAD base, so it must
-    // not appear as a phantom deletion; a.txt is unchanged vs HEAD.
-    let ch = engine.breaking_point_changes(mid, snap).unwrap();
-    assert!(ch.is_empty(), "no phantom changes, got {ch:?}");
-}
-
-#[test]
 fn git_subdirectory_monitor_scopes_to_its_prefix() {
     let data = tempfile::tempdir().unwrap();
     let proj = tempfile::tempdir().unwrap();
@@ -162,7 +140,7 @@ fn git_subdirectory_monitor_scopes_to_its_prefix() {
 }
 
 #[test]
-fn git_ignored_files_excluded_from_branch_diff() {
+fn unchanged_git_ignored_file_not_listed() {
     let data = tempfile::tempdir().unwrap();
     let proj = tempfile::tempdir().unwrap();
     let root = proj.path();
@@ -175,8 +153,8 @@ fn git_ignored_files_excluded_from_branch_diff() {
     git(root, &["commit", "-q", "-m", "c1"]);
 
     // A git-ignored file present on disk — fftracking still tracks it for local
-    // history (respect_gitignore is off by default), but it must NOT flood the
-    // vs-branch diff as "added".
+    // history (respect_gitignore is off by default), but while it stays
+    // unchanged between points it must not appear in the changed list.
     write(root, "secret.log", "noise\n");
 
     let mid = engine.add_monitor(root, 900, "manual").unwrap();
@@ -188,7 +166,7 @@ fn git_ignored_files_excluded_from_branch_diff() {
     assert_eq!(status_of(&ch, "a.txt"), Some(ChangeStatus::Modified));
     assert!(
         ch.iter().all(|c| c.path != "secret.log"),
-        "git-ignored file leaked into the vs-branch diff: {ch:?}"
+        "unchanged git-ignored file leaked into the changed list: {ch:?}"
     );
 }
 

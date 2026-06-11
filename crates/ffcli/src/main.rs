@@ -21,8 +21,8 @@ use serde_json::Value;
     about = "fftracking — local file-history & breaking-point tracker (CLI + MCP)",
     long_about = "fft drives fftracking from the terminal or from AI agents. It shares the same \
 store as the desktop app, so tracked folders and breaking points stay in sync.\n\n\
-A \"breaking point\" is a content snapshot of a tracked folder. Changes are shown against a base: \
-the current git branch (HEAD) when the folder is a repo, otherwise the previous breaking point.",
+A \"breaking point\" is a content snapshot of a tracked folder. Changes are shown against the \
+previous breaking point (pure local history, independent of git).",
     after_long_help = EXAMPLES,
     propagate_version = true
 )]
@@ -68,7 +68,7 @@ enum Cmd {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
-    /// Show files changed at a breaking point (vs git branch / previous point)
+    /// Show files changed at a breaking point (vs the previous point)
     Changes {
         #[arg(long)]
         path: PathBuf,
@@ -162,7 +162,7 @@ EXAMPLES:
   fft snapshot --path ~/proj --label \"pre-refactor\"
   fft points --path ~/proj                     list breaking points
   fft changes --path ~/proj                    what changed at the latest point
-  fft diff --path ~/proj --file src/app.ts     diff a file (vs branch / prev point)
+  fft diff --path ~/proj --file src/app.ts     diff a file (vs previous point)
   fft revert --path ~/proj --point 42 --file src/app.ts
   fft reset  --path ~/proj --file src/app.ts   restore from the current git branch
   fft pause  --path ~/proj                      pause tracking (keeps history)

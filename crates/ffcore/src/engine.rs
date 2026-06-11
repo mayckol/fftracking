@@ -19,8 +19,8 @@ pub struct Engine {
     store: BlobStore,
 }
 
-/// What a monitor's breaking points are compared against: the current git
-/// branch when the folder is a repo, otherwise the preceding breaking point.
+/// Git context of a monitor's folder. File history always compares against
+/// the previous breaking point; this only drives the reset-to-branch features.
 #[derive(Debug, Clone, Serialize)]
 pub struct BaseInfo {
     pub kind: String, // "git" | "snapshot"
@@ -131,9 +131,8 @@ impl Engine {
         Ok(self.git_context(monitor_id)?.map(|(_, g)| g))
     }
 
-    /// Whether a monitor's breaking points diff against the git branch or the
-    /// previous point. `head` (current HEAD oid) lets the UI notice a moved
-    /// branch and refresh without a snapshot-set change.
+    /// Whether the monitor's folder is a usable git repo (enables the
+    /// reset-to-branch features); history comparison does not use this.
     pub fn base_info(&self, monitor_id: i64) -> Result<BaseInfo> {
         Ok(match self.git_info(monitor_id)? {
             Some(g) => BaseInfo {
@@ -146,63 +145,24 @@ impl Engine {
         })
     }
 
-    /// HEAD path→hash map for a git monitor, with the monitor's own capture
-    /// exclusions applied so it matches the snapshot side of the diff exactly
-    /// (no phantom deletions from globs/.gitignore/submodules).
-    fn head_hashes(&self, root: &Path, g: &git::GitInfo) -> Result<PathMap> {
-        let s = self.get_settings()?;
-        let filter = crate::ignore::PathFilter::build(root, &s.ignore_globs, s.respect_gitignore)?;
-        let mut map: PathMap = git::head_files(Path::new(&g.repo_root), &g.prefix, &filter)?
-            .iter()
-            .map(|(p, c)| (p.clone(), BlobStore::hash(c)))
-            .collect();
-        map.retain(|p, _| !g.under_submodule(p));
-        Ok(map)
-    }
-
     fn manifest_map(&self, snapshot_id: i64) -> Result<PathMap> {
         let manifest = self.with_db(|db| query::load_manifest(db, &self.store, snapshot_id))?;
         Ok(manifest.entries.into_iter().map(|e| (e.path, e.hash)).collect())
     }
 
-    /// A snapshot's manifest map prepared for the vs-branch diff: submodule
-    /// working-tree files and git-ignored files are dropped (fftracking tracks
-    /// git-ignored files for local history, but they must not flood the
-    /// vs-branch view as "added" — they were never meant for the branch).
-    fn target_map(&self, snapshot_id: i64, g: Option<&git::GitInfo>) -> Result<PathMap> {
-        let mut m = self.manifest_map(snapshot_id)?;
-        if let Some(g) = g {
-            m.retain(|p, _| !g.under_submodule(p));
-            let paths: Vec<String> = m.keys().cloned().collect();
-            let ignored = git::ignored_set(Path::new(&g.repo_root), &g.prefix, &paths)?;
-            m.retain(|p, _| !ignored.contains(p));
-        }
-        Ok(m)
-    }
-
-    /// Files that differ between a breaking point and its base (git branch or
-    /// previous point) — the tiered replacement for raw `changed_files`.
+    /// Files that differ between a breaking point and the preceding one —
+    /// what this point changed. Git is deliberately not consulted: file
+    /// history is pure local history, like JetBrains.
     pub fn breaking_point_changes(&self, monitor_id: i64, snapshot_id: i64) -> Result<Vec<FileChange>> {
         // The first breaking point is the baseline — nothing existed before it,
-        // so adding a folder starts clean instead of "every file added" (git too).
-        let prev = self.previous_snapshot(snapshot_id)?;
-        if prev.is_none() {
+        // so adding a folder starts clean instead of "every file added".
+        let Some(prev) = self.previous_snapshot(snapshot_id)? else {
             return Ok(Vec::new());
-        }
+        };
         let s = self.get_settings()?;
         let root = self.with_db(|db| monitor_root(db, monitor_id))?;
         let filter = crate::ignore::PathFilter::build(&root, &s.ignore_globs, s.respect_gitignore)?;
-        let changes = match self.git_context(monitor_id)? {
-            Some((root, g)) => {
-                let base = self.head_hashes(&root, &g)?;
-                let target = self.target_map(snapshot_id, Some(&g))?;
-                diff_maps(&base, &target)
-            }
-            None => diff_maps(
-                &self.manifest_map(prev.expect("prev is Some here"))?,
-                &self.manifest_map(snapshot_id)?,
-            ),
-        };
+        let changes = diff_maps(&self.manifest_map(prev)?, &self.manifest_map(snapshot_id)?);
         // Drop files the user globs cover: already-captured snapshots still hold
         // them, but the changed view must reflect a newly-added ignore rule.
         Ok(changes.into_iter().filter(|c| !filter.ignored(&c.path)).collect())
@@ -235,22 +195,18 @@ impl Engine {
             .collect())
     }
 
-    /// The base-side content of a file for the breaking point's diff: the git
-    /// HEAD version in a repo, else the file as captured in the previous point.
-    pub fn base_file(&self, monitor_id: i64, snapshot_id: i64, path: &str) -> Result<Option<Vec<u8>>> {
-        match self.git_info(monitor_id)? {
-            Some(g) => git::head_blob_at(Path::new(&g.repo_root), &g.prefix, path),
-            None => match self.previous_snapshot(snapshot_id)? {
-                Some(prev) => self.file_at(prev, path),
-                None => Ok(None),
-            },
+    /// The base-side content of a file for the breaking point's diff: the file
+    /// as captured in the previous point (`None` for the first point).
+    pub fn base_file(&self, _monitor_id: i64, snapshot_id: i64, path: &str) -> Result<Option<Vec<u8>>> {
+        match self.previous_snapshot(snapshot_id)? {
+            Some(prev) => self.file_at(prev, path),
+            None => Ok(None),
         }
     }
 
     /// Added/modified/deleted counts for every breaking point of a monitor,
-    /// each against its base. The base is read once, so this stays one pass.
+    /// each against the preceding point.
     pub fn snapshot_change_summaries(&self, monitor_id: i64) -> Result<Vec<ChangeSummary>> {
-        let git = self.git_context(monitor_id)?;
         let ids: Vec<i64> = self.with_db(|db| {
             let mut stmt = db
                 .conn
@@ -259,30 +215,22 @@ impl Engine {
             Ok(rows.collect::<rusqlite::Result<Vec<i64>>>()?)
         })?;
 
-        let g_ref = git.as_ref().map(|(_, g)| g);
         let maps: Vec<PathMap> =
-            ids.iter().map(|id| self.target_map(*id, g_ref)).collect::<Result<_>>()?;
+            ids.iter().map(|id| self.manifest_map(*id)).collect::<Result<_>>()?;
 
-        let head_map: Option<PathMap> = match &git {
-            Some((root, g)) => Some(self.head_hashes(root, g)?),
-            None => None,
-        };
         let s = self.get_settings()?;
         let root = self.with_db(|db| monitor_root(db, monitor_id))?;
         let filter = crate::ignore::PathFilter::build(&root, &s.ignore_globs, s.respect_gitignore)?;
         let mut out = Vec::with_capacity(ids.len());
         for (i, id) in ids.iter().enumerate() {
             let changes: Vec<FileChange> = if i == 0 {
-                // First point is the baseline → no changes (git or not).
+                // First point is the baseline → no changes.
                 Vec::new()
             } else {
-                match &head_map {
-                    Some(h) => diff_maps(h, &maps[i]),
-                    None => diff_maps(&maps[i - 1], &maps[i]),
-                }
-                .into_iter()
-                .filter(|c| !filter.ignored(&c.path))
-                .collect()
+                diff_maps(&maps[i - 1], &maps[i])
+                    .into_iter()
+                    .filter(|c| !filter.ignored(&c.path))
+                    .collect()
             };
             let count = |s: ChangeStatus| changes.iter().filter(|c| c.status == s).count() as i64;
             out.push(ChangeSummary {
@@ -362,18 +310,19 @@ impl Engine {
         self.with_db(|db| crate::store::delete_snapshot(db, &self.store, snapshot_id))
     }
 
-    /// Removes a monitor and all its history (snapshots deleted individually so
-    /// blob refcounts are decremented and orphans GC'd before the row is gone).
+    /// Removes a monitor and all its history. Snapshots are deleted as one
+    /// batched transaction so blob refcounts are decremented and orphans GC'd
+    /// without a per-statement commit (deleting a large monitor was minutes
+    /// of fsyncs otherwise).
     pub fn remove_monitor(&self, monitor_id: i64) -> Result<()> {
-        let ids: Vec<i64> = self.with_db(|db| {
-            let mut stmt = db.conn.prepare("SELECT id FROM snapshots WHERE monitor_id = ?1")?;
-            let rows = stmt.query_map([monitor_id], |r| r.get(0))?;
-            Ok(rows.collect::<rusqlite::Result<Vec<i64>>>()?)
-        })?;
-        for id in ids {
-            self.delete_snapshot(id)?;
-        }
         self.with_db(|db| {
+            let ids: Vec<i64> = {
+                let mut stmt =
+                    db.conn.prepare("SELECT id FROM snapshots WHERE monitor_id = ?1")?;
+                let rows = stmt.query_map([monitor_id], |r| r.get(0))?;
+                rows.collect::<rusqlite::Result<Vec<i64>>>()?
+            };
+            crate::store::delete_snapshots(db, &self.store, &ids)?;
             db.conn.execute("DELETE FROM monitors WHERE id = ?1", [monitor_id])?;
             Ok(())
         })

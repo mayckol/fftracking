@@ -1,4 +1,4 @@
-use crate::store::{delete_snapshot, BlobStore};
+use crate::store::{delete_snapshot, delete_snapshots, BlobStore};
 use crate::{day_bucket, Db, Result};
 
 const SECS_PER_DAY: i64 = 86_400;
@@ -29,10 +29,9 @@ pub fn prune(db: &Db, store: &BlobStore, now: i64) -> Result<PruneStats> {
 
     // 1. Age out anything past the retention window.
     let cutoff = now - s.retention_days * SECS_PER_DAY;
-    for id in query_ids(db, "SELECT id FROM snapshots WHERE ts < ?1 AND label IS NULL", [cutoff])? {
-        delete_snapshot(db, store, id)?;
-        stats.expired += 1;
-    }
+    let expired = query_ids(db, "SELECT id FROM snapshots WHERE ts < ?1 AND label IS NULL", [cutoff])?;
+    delete_snapshots(db, store, &expired)?;
+    stats.expired = expired.len();
 
     // 2. Coalesce each monitor's past days down to N evenly spaced
     // representatives. Grouping must include the monitor: a shared day bucket
@@ -44,6 +43,7 @@ pub fn prune(db: &Db, store: &BlobStore, now: i64) -> Result<PruneStats> {
         let rows = stmt.query_map([&today], |r| Ok((r.get(0)?, r.get(1)?)))?;
         rows.collect::<rusqlite::Result<Vec<_>>>()?
     };
+    let mut coalesce: Vec<i64> = Vec::new();
     for (monitor_id, day) in monitor_days {
         let mut stmt = db.conn.prepare(
             "SELECT id FROM snapshots
@@ -53,14 +53,10 @@ pub fn prune(db: &Db, store: &BlobStore, now: i64) -> Result<PruneStats> {
         let ids = stmt
             .query_map((monitor_id, &day), |r| r.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        for id in drop_indices(ids.len(), s.snapshots_per_past_day)
-            .into_iter()
-            .map(|i| ids[i])
-        {
-            delete_snapshot(db, store, id)?;
-            stats.coalesced += 1;
-        }
+        coalesce.extend(drop_indices(ids.len(), s.snapshots_per_past_day).into_iter().map(|i| ids[i]));
     }
+    delete_snapshots(db, store, &coalesce)?;
+    stats.coalesced = coalesce.len();
 
     // 3. Evict oldest past-day snapshots until under the disk cap.
     let max_bytes = (s.max_disk_gb * 1e9) as i64;

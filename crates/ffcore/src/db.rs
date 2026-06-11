@@ -49,6 +49,9 @@ impl Db {
 
     fn init(conn: Connection) -> Result<Self> {
         conn.pragma_update(None, "journal_mode", "WAL")?;
+        // WAL + NORMAL is durable across app crashes and skips the per-commit
+        // fsync that makes bulk deletes crawl on Linux.
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.execute_batch(SCHEMA)?;
         // Add columns introduced after the initial schema (ignore if present).
