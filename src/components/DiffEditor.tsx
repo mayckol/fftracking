@@ -5,8 +5,11 @@ import type { HunkInfo } from "../lib/types";
 import { defineTheme, THEME } from "./monacoTheme";
 
 export interface DiffHandle {
-  navigate: (dir: "next" | "prev") => void;
+  /** Move to the next/prev change. Returns "boundary" when already at the last
+   *  (next) / first (prev) change so the caller can hop to the adjacent file. */
+  navigate: (dir: "next" | "prev") => "moved" | "boundary";
   focusFirst: () => void;
+  focusLast: () => void;
   revertCurrent: () => void;
   undo: () => void;
   redo: () => void;
@@ -51,15 +54,32 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
     if (focus) me.focus();
   }
 
+  // Cross-file nav switches the file first; its diff is recomputed async, so the
+  // first/last change isn't known yet — retry until Monaco has the line changes.
+  function revealEdge(which: "first" | "last", focus: boolean, tries = 12) {
+    const changes = diffRef.current?.getLineChanges() ?? [];
+    if (changes.length === 0) {
+      if (tries > 0) window.setTimeout(() => revealEdge(which, focus, tries - 1), 50);
+      return;
+    }
+    reveal(which === "first" ? 0 : changes.length - 1, focus);
+  }
+
   useImperativeHandle(ref, () => ({
     navigate(dir) {
       const changes = diffRef.current?.getLineChanges() ?? [];
       const n = changes.length;
-      if (n === 0) return;
-      reveal(dir === "next" ? (navRef.current + 1) % n : (navRef.current - 1 + n) % n, true);
+      if (n === 0) return "boundary";
+      const target = dir === "next" ? navRef.current + 1 : navRef.current - 1;
+      if (target < 0 || target >= n) return "boundary";
+      reveal(target, true);
+      return "moved";
     },
     focusFirst() {
-      reveal(0, false);
+      revealEdge("first", false);
+    },
+    focusLast() {
+      revealEdge("last", true);
     },
     revertCurrent() {
       const diff = diffRef.current;

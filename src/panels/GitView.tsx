@@ -38,6 +38,9 @@ export default function GitView({ initialRepo, toast }: Props) {
   const [discardPath, setDiscardPath] = useState<string | null>(null);
   const diffApi = useRef<DiffHandle>(null);
   const statusReq = useRef(0);
+  // Set when ↑/↓ crossed a file boundary; the load effect then lands on the new
+  // file's last ("prev") / first ("next") change.
+  const crossFocus = useRef<"first" | "last" | null>(null);
 
   const loadStatus = useCallback(async (path: string): Promise<WorkingStatus | null> => {
     // Monotonic token: the 3s poll must not clobber a fresher status fetched
@@ -129,6 +132,40 @@ export default function GitView({ initialRepo, toast }: Props) {
     };
   }, [repo, file, from, to]);
 
+  // Only fires on cross-file ↑/↓ (crossFocus set) — a plain file click keeps
+  // its top-of-file position, matching the prior behaviour.
+  useEffect(() => {
+    const which = crossFocus.current;
+    if (!file || !which) return;
+    crossFocus.current = null;
+    const t = window.setTimeout(
+      () => (which === "last" ? diffApi.current?.focusLast() : diffApi.current?.focusFirst()),
+      120,
+    );
+    return () => window.clearTimeout(t);
+  }, [file]);
+
+  // The changed-file list as ordered on screen, so ↑/↓ spill into the adjacent
+  // file. Conflicts open the resolver (not the diff), so they're excluded.
+  function orderedPaths(): string[] {
+    if (mode === "compare") return changes.map((c) => c.path);
+    return [...(status?.staged ?? []), ...(status?.unstaged ?? [])].map((f) => f.path);
+  }
+
+  function navDiff(dir: "next" | "prev") {
+    if (diffApi.current?.navigate(dir) !== "boundary") return;
+    const paths = orderedPaths();
+    const i = paths.indexOf(file ?? "");
+    const j = dir === "next" ? i + 1 : i - 1;
+    if (i < 0 || j < 0 || j >= paths.length) return;
+    crossFocus.current = dir === "next" ? "first" : "last";
+    if (mode === "commit") openWorkingFile(paths[j]);
+    else {
+      setFile(paths[j]);
+      setConflictFile(null);
+    }
+  }
+
   function switchMode(m: GitMode) {
     setMode(m);
     setFile(null);
@@ -208,8 +245,8 @@ export default function GitView({ initialRepo, toast }: Props) {
   }
 
   const editable = to === WORKDIR;
-  useShortcut("diff.next", () => diffApi.current?.navigate("next"), !!file);
-  useShortcut("diff.prev", () => diffApi.current?.navigate("prev"), !!file);
+  useShortcut("diff.next", () => navDiff("next"), !!file);
+  useShortcut("diff.prev", () => navDiff("prev"), !!file);
   useShortcut("diff.layout", () => setInline((v) => !v), !!file);
   useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), !!file && editable);
   useShortcut("diff.undo", () => diffApi.current?.undo(), !!file && editable);
@@ -428,10 +465,10 @@ export default function GitView({ initialRepo, toast }: Props) {
             <span className="file" title={file}>
               {file}
             </span>
-            <button className="tbtn" title="Previous change" onClick={() => diffApi.current?.navigate("prev")}>
+            <button className="tbtn" title="Previous change" onClick={() => navDiff("prev")}>
               ↑
             </button>
-            <button className="tbtn" title="Next change" onClick={() => diffApi.current?.navigate("next")}>
+            <button className="tbtn" title="Next change" onClick={() => navDiff("next")}>
               ↓
             </button>
             {editable && (

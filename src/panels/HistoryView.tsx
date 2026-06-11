@@ -34,6 +34,9 @@ export default function HistoryView({ monitorId, toast }: Props) {
   const diffApi = useRef<DiffHandle>(null);
   const summariesKey = useRef("");
   const diffReq = useRef(0);
+  // Set when ↑/↓ crossed a file boundary, so the load effect lands on the new
+  // file's last ("prev") / first ("next") change instead of always the first.
+  const crossFocus = useRef<"first" | "last" | null>(null);
   // window.prompt/confirm don't work in the Tauri webview — use a custom modal.
   const [dialog, setDialog] = useState<
     | { kind: "label"; id: number; value: string }
@@ -133,7 +136,12 @@ export default function HistoryView({ monitorId, toast }: Props) {
   // user lands on what actually changed instead of the top of the file.
   useEffect(() => {
     if (snap == null || !file) return;
-    const t = window.setTimeout(() => diffApi.current?.focusFirst(), 180);
+    const which = crossFocus.current ?? "first";
+    crossFocus.current = null;
+    const t = window.setTimeout(
+      () => (which === "last" ? diffApi.current?.focusLast() : diffApi.current?.focusFirst()),
+      180,
+    );
     return () => window.clearTimeout(t);
   }, [snap, file]);
 
@@ -265,6 +273,17 @@ export default function HistoryView({ monitorId, toast }: Props) {
     else setRevertAllId(id);
   }
 
+  // ↑/↓ walk changes within the file; at the first/last change they spill over
+  // into the previous/next changed file (landing on its last/first change).
+  function navDiff(dir: "next" | "prev") {
+    if (diffApi.current?.navigate(dir) !== "boundary") return;
+    const i = changes.findIndex((c) => c.path === file);
+    const j = dir === "next" ? i + 1 : i - 1;
+    if (i < 0 || j < 0 || j >= changes.length) return;
+    crossFocus.current = dir === "next" ? "first" : "last";
+    setFile(changes[j].path);
+  }
+
   function gotoPoint(delta: number) {
     if (snaps.length === 0) return;
     const idx = snaps.findIndex((s) => s.id === snap);
@@ -281,8 +300,8 @@ export default function HistoryView({ monitorId, toast }: Props) {
     }
   }
 
-  useShortcut("diff.next", () => diffApi.current?.navigate("next"), !!file);
-  useShortcut("diff.prev", () => diffApi.current?.navigate("prev"), !!file);
+  useShortcut("diff.next", () => navDiff("next"), !!file);
+  useShortcut("diff.prev", () => navDiff("prev"), !!file);
   useShortcut("diff.layout", () => setInline((v) => !v), !!file);
   useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), !!file);
   useShortcut("diff.undo", () => diffApi.current?.undo(), !!file);
@@ -396,10 +415,10 @@ export default function HistoryView({ monitorId, toast }: Props) {
               <span className="file" title={file}>
                 {file}
               </span>
-              <button className="tbtn" title="Previous change" onClick={() => diffApi.current?.navigate("prev")}>
+              <button className="tbtn" title="Previous change" onClick={() => navDiff("prev")}>
                 ↑
               </button>
-              <button className="tbtn" title="Next change" onClick={() => diffApi.current?.navigate("next")}>
+              <button className="tbtn" title="Next change" onClick={() => navDiff("next")}>
                 ↓
               </button>
               <button className="tbtn" title="Undo (in this diff)" onClick={() => diffApi.current?.undo()}>
