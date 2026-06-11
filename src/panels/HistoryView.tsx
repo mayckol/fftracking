@@ -8,6 +8,7 @@ import { isConfirmSuppressed } from "../lib/confirmPrefs";
 import ConfirmModal from "../components/ConfirmModal";
 import ChangedTree from "./ChangedTree";
 import ProjectTree from "./ProjectTree";
+import FileView from "../components/FileView";
 import Timeline from "./Timeline";
 
 interface Props {
@@ -27,10 +28,12 @@ export default function HistoryView({ monitorId, toast }: Props) {
   const [hunks, setHunks] = useState<HunkInfo[]>([]);
   const [reload, setReload] = useState(0);
   const [revertAllId, setRevertAllId] = useState<number | null>(null);
+  // "project" = browse the full file tree and read a file plainly; "history" =
+  // breaking-points timeline + changed files, clicking a change opens its diff.
+  const [mode, setMode] = useState<"project" | "history">("history");
   // Full on-disk file list for the project tree (all files, not just changes).
   const [files, setFiles] = useState<string[]>([]);
-  const [showFiles, setShowFiles] = useState(true);
-  const [showChanges, setShowChanges] = useState(true);
+  const [fileContent, setFileContent] = useState<string | null>("");
   // What the changed-files list and diff compare the selected point against:
   // "point" = the changes this breaking point introduced (vs the git branch or
   // the previous point — the same base the timeline badges use), "current" =
@@ -93,6 +96,20 @@ export default function HistoryView({ monitorId, toast }: Props) {
       alive = false;
     };
   }, [monitorId, reload]);
+
+  // Project mode: plain read-only view of the live working file (null = binary
+  // or unreadable, so we show a placeholder instead of a blank editor).
+  useEffect(() => {
+    if (mode !== "project" || !file) return;
+    let alive = true;
+    api
+      .workingFile(monitorId, file)
+      .then((c) => alive && setFileContent(c))
+      .catch(() => alive && setFileContent(null));
+    return () => {
+      alive = false;
+    };
+  }, [mode, file, monitorId]);
 
   // List the files for the selected mode — the same pair the diff shows, so a
   // row always opens a real diff. "point" matches the timeline badges (what
@@ -300,6 +317,12 @@ export default function HistoryView({ monitorId, toast }: Props) {
     setFile(changes[j].path);
   }
 
+  function switchMode(m: "project" | "history") {
+    if (m === mode) return;
+    setMode(m);
+    setFile(null);
+  }
+
   function gotoPoint(delta: number) {
     if (snaps.length === 0) return;
     const idx = snaps.findIndex((s) => s.id === snap);
@@ -345,18 +368,6 @@ export default function HistoryView({ monitorId, toast }: Props) {
   useShortcut("nav.nextPoint", () => gotoPoint(1));
   useShortcut("nav.prevPoint", () => gotoPoint(-1));
 
-  if (snaps.length === 0) {
-    return (
-      <div className="col main">
-        <div className="empty">
-          <img className="hero-logo" src="/logo.png" alt="fftracking" />
-          <h3>No breaking points</h3>
-          <p>Edit a file in this folder and a breaking point appears here automatically. You can also snapshot manually from the top bar.</p>
-        </div>
-      </div>
-    );
-  }
-
   const counts = { added: 0, modified: 0, deleted: 0 };
   for (const c of changes) counts[c.status]++;
   const sel = snaps.find((s) => s.id === snap);
@@ -366,83 +377,79 @@ export default function HistoryView({ monitorId, toast }: Props) {
     <>
       <div className="col">
         <div className="col-head">
-          <h2>Breaking Points</h2>
-          <span className="base-tag" title="Change badges show what each point changed vs the one before it">
-            ↔ previous point
-          </span>
-        </div>
-        <div className="split">
-          <div className="col" style={{ borderRight: "none" }}>
-            <div className="col-scroll">
-              <Timeline
-                snapshots={snaps}
-                summaries={summaries}
-                selected={snap}
-                onSelect={setSnap}
-                onDelete={deleteSnap}
-                onLabel={labelSnap}
-                onRevertAll={askRevertAll}
-              />
-            </div>
-          </div>
-          <div className="col" style={{ borderRight: "none" }}>
-            <div className="col-head">
-              <h2>Files</h2>
-              <span className="changecount">{files.length}</span>
-              <button
-                className="vs-tag"
-                style={{ marginLeft: "auto" }}
-                title={showFiles ? "Hide the project file tree" : "Show the project file tree"}
-                onClick={() => setShowFiles((v) => !v)}
-              >
-                {showFiles ? "hide" : "show"}
+          <div className="git-mode">
+            {(["project", "history"] as const).map((m) => (
+              <button key={m} className={`seg${mode === m ? " on" : ""}`} onClick={() => switchMode(m)}>
+                {m}
               </button>
-            </div>
-            {showFiles && (
+            ))}
+          </div>
+          {mode === "project" ? (
+            <span className="changecount" style={{ marginLeft: "auto" }}>
+              {files.length}
+            </span>
+          ) : (
+            <span
+              className="base-tag"
+              style={{ marginLeft: "auto" }}
+              title="Change badges show what each point changed vs the one before it"
+            >
+              ↔ previous point
+            </span>
+          )}
+        </div>
+
+        {mode === "project" ? (
+          <div className="col-scroll">
+            <ProjectTree
+              files={files}
+              selected={file}
+              onSelect={setFile}
+              onOpen={(p) => api.openPath(monitorId, p).catch((e) => toast(String(e), true))}
+              onReveal={(p) => api.revealPath(monitorId, p).catch((e) => toast(String(e), true))}
+              onIgnoreFile={(p) => ignorePath(p, false)}
+              onIgnoreFolder={(p) => ignorePath(p, true)}
+            />
+          </div>
+        ) : (
+          <div className="split">
+            <div className="col" style={{ borderRight: "none" }}>
               <div className="col-scroll">
-                <ProjectTree
-                  files={files}
-                  selected={file}
-                  onSelect={setFile}
-                  onOpen={(p) => api.openPath(monitorId, p).catch((e) => toast(String(e), true))}
-                  onReveal={(p) => api.revealPath(monitorId, p).catch((e) => toast(String(e), true))}
-                  onIgnoreFile={(p) => ignorePath(p, false)}
-                  onIgnoreFolder={(p) => ignorePath(p, true)}
+                <Timeline
+                  snapshots={snaps}
+                  summaries={summaries}
+                  selected={snap}
+                  onSelect={setSnap}
+                  onDelete={deleteSnap}
+                  onLabel={labelSnap}
+                  onRevertAll={askRevertAll}
                 />
               </div>
-            )}
-            <div className="col-head">
-              <h2>Changed Files</h2>
-              <button
-                className="vs-tag"
-                title={
-                  vsMode === "point"
-                    ? "Showing what this breaking point changed (vs the previous point). Click to compare with the current working tree."
-                    : "Showing how the current working tree differs from this point. Click to see what the point changed."
-                }
-                onClick={() => setVsMode((m) => (m === "point" ? "current" : "point"))}
-              >
-                {vsMode === "point" ? "at this point ⇄" : "vs current ⇄"}
-              </button>
-              {changes.length > 0 ? (
-                <span className="sum">
-                  {counts.added > 0 && <span className="sum-pill add">+{counts.added}</span>}
-                  {counts.modified > 0 && <span className="sum-pill mod">~{counts.modified}</span>}
-                  {counts.deleted > 0 && <span className="sum-pill del">−{counts.deleted}</span>}
-                </span>
-              ) : (
-                <span className="changecount">0</span>
-              )}
-              <button
-                className="vs-tag"
-                style={{ marginLeft: "auto" }}
-                title={showChanges ? "Hide the changed-files list" : "Show the changed-files list"}
-                onClick={() => setShowChanges((v) => !v)}
-              >
-                {showChanges ? "hide" : "show"}
-              </button>
             </div>
-            {showChanges && (
+            <div className="col" style={{ borderRight: "none" }}>
+              <div className="col-head">
+                <h2>Changed Files</h2>
+                <button
+                  className="vs-tag"
+                  title={
+                    vsMode === "point"
+                      ? "Showing what this breaking point changed (vs the previous point). Click to compare with the current working tree."
+                      : "Showing how the current working tree differs from this point. Click to see what the point changed."
+                  }
+                  onClick={() => setVsMode((m) => (m === "point" ? "current" : "point"))}
+                >
+                  {vsMode === "point" ? "at this point ⇄" : "vs current ⇄"}
+                </button>
+                {changes.length > 0 ? (
+                  <span className="sum">
+                    {counts.added > 0 && <span className="sum-pill add">+{counts.added}</span>}
+                    {counts.modified > 0 && <span className="sum-pill mod">~{counts.modified}</span>}
+                    {counts.deleted > 0 && <span className="sum-pill del">−{counts.deleted}</span>}
+                  </span>
+                ) : (
+                  <span className="changecount">0</span>
+                )}
+              </div>
               <div className="col-scroll">
                 <ChangedTree
                   changes={changes}
@@ -454,13 +461,54 @@ export default function HistoryView({ monitorId, toast }: Props) {
                   onIgnoreFolder={(p) => ignorePath(p, true)}
                 />
               </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="col main">
-        {file ? (
+        {mode === "project" ? (
+          file ? (
+            <>
+              <div className="diff-head">
+                <span className="file" title={file}>
+                  {file}
+                </span>
+                <div className="diff-actions" style={{ marginLeft: "auto" }}>
+                  <button
+                    className="tbtn"
+                    onClick={() => api.openPath(monitorId, file).catch((e) => toast(String(e), true))}
+                    title="Open with the default app"
+                  >
+                    Open
+                  </button>
+                  <button
+                    className="tbtn"
+                    onClick={() => api.revealPath(monitorId, file).catch((e) => toast(String(e), true))}
+                    title="Reveal in Finder"
+                  >
+                    Reveal
+                  </button>
+                </div>
+              </div>
+              {fileContent === null ? (
+                <div className="empty">
+                  <div className="glyph">⛔</div>
+                  <h3>Can't display this file</h3>
+                  <p>It's binary or could not be read as text.</p>
+                </div>
+              ) : (
+                <FileView content={fileContent} language={langOf(file)} />
+              )}
+            </>
+          ) : (
+            <div className="empty">
+              <div className="glyph">📄</div>
+              <h3>Open a file</h3>
+              <p>Pick a file from the project tree to view it.</p>
+            </div>
+          )
+        ) : file ? (
           <>
             <div className="diff-head">
               <span className="file" title={file}>
@@ -541,6 +589,12 @@ export default function HistoryView({ monitorId, toast }: Props) {
               ref={diffApi}
             />
           </>
+        ) : snaps.length === 0 ? (
+          <div className="empty">
+            <img className="hero-logo" src="/logo.png" alt="fftracking" />
+            <h3>No breaking points</h3>
+            <p>Edit a file in this folder and a breaking point appears here automatically. You can also snapshot manually from the top bar. Switch to <b>project</b> to browse files now.</p>
+          </div>
         ) : (
           <div className="empty">
             <div className="glyph">⟷</div>
