@@ -280,6 +280,11 @@ select:focus {
 .tbtn.primary:hover {
   background: #93a0ff;
 }
+.tbtn.on {
+  color: var(--ac);
+  border-color: var(--ac);
+  background: var(--bg-3);
+}
 .tbtn.danger:hover {
   color: var(--del);
   border-color: var(--del);
