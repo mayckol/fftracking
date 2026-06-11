@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.5.8] — 2026-06-11
+
+### Changed
+
+- **History view reworked into an IDE-style explorer.** The duplicated file lists
+  are gone. The project file tree is always visible; a single *history* toggle
+  shows/hides the breaking-points timeline and changed-files list. Clicking a tree
+  file opens it in a plain read-only editor (with active-line highlight); clicking
+  a changed file opens its diff.
+- **Resizable panels.** Drag the dividers to resize the explorer width and the
+  project-tree / history split.
+
 ## [0.5.7] — 2026-06-11
 
 ### Added
