@@ -7,6 +7,9 @@ import type {
   HunkInfo,
   MonitorRow,
   RefList,
+  ReplaceMatchSpec,
+  ReplaceSpec,
+  ReplaceSummary,
   ResourceUsage,
   SearchOptions,
   SearchResults,
@@ -41,6 +44,10 @@ export const api = {
   monitorFiles: (monitorId: number) => invoke<string[]>("monitor_files", { monitorId }),
   searchContent: (monitorId: number, options: SearchOptions) =>
     invoke<SearchResults>("search_content", { monitorId, options }),
+  replaceMatch: (monitorId: number, spec: ReplaceMatchSpec) =>
+    invoke<number>("replace_match", { monitorId, spec }),
+  replaceAll: (monitorId: number, spec: ReplaceSpec) =>
+    invoke<ReplaceSummary>("replace_all", { monitorId, spec }),
   terminalOpen: (cwd: string | null, cols: number, rows: number) =>
     invoke<number>("terminal_open", { cwd, cols, rows }),
   terminalWrite: (id: number, data: string) => invoke<void>("terminal_write", { id, data }),

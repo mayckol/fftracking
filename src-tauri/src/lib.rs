@@ -47,6 +47,8 @@ pub fn run() {
             });
             app.manage(terminal::TerminalManager::default());
             app.manage(lsp::LspManager::default());
+            #[cfg(target_os = "macos")]
+            setup_app_menu(app.handle())?;
             setup_tray(app.handle())?;
             spawn_detect_daemon(engine, manager);
             Ok(())
@@ -68,6 +70,8 @@ pub fn run() {
             commands::snapshot_working_changes,
             commands::monitor_files,
             commands::search_content,
+            commands::replace_match,
+            commands::replace_all,
             commands::open_path,
             commands::reveal_path,
             commands::base_file,
@@ -126,6 +130,53 @@ pub fn run() {
                 }
             }
         });
+}
+
+/// Replaces the default macOS menu: keeps the Edit items the webview needs for
+/// ⌘C/⌘V/⌘Z to work, but drops "Close Window" so ⌘W is free for editor
+/// shortcuts (delete word) instead of hiding the app.
+#[cfg(target_os = "macos")]
+fn setup_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{PredefinedMenuItem, Submenu};
+
+    let app_menu = Submenu::with_items(
+        app,
+        "fftracking",
+        true,
+        &[
+            &PredefinedMenuItem::hide(app, None)?,
+            &PredefinedMenuItem::hide_others(app, None)?,
+            &PredefinedMenuItem::show_all(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::quit(app, None)?,
+        ],
+    )?;
+    let edit = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
+    let window = Submenu::with_items(
+        app,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, None)?,
+            &PredefinedMenuItem::maximize(app, None)?,
+            &PredefinedMenuItem::fullscreen(app, None)?,
+        ],
+    )?;
+    app.set_menu(Menu::with_items(app, &[&app_menu, &edit, &window])?)?;
+    Ok(())
 }
 
 fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {

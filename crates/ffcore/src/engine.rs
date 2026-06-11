@@ -188,6 +188,21 @@ impl Engine {
         crate::search::search_content(&root, opts, &s.ignore_globs, s.respect_gitignore)
     }
 
+    /// Replaces the matches of one search-result row (file + line).
+    pub fn replace_match(&self, monitor_id: i64, spec: &crate::search::ReplaceMatchSpec) -> Result<usize> {
+        let root = self.with_db(|db| monitor_root(db, monitor_id))?;
+        crate::search::replace_match(&root, spec)
+    }
+
+    /// Replace across the whole working tree. Captures a breaking point first
+    /// so a sweeping replace-all is always one revert away from undone.
+    pub fn replace_all(&self, monitor_id: i64, spec: &crate::search::ReplaceSpec) -> Result<crate::search::ReplaceSummary> {
+        let s = self.get_settings()?;
+        let root = self.with_db(|db| monitor_root(db, monitor_id))?;
+        self.snapshot_now(monitor_id, "manual")?;
+        crate::search::replace_all(&root, spec, &s.ignore_globs, s.respect_gitignore)
+    }
+
     /// Path→hash of the live working tree, under the monitor's capture rules.
     /// The "Current" side of the Local-History (point ↔ current) comparison.
     fn working_hashes(&self, root: &Path, s: &crate::db::Settings) -> Result<PathMap> {

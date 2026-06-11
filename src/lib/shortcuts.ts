@@ -26,6 +26,16 @@ export const ACTIONS: ActionDef[] = [
   { id: "editor.format", label: "Format document", group: "Editor", default: "Mod+Shift+L" },
   { id: "editor.gotoDef", label: "Go to definition", group: "Editor", default: "F12" },
   { id: "editor.save", label: "Save file", group: "Editor", default: "Mod+S" },
+  { id: "editor.duplicateLine", label: "Duplicate line", group: "Editor", default: "Mod+D" },
+  { id: "editor.deleteWord", label: "Delete word (end → start)", group: "Editor", default: "Mod+W" },
+  { id: "editor.deleteLine", label: "Delete line", group: "Editor", default: "Alt+D" },
+  { id: "editor.findNext", label: "Find next match", group: "Editor", default: "Mod+G" },
+  { id: "editor.selectBlock", label: "Select bracket block", group: "Editor", default: "Mod+Shift+[" },
+  { id: "editor.jumpBracket", label: "Go to matching bracket", group: "Editor", default: "Mod+[" },
+  { id: "editor.commentLine", label: "Toggle comment (line / selection)", group: "Editor", default: "Mod+/" },
+  { id: "editor.implementations", label: "Go to implementations / specifications", group: "Editor", default: "Mod+U" },
+  { id: "editor.fold", label: "Collapse block (press twice: all)", group: "Editor", default: "Mod+Shift+-" },
+  { id: "editor.unfold", label: "Expand block (press twice: all)", group: "Editor", default: "Mod+Shift+=" },
   { id: "diff.next", label: "Next change", group: "Diff", default: "Alt+ArrowDown" },
   { id: "diff.prev", label: "Previous change", group: "Diff", default: "Alt+ArrowUp" },
   { id: "diff.revertBlock", label: "Revert current block", group: "Diff", default: "Alt+R" },
@@ -48,6 +58,7 @@ export const ACTIONS: ActionDef[] = [
   { id: "terminal.toggle", label: "Toggle terminal", group: "Navigation", default: "Mod+`" },
   { id: "search.quickOpen", label: "Find files & folders", group: "Search", default: DOUBLE_SHIFT },
   { id: "search.text", label: "Find in files", group: "Search", default: "Mod+Shift+F" },
+  { id: "search.replace", label: "Replace in files", group: "Search", default: "Mod+Shift+R" },
 ];
 
 export const IS_MAC = navigator.platform.toUpperCase().includes("MAC");
@@ -94,6 +105,15 @@ export function subscribe(fn: () => void): () => void {
   return () => subscribers.delete(fn);
 }
 
+// Shift produces a different character on US layouts ("{", "_", "+", …);
+// store the unshifted key so combos stay canonical ("Mod+Shift+[").
+const SHIFTED: Record<string, string> = {
+  "{": "[", "}": "]", "_": "-", "+": "=", "?": "/", ":": ";", '"': "'",
+  "<": ",", ">": ".", "|": "\\", "~": "`",
+  ")": "0", "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6",
+  "&": "7", "*": "8", "(": "9",
+};
+
 /** Serializes a keydown into a comparable combo string, or "" for a bare modifier. */
 export function comboFromEvent(e: KeyboardEvent): string {
   const parts: string[] = [];
@@ -103,6 +123,7 @@ export function comboFromEvent(e: KeyboardEvent): string {
   let key = e.key;
   if (["Meta", "Control", "Alt", "Shift"].includes(key)) return "";
   if (key === " ") key = "Space";
+  if (key in SHIFTED) key = SHIFTED[key];
   if (key.length === 1) key = key.toUpperCase();
   parts.push(key);
   return parts.join("+");

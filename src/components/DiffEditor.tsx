@@ -3,6 +3,7 @@ import { DiffEditor as MonacoDiff, type Monaco } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import type { HunkInfo } from "../lib/types";
 import { defineTheme, THEME } from "./monacoTheme";
+import { registerEditor } from "../lib/selection";
 import { editorPrefOptions, useUIPrefs } from "../lib/uiPrefs";
 
 export interface DiffHandle {
@@ -159,6 +160,8 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
   function handleMount(diff: editor.IStandaloneDiffEditor, monaco: Monaco) {
     diffRef.current = diff;
     monacoRef.current = monaco;
+    registerEditor(diff.getOriginalEditor());
+    registerEditor(diff.getModifiedEditor());
     // Force layout — without it the original pane can mount at ~0 width.
     window.setTimeout(() => {
       diff.layout();

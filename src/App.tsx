@@ -3,6 +3,8 @@ import { api } from "./lib/ipc";
 import { comboFor, formatCombo, installShortcuts, useShortcut } from "./lib/shortcuts";
 import { useUIPrefs } from "./lib/uiPrefs";
 import { isConfirmSuppressed } from "./lib/confirmPrefs";
+import { getSelectedText } from "./lib/selection";
+import { getScopeDir } from "./lib/searchScope";
 import ConfirmModal from "./components/ConfirmModal";
 import SearchPalette, { type PaletteMode } from "./components/SearchPalette";
 import type { MonitorRow, ResourceUsage } from "./lib/types";
@@ -24,6 +26,12 @@ export default function App() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [showTerm, setShowTerm] = useState(false);
   const [search, setSearch] = useState<PaletteMode | null>(null);
+  // Bumped by ⌘⇧R: tells the palette to open its replace row. Reset on close
+  // so a later plain ⌘⇧F doesn't reopen with replace enabled.
+  const [replaceReq, setReplaceReq] = useState(0);
+  useEffect(() => {
+    if (search === null) setReplaceReq(0);
+  }, [search]);
   // Open-a-file request from the search palette, routed into HistoryView.
   const [openReq, setOpenReq] = useState<{
     monitorId: number;
@@ -136,8 +144,27 @@ export default function App() {
   const inWorkspace = tab === "files" || tab === "history";
   useShortcut("capture.snapshot", snapshotNow, inWorkspace && selected != null);
   useShortcut("terminal.toggle", () => setShowTerm((v) => !v));
+  // Seeds for the palette, captured at the moment the shortcut fires — query
+  // from the editor selection (first line, like VSCode's ⌘⇧F), scope from the
+  // last folder clicked in the project tree.
+  const [searchSeed, setSearchSeed] = useState("");
+  const [searchScope, setSearchScope] = useState<string | null>(null);
+  const grabSeed = () => getSelectedText().split("\n")[0].trim().slice(0, 200);
+
+  function openTextSearch(replace: boolean, scope: string | null) {
+    setSearchSeed(grabSeed());
+    setSearchScope(scope);
+    if (replace) {
+      setSearch("text");
+      setReplaceReq((n) => n + 1);
+    } else {
+      setSearch((s) => (s === "text" ? null : "text"));
+    }
+  }
+
   useShortcut("search.quickOpen", () => setSearch((s) => (s === "files" ? null : "files")), selected != null);
-  useShortcut("search.text", () => setSearch((s) => (s === "text" ? null : "text")), selected != null);
+  useShortcut("search.text", () => openTextSearch(false, getScopeDir()), selected != null);
+  useShortcut("search.replace", () => openTextSearch(true, getScopeDir()), selected != null);
 
   function openFromSearch(path: string, line?: number, col?: number) {
     if (selected == null) return;
@@ -227,6 +254,7 @@ export default function App() {
               historyMode={tab === "history"}
               onModeChange={(history) => setTab(history ? "history" : "files")}
               openReq={openReq}
+              onSearchInFolder={(prefix, replace) => openTextSearch(replace, prefix)}
               toast={notify}
             />
           ) : (
@@ -266,6 +294,9 @@ export default function App() {
         <SearchPalette
           monitorId={selected}
           mode={search}
+          initialQuery={searchSeed}
+          initialScope={searchScope}
+          replaceReq={replaceReq}
           onModeChange={setSearch}
           onClose={() => setSearch(null)}
           onOpenFile={openFromSearch}

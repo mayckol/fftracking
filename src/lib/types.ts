@@ -96,6 +96,8 @@ export interface SearchOptions {
   case_sensitive: boolean;
   regex: boolean;
   whole_word: boolean;
+  /** Root-relative folder to scope the search to (null = whole tree). */
+  dir?: string | null;
 }
 
 export interface SearchMatch {
@@ -109,4 +111,21 @@ export interface SearchMatch {
 export interface SearchResults {
   matches: SearchMatch[];
   truncated: boolean;
+}
+
+export interface ReplaceSpec {
+  options: SearchOptions;
+  replacement: string;
+}
+
+export interface ReplaceMatchSpec {
+  path: string;
+  line: number;
+  options: SearchOptions;
+  replacement: string;
+}
+
+export interface ReplaceSummary {
+  files: number;
+  replacements: number;
 }
