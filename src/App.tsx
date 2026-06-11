@@ -18,6 +18,7 @@ export default function App() {
   const [toast, setToast] = useState<{ msg: string; error: boolean } | null>(null);
   const [res, setRes] = useState<ResourceUsage | null>(null);
   const [confirmDel, setConfirmDel] = useState<MonitorRow | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const toastTimer = useRef<number>();
 
   // Suppress the webview's native right-click menu (the "Reload" popup);
@@ -79,6 +80,8 @@ export default function App() {
   }
 
   async function deleteFolder(id: number) {
+    setConfirmDel(null);
+    setDeletingId(id);
     try {
       await api.removeMonitor(id);
       const rows = await api.listMonitors();
@@ -87,11 +90,13 @@ export default function App() {
       notify("Folder & history deleted");
     } catch (e) {
       notify(String(e), true);
+    } finally {
+      setDeletingId(null);
     }
-    setConfirmDel(null);
   }
 
   function askDelete(m: MonitorRow) {
+    if (deletingId != null) return;
     if (isConfirmSuppressed("deleteFolder")) deleteFolder(m.id);
     else setConfirmDel(m);
   }
@@ -154,6 +159,7 @@ export default function App() {
           <Sidebar
             monitors={monitors}
             selected={selected}
+            deletingId={deletingId}
             onSelect={setSelected}
             onAdd={addFolder}
             onToggle={toggleFolder}

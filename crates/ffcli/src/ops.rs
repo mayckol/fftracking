@@ -149,12 +149,11 @@ pub fn changes(engine: &Engine, path: &Path, point: Option<i64>) -> OpResult {
         Some(p) => p,
         None => latest_point(engine, id)?,
     };
-    let base = e(engine.base_info(id))?;
     let files = e(engine.breaking_point_changes(id, point))?;
     Ok(json!({
         "monitor_id": id,
         "point": point,
-        "base": { "kind": base.kind, "branch": base.branch },
+        "base": { "kind": "snapshot", "branch": Value::Null },
         "files": serde_json::to_value(files).map_err(|e| e.to_string())?,
     }))
 }
@@ -165,7 +164,6 @@ pub fn diff(engine: &Engine, path: &Path, file: &str, point: Option<i64>, now: b
         Some(p) => p,
         None => latest_point(engine, id)?,
     };
-    let base = e(engine.base_info(id))?;
     let (left, right, left_label, right_label) = if now {
         let l = e(engine.file_at(point, file))?.map(bytes_to_string).unwrap_or_default();
         let r = e(engine.working_file(id, file))?.unwrap_or_default();
@@ -173,8 +171,7 @@ pub fn diff(engine: &Engine, path: &Path, file: &str, point: Option<i64>, now: b
     } else {
         let l = e(engine.base_file(id, point, file))?.map(bytes_to_string).unwrap_or_default();
         let r = e(engine.file_at(point, file))?.map(bytes_to_string).unwrap_or_default();
-        let ll = if base.kind == "git" { base.branch.clone().unwrap_or_else(|| "HEAD".into()) } else { "previous point".into() };
-        (l, r, ll, format!("point {point}"))
+        (l, r, "previous point".to_string(), format!("point {point}"))
     };
     let udiff = similar::TextDiff::from_lines(&left, &right)
         .unified_diff()

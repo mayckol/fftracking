@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
 import { api } from "../lib/ipc";
-import type { BaseInfo, ChangeSummary, FileChange, HunkInfo, SnapshotRow } from "../lib/types";
+import type { ChangeSummary, FileChange, HunkInfo, SnapshotRow } from "../lib/types";
 import { basename, dayLabel, dirname, fmtTime, langOf } from "../lib/util";
 import { useShortcut } from "../lib/shortcuts";
 import { isConfirmSuppressed } from "../lib/confirmPrefs";
@@ -17,7 +17,6 @@ interface Props {
 export default function HistoryView({ monitorId, toast }: Props) {
   const [snaps, setSnaps] = useState<SnapshotRow[]>([]);
   const [snap, setSnap] = useState<number | null>(null);
-  const [base, setBase] = useState<BaseInfo | null>(null);
   const [summaries, setSummaries] = useState<Record<number, ChangeSummary>>({});
   const [changes, setChanges] = useState<FileChange[]>([]);
   const [file, setFile] = useState<string | null>(null);
@@ -27,14 +26,18 @@ export default function HistoryView({ monitorId, toast }: Props) {
   const [hunks, setHunks] = useState<HunkInfo[]>([]);
   const [reload, setReload] = useState(0);
   const [revertAllId, setRevertAllId] = useState<number | null>(null);
+  // What the changed-files list and diff compare the selected point against:
+  // "point" = the changes this breaking point introduced (vs the git branch or
+  // the previous point — the same base the timeline badges use), "current" =
+  // drift between the point and the live working tree (JetBrains Local History).
+  const [vsMode, setVsMode] = useState<"point" | "current">("point");
   const diffApi = useRef<DiffHandle>(null);
   const summariesKey = useRef("");
   const diffReq = useRef(0);
-  const isGit = base?.kind === "git";
   // window.prompt/confirm don't work in the Tauri webview — use a custom modal.
   const [dialog, setDialog] = useState<
     | { kind: "label"; id: number; value: string }
-    | { kind: "folder"; prefix: string; remove: boolean; target: "point" | "branch" }
+    | { kind: "folder"; prefix: string; remove: boolean }
     | null
   >(null);
 
@@ -43,12 +46,8 @@ export default function HistoryView({ monitorId, toast }: Props) {
       const rows = await api.listSnapshots(monitorId);
       setSnaps(rows);
       setSnap((cur) => keep ?? cur ?? (rows[0]?.id ?? null));
-      // Refresh the comparison base each poll so the branch label and badges
-      // track a moved HEAD / branch switch, not just new breaking points.
-      const info = await api.monitorBaseInfo(monitorId).catch(() => null);
-      setBase(info);
-      // Badges depend on both the set of points and the base (git HEAD oid).
-      const key = `${info?.head ?? ""}|${rows.map((r) => r.id).join(",")}`;
+      // Badges (vs the previous point) only change when the point set does.
+      const key = rows.map((r) => r.id).join(",");
       if (key !== summariesKey.current) {
         summariesKey.current = key;
         try {
@@ -65,7 +64,6 @@ export default function HistoryView({ monitorId, toast }: Props) {
   useEffect(() => {
     setSnap(null);
     setFile(null);
-    setBase(null);
     summariesKey.current = "";
     loadSnaps();
   }, [monitorId, loadSnaps]);
@@ -77,9 +75,9 @@ export default function HistoryView({ monitorId, toast }: Props) {
     return () => window.clearInterval(t);
   }, [loadSnaps]);
 
-  // Local-History semantics: list the files that differ between the selected
-  // breaking point and the CURRENT working tree — the same pair the diff shows,
-  // so a row always opens a real Before↔Current diff.
+  // List the files for the selected mode — the same pair the diff shows, so a
+  // row always opens a real diff. "point" matches the timeline badges (what
+  // this point changed); "current" is the point↔working-tree drift.
   useEffect(() => {
     if (snap == null) {
       setChanges([]);
@@ -87,7 +85,10 @@ export default function HistoryView({ monitorId, toast }: Props) {
     }
     let alive = true;
     (async () => {
-      const list = await api.snapshotWorkingChanges(monitorId, snap);
+      const list =
+        vsMode === "current"
+          ? await api.snapshotWorkingChanges(monitorId, snap)
+          : await api.breakingPointChanges(monitorId, snap);
       if (!alive) return;
       setChanges(list);
       setFile((cur) => (cur && list.some((c) => c.path === cur) ? cur : list[0]?.path ?? null));
@@ -95,12 +96,14 @@ export default function HistoryView({ monitorId, toast }: Props) {
     return () => {
       alive = false;
     };
-  }, [snap, monitorId, reload]);
+  }, [snap, monitorId, reload, vsMode]);
 
-  // The two panes: LEFT = the file as captured at the breaking point ("Before",
-  // read-only), RIGHT = the live working tree ("Current", editable). The ⟲
-  // gutter icon restores that block from Before into Current — exactly the
-  // JetBrains Local-History flow — and the edit is undoable (⌘Z / Ctrl+Z).
+  // The two panes depend on the mode. "current": LEFT = the file as captured
+  // at the point ("Before", read-only), RIGHT = the live working tree
+  // ("Current", editable) — the ⟲ gutter icon restores a block from Before
+  // into Current and the edit is undoable (⌘Z / Ctrl+Z). "point": LEFT = the
+  // base (git branch / previous point), RIGHT = the point's capture, both
+  // read-only — what this breaking point changed.
   const loadDiff = useCallback(async () => {
     // Monotonic token: a slower in-flight load must not clobber the panes (and
     // the hunk indices that drive gutter-revert) of a newer selection.
@@ -111,14 +114,16 @@ export default function HistoryView({ monitorId, toast }: Props) {
       setHunks([]);
       return;
     }
-    const l = (await api.fileAt(snap, file)) ?? "";
-    const r = (await api.workingFile(monitorId, file)) ?? "";
+    const [l, r] =
+      vsMode === "current"
+        ? [(await api.fileAt(snap, file)) ?? "", (await api.workingFile(monitorId, file)) ?? ""]
+        : [(await api.baseFile(monitorId, snap, file)) ?? "", (await api.fileAt(snap, file)) ?? ""];
     const hk = await api.textHunks(l, r);
     if (req !== diffReq.current) return;
     setLeft(l);
     setRight(r);
     setHunks(hk);
-  }, [snap, file, monitorId]);
+  }, [snap, file, monitorId, vsMode]);
 
   useEffect(() => {
     loadDiff();
@@ -151,35 +156,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
 
   function revertFolder() {
     if (snap == null || !file) return;
-    openFolder("point", dirname(file).replace(/\/$/, ""));
-  }
-
-  async function resetFile() {
-    if (!file) return;
-    try {
-      await api.gitResetFile(monitorId, file);
-      await afterRevert(`Reset ${basename(file)} to ${base?.branch ?? "branch"}`);
-    } catch (e) {
-      toast(String(e), true);
-    }
-  }
-
-  function resetFolder() {
-    if (!file) return;
-    openFolder("branch", dirname(file).replace(/\/$/, ""));
-  }
-
-  async function resetPath(path: string) {
-    try {
-      await api.gitResetFile(monitorId, path);
-      await afterRevert(`Reset ${basename(path)} to ${base?.branch ?? "branch"}`);
-    } catch (e) {
-      toast(String(e), true);
-    }
-  }
-
-  function resetFolderPath(prefix: string) {
-    openFolder("branch", prefix);
+    openFolder(dirname(file).replace(/\/$/, ""));
   }
 
   async function deleteSnap(id: number) {
@@ -219,7 +196,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
   }
 
   function revertFolderPath(prefix: string) {
-    openFolder("point", prefix);
+    openFolder(prefix);
   }
 
   function labelSnap(id: number, current: string | null) {
@@ -237,26 +214,19 @@ export default function HistoryView({ monitorId, toast }: Props) {
     setDialog(null);
   }
 
-  async function runFolder(target: "point" | "branch", prefix: string, remove: boolean) {
+  async function runFolder(prefix: string, remove: boolean) {
     if (snap == null) return;
     try {
-      if (target === "branch") {
-        await api.gitResetFolder(monitorId, prefix, remove);
-        await afterRevert(`Reset folder ${prefix || "/"} to ${base?.branch ?? "branch"}`);
-      } else {
-        await api.revertFolder(snap, prefix, remove);
-        await afterRevert(`Reverted folder ${prefix || "/"} to this point`);
-      }
+      await api.revertFolder(snap, prefix, remove);
+      await afterRevert(`Reverted folder ${prefix || "/"} to this point`);
     } catch (e) {
       toast(String(e), true);
     }
   }
 
-  const folderKey = (t: "point" | "branch") => (t === "branch" ? "resetFolder" : "revertFolder");
-
-  function openFolder(target: "point" | "branch", prefix: string) {
-    if (isConfirmSuppressed(folderKey(target))) runFolder(target, prefix, false);
-    else setDialog({ kind: "folder", prefix, remove: false, target });
+  function openFolder(prefix: string) {
+    if (isConfirmSuppressed("revertFolder")) runFolder(prefix, false);
+    else setDialog({ kind: "folder", prefix, remove: false });
   }
 
   async function ignorePath(path: string, isDir: boolean) {
@@ -362,8 +332,8 @@ export default function HistoryView({ monitorId, toast }: Props) {
       <div className="col">
         <div className="col-head">
           <h2>Breaking Points</h2>
-          <span className="base-tag" title="Each breaking point is compared with the current working tree (local history)">
-            ↔ Current
+          <span className="base-tag" title="Change badges show what each point changed vs the one before it">
+            ↔ previous point
           </span>
         </div>
         <div className="split">
@@ -383,7 +353,17 @@ export default function HistoryView({ monitorId, toast }: Props) {
           <div className="col" style={{ borderRight: "none" }}>
             <div className="col-head">
               <h2>Changed Files</h2>
-              <span className="vs-tag">vs Current</span>
+              <button
+                className="vs-tag"
+                title={
+                  vsMode === "point"
+                    ? "Showing what this breaking point changed (vs the previous point). Click to compare with the current working tree."
+                    : "Showing how the current working tree differs from this point. Click to see what the point changed."
+                }
+                onClick={() => setVsMode((m) => (m === "point" ? "current" : "point"))}
+              >
+                {vsMode === "point" ? "at this point ⇄" : "vs current ⇄"}
+              </button>
               {changes.length > 0 ? (
                 <span className="sum">
                   {counts.added > 0 && <span className="sum-pill add">+{counts.added}</span>}
@@ -401,9 +381,6 @@ export default function HistoryView({ monitorId, toast }: Props) {
                 onSelect={setFile}
                 onRevertFile={revertPath}
                 onRevertFolder={revertFolderPath}
-                gitBranch={isGit ? base?.branch ?? null : null}
-                onResetFile={isGit ? resetPath : undefined}
-                onResetFolder={isGit ? resetFolderPath : undefined}
                 onIgnoreFile={(p) => ignorePath(p, false)}
                 onIgnoreFolder={(p) => ignorePath(p, true)}
               />
@@ -441,22 +418,17 @@ export default function HistoryView({ monitorId, toast }: Props) {
               {hunks.length > 0 && (
                 <span
                   className="changecount"
-                  title="Click the ⟲ icon in the gutter to restore that block to this breaking point; ⌘Z / Ctrl+Z to undo"
+                  title={
+                    vsMode === "current"
+                      ? "Click the ⟲ icon in the gutter to restore that block to this breaking point; ⌘Z / Ctrl+Z to undo"
+                      : "Changes this breaking point introduced"
+                  }
                 >
-                  {hunks.length} change{hunks.length === 1 ? "" : "s"} · ⟲ in gutter to revert · ⌘Z undo
+                  {hunks.length} change{hunks.length === 1 ? "" : "s"}
+                  {vsMode === "current" && " · ⟲ in gutter to revert · ⌘Z undo"}
                 </span>
               )}
               <div className="diff-actions">
-                {isGit && (
-                  <>
-                    <button className="tbtn" onClick={resetFile} title={`Reset this file to ${base?.branch}`}>
-                      ⎇ Reset file
-                    </button>
-                    <button className="tbtn danger" onClick={resetFolder} title={`Reset this folder to ${base?.branch}`}>
-                      ⎇ Reset folder
-                    </button>
-                  </>
-                )}
                 <button className="tbtn" onClick={revertFile} title="Restore this file to the selected breaking point">
                   Revert file
                 </button>
@@ -467,12 +439,25 @@ export default function HistoryView({ monitorId, toast }: Props) {
             </div>
             {!inline && (
               <div className="pane-labels">
-                <span className="pane-label before" title="Read-only: the file as captured at this breaking point">
-                  🔒 Before · {beforeLabel}
-                </span>
-                <span className="pane-label current" title="Editable: your live working file">
-                  Current
-                </span>
+                {vsMode === "current" ? (
+                  <>
+                    <span className="pane-label before" title="Read-only: the file as captured at this breaking point">
+                      🔒 Before · {beforeLabel}
+                    </span>
+                    <span className="pane-label current" title="Editable: your live working file">
+                      Current
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="pane-label before" title="Read-only: the file at the previous point">
+                      🔒 Previous point
+                    </span>
+                    <span className="pane-label current" title="Read-only: the file as captured at this breaking point">
+                      🔒 This point · {beforeLabel}
+                    </span>
+                  </>
+                )}
               </div>
             )}
             <DiffEditor
@@ -480,7 +465,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
               modified={right}
               language={langOf(file)}
               inline={inline}
-              editable
+              editable={vsMode === "current"}
               onCommit={persistWorking}
               hunks={hunks}
               ref={diffApi}
@@ -523,20 +508,13 @@ export default function HistoryView({ monitorId, toast }: Props) {
 
       {dialog?.kind === "folder" && (
         <ConfirmModal
-          title={dialog.target === "branch" ? "Reset folder to branch" : "Revert folder"}
+          title="Revert folder"
           danger
-          suppressId={folderKey(dialog.target)}
+          suppressId="revertFolder"
           message={
-            dialog.target === "branch" ? (
-              <>
-                Restore everything under <b>{dialog.prefix || "/"}</b> to its version on{" "}
-                <b>{base?.branch ?? "the current branch"}</b>.
-              </>
-            ) : (
-              <>
-                Restore everything under <b>{dialog.prefix || "/"}</b> to this breaking point.
-              </>
-            )
+            <>
+              Restore everything under <b>{dialog.prefix || "/"}</b> to this breaking point.
+            </>
           }
           extra={
             <label className="modal-check">
@@ -545,16 +523,14 @@ export default function HistoryView({ monitorId, toast }: Props) {
                 checked={dialog.remove}
                 onChange={(e) => setDialog({ ...dialog, remove: e.target.checked })}
               />
-              {dialog.target === "branch"
-                ? "Also delete files not committed on the branch"
-                : "Also delete files that did not exist at this point"}
+              Also delete files that did not exist at this point
             </label>
           }
-          confirmLabel={dialog.target === "branch" ? "Reset folder" : "Revert folder"}
+          confirmLabel="Revert folder"
           onConfirm={() => {
-            const { target, prefix, remove } = dialog;
+            const { prefix, remove } = dialog;
             setDialog(null);
-            runFolder(target, prefix, remove);
+            runFolder(prefix, remove);
           }}
           onCancel={() => setDialog(null)}
         />

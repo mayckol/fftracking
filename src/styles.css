@@ -598,6 +598,36 @@ select:focus {
   border-radius: 3px;
   white-space: nowrap;
 }
+button.vs-tag {
+  background: none;
+  cursor: pointer;
+  transition: var(--dur) var(--ease);
+}
+button.vs-tag:hover {
+  color: var(--tx-1);
+  border-color: var(--tx-3);
+}
+
+/* monitor row while its history is being deleted */
+.folder.deleting {
+  opacity: 0.6;
+  pointer-events: none;
+}
+.spinner {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-left: 6px;
+  border: 2px solid var(--line);
+  border-top-color: var(--ac);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .sum {
   display: inline-flex;
   gap: 4px;

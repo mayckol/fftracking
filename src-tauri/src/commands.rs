@@ -54,10 +54,15 @@ pub fn snapshot_now(state: State<AppState>, monitor_id: i64) -> R<Option<i64>> {
     err(state.engine.snapshot_now(monitor_id, "manual"))
 }
 
+// Async + spawn_blocking: deleting a monitor with a deep history is heavy, and
+// a sync command would hold the main thread and freeze the UI for its duration.
 #[tauri::command]
-pub fn remove_monitor(state: State<AppState>, monitor_id: i64) -> R<()> {
+pub async fn remove_monitor(state: State<'_, AppState>, monitor_id: i64) -> R<()> {
     state.manager.stop(monitor_id);
-    err(state.engine.remove_monitor(monitor_id))
+    let engine = state.engine.clone();
+    tauri::async_runtime::spawn_blocking(move || err(engine.remove_monitor(monitor_id)))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
