@@ -11,6 +11,7 @@ use tauri::State;
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::DialogExt;
 
+use crate::lsp::LspManager;
 use crate::terminal::TerminalManager;
 use crate::AppState;
 
@@ -179,6 +180,17 @@ pub fn working_file(state: State<AppState>, monitor_id: i64, path: String) -> R<
 #[tauri::command]
 pub fn write_working_file(state: State<AppState>, monitor_id: i64, path: String, content: String) -> R<()> {
     err(state.engine.write_working_file(monitor_id, &path, &content))
+}
+
+/// Read any absolute file as text (for cross-file go-to-definition into Go
+/// stdlib / module-cache packages, which live outside the workspace root).
+/// Returns None for non-UTF8 (binary) content.
+#[tauri::command]
+pub fn read_text_file(path: String) -> R<Option<String>> {
+    match std::fs::read(&path) {
+        Ok(bytes) => Ok(String::from_utf8(bytes).ok()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 #[tauri::command]
@@ -372,4 +384,19 @@ pub fn terminal_resize(term: State<TerminalManager>, id: u64, cols: u16, rows: u
 #[tauri::command]
 pub fn terminal_close(term: State<TerminalManager>, id: u64) {
     term.close(id);
+}
+
+#[tauri::command]
+pub fn lsp_start(app: tauri::AppHandle, lsp: State<LspManager>, root: String) -> R<()> {
+    lsp.start(&app, root)
+}
+
+#[tauri::command]
+pub fn lsp_send(lsp: State<LspManager>, root: String, body: String) -> R<()> {
+    lsp.send(&root, &body)
+}
+
+#[tauri::command]
+pub fn lsp_stop(lsp: State<LspManager>, root: String) {
+    lsp.stop(&root);
 }

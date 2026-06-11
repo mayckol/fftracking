@@ -4,7 +4,7 @@
 
 import { useEffect } from "react";
 
-export type ActionGroup = "Diff" | "Capture & revert" | "Changed files" | "Navigation";
+export type ActionGroup = "Editor" | "Diff" | "Capture & revert" | "Changed files" | "Navigation";
 
 export interface ActionDef {
   id: string;
@@ -17,6 +17,11 @@ export interface ActionDef {
 }
 
 export const ACTIONS: ActionDef[] = [
+  // Editor actions are bound inside Monaco (the editor reads these combos); they
+  // have no global handler, so the key passes through to the focused editor.
+  { id: "editor.format", label: "Format document", group: "Editor", default: "Mod+Shift+L" },
+  { id: "editor.gotoDef", label: "Go to definition", group: "Editor", default: "F12" },
+  { id: "editor.save", label: "Save file", group: "Editor", default: "Mod+S" },
   { id: "diff.next", label: "Next change", group: "Diff", default: "Alt+ArrowDown" },
   { id: "diff.prev", label: "Previous change", group: "Diff", default: "Alt+ArrowUp" },
   { id: "diff.revertBlock", label: "Revert current block", group: "Diff", default: "Alt+R" },
@@ -32,6 +37,8 @@ export const ACTIONS: ActionDef[] = [
   { id: "nav.history", label: "Go to History tab", group: "Navigation", default: "Mod+1" },
   { id: "nav.git", label: "Go to Git tab", group: "Navigation", default: "Mod+2" },
   { id: "nav.settings", label: "Go to Settings tab", group: "Navigation", default: "Mod+3" },
+  { id: "nav.back", label: "Navigate back", group: "Navigation", default: "Mod+Alt+ArrowLeft" },
+  { id: "nav.forward", label: "Navigate forward", group: "Navigation", default: "Mod+Alt+ArrowRight" },
   { id: "nav.nextPoint", label: "Next breaking point", group: "Navigation", default: "Alt+PageDown" },
   { id: "nav.prevPoint", label: "Previous breaking point", group: "Navigation", default: "Alt+PageUp" },
   { id: "terminal.toggle", label: "Toggle terminal", group: "Navigation", default: "Mod+`" },

@@ -43,6 +43,9 @@ export const api = {
   terminalResize: (id: number, cols: number, rows: number) =>
     invoke<void>("terminal_resize", { id, cols, rows }),
   terminalClose: (id: number) => invoke<void>("terminal_close", { id }),
+  lspStart: (root: string) => invoke<void>("lsp_start", { root }),
+  lspSend: (root: string, body: string) => invoke<void>("lsp_send", { root, body }),
+  lspStop: (root: string) => invoke<void>("lsp_stop", { root }),
   openPath: (monitorId: number, path: string) => invoke<void>("open_path", { monitorId, path }),
   revealPath: (monitorId: number, path: string) => invoke<void>("reveal_path", { monitorId, path }),
   baseFile: (monitorId: number, snapshotId: number, path: string) =>
@@ -60,6 +63,7 @@ export const api = {
     invoke<string | null>("working_file", { monitorId, path }),
   writeWorkingFile: (monitorId: number, path: string, content: string) =>
     invoke<void>("write_working_file", { monitorId, path, content }),
+  readTextFile: (path: string) => invoke<string | null>("read_text_file", { path }),
   fileHunks: (snapshotId: number, path: string) =>
     invoke<HunkInfo[]>("file_hunks", { snapshotId, path }),
   textHunks: (left: string, right: string) => invoke<HunkInfo[]>("text_hunks", { left, right }),

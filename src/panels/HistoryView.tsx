@@ -5,19 +5,31 @@ import type { ChangeSummary, FileChange, HunkInfo, SnapshotRow } from "../lib/ty
 import { basename, dayLabel, dirname, fmtTime, langOf } from "../lib/util";
 import { useShortcut } from "../lib/shortcuts";
 import { isConfirmSuppressed } from "../lib/confirmPrefs";
+import { getPrefs } from "../lib/uiPrefs";
+import { getErrorPaths, setNavHandler, subscribeDiagnostics } from "../lib/lsp";
 import ConfirmModal from "../components/ConfirmModal";
 import ChangedTree from "./ChangedTree";
 import ProjectTree from "./ProjectTree";
-import FileView from "../components/FileView";
+import FileView, { type FileHandle } from "../components/FileView";
 import Splitter from "../components/Splitter";
 import Timeline from "./Timeline";
+import { FileIcon } from "../components/Icons";
 
 interface Props {
   monitorId: number;
+  root: string | null;
+  historyMode?: boolean;
+  onModeChange?: (history: boolean) => void;
   toast: (msg: string, error?: boolean) => void;
 }
 
-export default function HistoryView({ monitorId, toast }: Props) {
+type TabKind = "file" | "diff";
+interface EditorTab {
+  path: string;
+  kind: TabKind;
+}
+
+export default function HistoryView({ monitorId, root, historyMode, onModeChange, toast }: Props) {
   const [snaps, setSnaps] = useState<SnapshotRow[]>([]);
   const [snap, setSnap] = useState<number | null>(null);
   const [summaries, setSummaries] = useState<Record<number, ChangeSummary>>({});
@@ -32,22 +44,142 @@ export default function HistoryView({ monitorId, toast }: Props) {
   // The project tree is always visible; history (timeline + changed files) is an
   // optional panel. What the main pane shows follows where the selection came
   // from: a tree file → plain view, a changed file → diff.
-  const [showHistory, setShowHistory] = useState(true);
+  const [showHistory, setShowHistory] = useState(historyMode ?? false);
   const [openKind, setOpenKind] = useState<"file" | "diff">("file");
+  // Open editor tabs (path + which view). `file`/`openKind` point at the active
+  // one; max count and overflow behaviour come from UI prefs.
+  const [tabs, setTabs] = useState<EditorTab[]>([]);
   // Full on-disk file list for the project tree (all files, not just changes).
   const [files, setFiles] = useState<string[]>([]);
   const [fileContent, setFileContent] = useState<string | null>("");
-  // Drag-resizable panel sizes (px): side-pane width, project-tree height.
+  // Drag-resizable side-pane width (px).
   const [sideW, setSideW] = useState(340);
-  const [treeH, setTreeH] = useState(300);
+  // Relative paths (under `root`) that currently have LSP errors, for the tree.
+  const [errFiles, setErrFiles] = useState<Set<string>>(new Set());
+  // Pending cross-file go-to-definition jump (relative path + 1-based pos).
+  const [pendingGoto, setPendingGoto] = useState<{ path: string; line: number; col: number } | null>(null);
+
+  // Back/Forward navigation history (JetBrains-style; mouse buttons 4/5). Refs,
+  // not state — it drives setFile/setPendingGoto rather than rendering itself.
+  const fileViewRef = useRef<FileHandle | null>(null);
+  const navStack = useRef<{ path: string; line: number; col: number }[]>([]);
+  const navIdx = useRef(-1);
+  const fileRef = useRef<string | null>(file);
+  fileRef.current = file;
+  const openKindRef = useRef(openKind);
+  openKindRef.current = openKind;
+
+  const lastFileKey = (id: number) => `ff.lastFile.${id}`;
+
+  const liveLoc = () => {
+    const p = fileViewRef.current?.getPosition();
+    return { path: fileRef.current ?? "", line: p?.line ?? 1, col: p?.col ?? 1 };
+  };
+
+  // Record a destination, refreshing the current spot first and truncating any
+  // forward history (a new branch invalidates redo).
+  const recordNav = (dest: { path: string; line: number; col: number }) => {
+    const s = navStack.current.slice(0, navIdx.current + 1);
+    if (s.length && fileRef.current) s[s.length - 1] = liveLoc();
+    const top = s[s.length - 1];
+    if (!top || top.path !== dest.path) s.push(dest);
+    navStack.current = s;
+    navIdx.current = s.length - 1;
+  };
+
+  const navGo = (delta: number) => {
+    const ni = navIdx.current + delta;
+    if (ni < 0 || ni >= navStack.current.length) return;
+    if (navIdx.current >= 0 && navStack.current[navIdx.current]) navStack.current[navIdx.current] = liveLoc();
+    navIdx.current = ni;
+    const e = navStack.current[ni];
+    if (e.path === fileRef.current && openKindRef.current === "file") {
+      fileViewRef.current?.reveal(e.line, e.col);
+    } else {
+      setOpenKind("file");
+      setFile(e.path);
+      setPendingGoto({ path: e.path, line: e.line, col: e.col });
+      setTabs((prev) =>
+        prev.some((t) => t.path === e.path && t.kind === "file") ? prev : [...prev, { path: e.path, kind: "file" }],
+      );
+    }
+  };
+  const navGoRef = useRef(navGo);
+  navGoRef.current = navGo;
+
+  // In-file caret jump (click): append a distinct nav point so Back walks every
+  // visited line, not just file switches. Dedupe repeat clicks on the same line.
+  const pushCursor = (line: number, col: number) => {
+    if (!fileRef.current) return;
+    const s = navStack.current.slice(0, navIdx.current + 1);
+    const top = s[s.length - 1];
+    if (top && top.path === fileRef.current && top.line === line) {
+      navStack.current = s;
+      navIdx.current = s.length - 1;
+      return;
+    }
+    s.push({ path: fileRef.current, line, col });
+    navStack.current = s;
+    navIdx.current = s.length - 1;
+  };
+
+  const activate = (t: EditorTab) => {
+    setFile(t.path);
+    setOpenKind(t.kind);
+    // Remember the last opened project file (not external packages) so the
+    // monitor reopens it next time.
+    if (t.kind === "file" && !t.path.startsWith("/")) localStorage.setItem(lastFileKey(monitorId), t.path);
+  };
+
+  const openTab = (path: string, kind: TabKind) => {
+    if (tabs.some((t) => t.path === path && t.kind === kind)) {
+      activate({ path, kind });
+      return;
+    }
+    const { maxTabs, tabOverflow } = getPrefs();
+    if (tabs.length >= maxTabs) {
+      if (tabOverflow === "block") {
+        toast(`Tab limit reached (${maxTabs}). Close a tab to open another.`, true);
+        return;
+      }
+      // FIFO: drop the oldest tab(s) to make room for the new one.
+      setTabs([...tabs.slice(tabs.length - maxTabs + 1), { path, kind }]);
+    } else {
+      setTabs([...tabs, { path, kind }]);
+    }
+    activate({ path, kind });
+  };
 
   const openFile = (path: string) => {
-    setFile(path);
-    setOpenKind("file");
+    recordNav({ path, line: 1, col: 1 });
+    openTab(path, "file");
   };
-  const openChange = (path: string) => {
-    setFile(path);
-    setOpenKind("diff");
+  const openChange = (path: string) => openTab(path, "diff");
+
+  const closeTab = (t: EditorTab) => {
+    const idx = tabs.findIndex((x) => x.path === t.path && x.kind === t.kind);
+    if (idx < 0) return;
+    const next = tabs.filter((_, i) => i !== idx);
+    setTabs(next);
+    if (file === t.path && openKind === t.kind) {
+      const nb = next[Math.min(idx, next.length - 1)];
+      if (nb) activate(nb);
+      else {
+        setFile(null);
+        localStorage.removeItem(lastFileKey(monitorId));
+      }
+    }
+  };
+
+  // Drop any tabs whose path matches (e.g. when the file is ignored/removed).
+  const closeTabsWhere = (match: (path: string) => boolean) => {
+    const next = tabs.filter((t) => !match(t.path));
+    if (next.length === tabs.length) return;
+    setTabs(next);
+    if (file && match(file)) {
+      if (next[0]) activate(next[0]);
+      else setFile(null);
+    }
   };
   // What the changed-files list and diff compare the selected point against:
   // "point" = the changes this breaking point introduced (vs the git branch or
@@ -89,10 +221,77 @@ export default function HistoryView({ monitorId, toast }: Props) {
 
   useEffect(() => {
     setSnap(null);
-    setFile(null);
     summariesKey.current = "";
+    // Reopen the last file viewed for this monitor, if any. Reset nav history.
+    const last = localStorage.getItem(lastFileKey(monitorId));
+    if (last) {
+      setFile(last);
+      setOpenKind("file");
+      setTabs([{ path: last, kind: "file" }]);
+      navStack.current = [{ path: last, line: 1, col: 1 }];
+      navIdx.current = 0;
+    } else {
+      setFile(null);
+      setTabs([]);
+      navStack.current = [];
+      navIdx.current = -1;
+    }
     loadSnaps();
   }, [monitorId, loadSnaps]);
+
+  // Top-nav Files/History tab drives the panel mode.
+  useEffect(() => {
+    if (historyMode !== undefined) setShowHistory(historyMode);
+  }, [historyMode]);
+
+  // Mirror LSP error files (absolute) into root-relative paths for the tree.
+  useEffect(() => {
+    const recompute = () => {
+      const out = new Set<string>();
+      if (root) {
+        const prefix = root.endsWith("/") ? root : `${root}/`;
+        for (const abs of getErrorPaths()) {
+          if (abs.startsWith(prefix)) out.add(abs.slice(prefix.length));
+        }
+      }
+      setErrFiles(out);
+    };
+    recompute();
+    return subscribeDiagnostics(recompute);
+  }, [root]);
+
+  // Cross-file ⌘-click: open the target file as a tab and queue the jump.
+  const navRef = useRef<(abs: string, line: number, col: number) => void>(() => {});
+  navRef.current = (abs, line, col) => {
+    if (!root) return;
+    const prefix = root.endsWith("/") ? root : `${root}/`;
+    // Inside the workspace → tab path is relative; external packages (stdlib,
+    // module cache) keep their absolute path and open read-only.
+    const target = abs.startsWith(prefix) ? abs.slice(prefix.length) : abs;
+    recordNav({ path: target, line, col });
+    if (target === fileRef.current && openKindRef.current === "file") {
+      fileViewRef.current?.reveal(line, col);
+    } else {
+      openTab(target, "file");
+      setPendingGoto({ path: target, line, col });
+    }
+  };
+  useEffect(() => setNavHandler((a, l, c) => navRef.current(a, l, c)), []);
+
+  // Mouse thumb buttons: 3 = back (button 4), 4 = forward (button 5).
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (e.button === 3) {
+        e.preventDefault();
+        navGoRef.current(-1);
+      } else if (e.button === 4) {
+        e.preventDefault();
+        navGoRef.current(1);
+      }
+    };
+    window.addEventListener("mousedown", onDown, true);
+    return () => window.removeEventListener("mousedown", onDown, true);
+  }, []);
 
   // New breaking points (event/interval) land in the DB while watching — poll
   // so the timeline reflects them live without re-selecting the folder.
@@ -112,13 +311,14 @@ export default function HistoryView({ monitorId, toast }: Props) {
     };
   }, [monitorId, reload]);
 
-  // Project mode: plain read-only view of the live working file (null = binary
-  // or unreadable, so we show a placeholder instead of a blank editor).
+  // Project mode: plain view of the live working file (null = binary or
+  // unreadable, so we show a placeholder). External packages (absolute path,
+  // outside the monitor) are read straight off disk.
   useEffect(() => {
     if (openKind !== "file" || !file) return;
     let alive = true;
-    api
-      .workingFile(monitorId, file)
+    const load = file.startsWith("/") ? api.readTextFile(file) : api.workingFile(monitorId, file);
+    load
       .then((c) => alive && setFileContent(c))
       .catch(() => alive && setFileContent(null));
     return () => {
@@ -142,7 +342,8 @@ export default function HistoryView({ monitorId, toast }: Props) {
           : await api.breakingPointChanges(monitorId, snap);
       if (!alive) return;
       setChanges(list);
-      setFile((cur) => (cur && list.some((c) => c.path === cur) ? cur : list[0]?.path ?? null));
+      // Don't force-open the first change — opening is explicit (click) and
+      // goes through the tab layer. Stale tabs are pruned on monitor change.
     })();
     return () => {
       alive = false;
@@ -159,7 +360,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
     // Monotonic token: a slower in-flight load must not clobber the panes (and
     // the hunk indices that drive gutter-revert) of a newer selection.
     const req = ++diffReq.current;
-    if (snap == null || !file) {
+    if (snap == null || !file || file.startsWith("/")) {
       setLeft("");
       setRight("");
       setHunks([]);
@@ -295,7 +496,7 @@ export default function HistoryView({ monitorId, toast }: Props) {
       }
       await api.setSetting("ignore_globs", [...cur.ignore_globs, glob].join("\n"));
       toast(`Ignoring ${glob}`);
-      setFile((cur2) => (cur2 === path || (isDir && cur2?.startsWith(`${path}/`)) ? null : cur2));
+      closeTabsWhere((p) => p === path || (isDir && p.startsWith(`${path}/`)));
       setReload((n) => n + 1);
     } catch (e) {
       toast(String(e), true);
@@ -348,12 +549,16 @@ export default function HistoryView({ monitorId, toast }: Props) {
     }
   }
 
-  useShortcut("diff.next", () => navDiff("next"), !!file);
-  useShortcut("diff.prev", () => navDiff("prev"), !!file);
-  useShortcut("diff.layout", () => setInline((v) => !v), !!file);
-  useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), !!file);
-  useShortcut("diff.undo", () => diffApi.current?.undo(), !!file);
-  useShortcut("diff.redo", () => diffApi.current?.redo(), !!file);
+  // Diff-only bindings: gate to the diff view so they don't steal ⌘Z (undo) and
+  // friends from the plain editable file view (which shares the .editor-wrap
+  // class the diff scope-check targets).
+  const inDiff = openKind === "diff" && !!file;
+  useShortcut("diff.next", () => navDiff("next"), inDiff);
+  useShortcut("diff.prev", () => navDiff("prev"), inDiff);
+  useShortcut("diff.layout", () => setInline((v) => !v), inDiff);
+  useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), inDiff);
+  useShortcut("diff.undo", () => diffApi.current?.undo(), inDiff);
+  useShortcut("diff.redo", () => diffApi.current?.redo(), inDiff);
   useShortcut("revert.file", revertFile, !!file);
   useShortcut("file.copyPath", () => file && copyToClipboard(file, "path"), !!file);
   useShortcut(
@@ -376,6 +581,8 @@ export default function HistoryView({ monitorId, toast }: Props) {
   );
   useShortcut("nav.nextPoint", () => gotoPoint(1));
   useShortcut("nav.prevPoint", () => gotoPoint(-1));
+  useShortcut("nav.back", () => navGoRef.current(-1));
+  useShortcut("nav.forward", () => navGoRef.current(1));
 
   const counts = { added: 0, modified: 0, deleted: 0 };
   for (const c of changes) counts[c.status]++;
@@ -387,92 +594,94 @@ export default function HistoryView({ monitorId, toast }: Props) {
       <div className="hv">
         <div className="hv-side" style={{ width: sideW }}>
           <div className="col-head">
-            <h2>Files</h2>
-            <span className="changecount">{files.length}</span>
+            <h2>{showHistory ? "History" : "Files"}</h2>
+            {!showHistory && <span className="changecount">{files.length}</span>}
             <button
               className={`vs-tag${showHistory ? " on" : ""}`}
               style={{ marginLeft: "auto" }}
-              title={showHistory ? "Hide history (timeline & changed files)" : "Show history (timeline & changed files)"}
-              onClick={() => setShowHistory((v) => !v)}
+              title={showHistory ? "Show the project files tree" : "Show history (timeline & changed files)"}
+              onClick={() => {
+                const next = !showHistory;
+                setShowHistory(next);
+                onModeChange?.(next);
+              }}
             >
-              {showHistory ? "history ✓" : "history"}
+              {showHistory ? "files" : "history"}
             </button>
           </div>
 
           <div className="hv-side-body">
-            <div className="col-scroll" style={showHistory ? { flex: `0 0 ${treeH}px` } : { flex: 1 }}>
-              <ProjectTree
-                files={files}
-                selected={openKind === "file" ? file : null}
-                onSelect={openFile}
-                onOpen={(p) => api.openPath(monitorId, p).catch((e) => toast(String(e), true))}
-                onReveal={(p) => api.revealPath(monitorId, p).catch((e) => toast(String(e), true))}
-                onIgnoreFile={(p) => ignorePath(p, false)}
-                onIgnoreFolder={(p) => ignorePath(p, true)}
-              />
-            </div>
-
-            {showHistory && (
-              <>
-                <Splitter dir="y" onDelta={(d) => setTreeH((h) => Math.max(120, Math.min(1600, h + d)))} />
-                <div className="hv-history">
-                  <div className="hv-hpane">
-                    <div className="col-head">
-                      <h2>Breaking Points</h2>
-                      <span className="base-tag" title="Change badges show what each point changed vs the one before it">
-                        ↔ previous point
-                      </span>
-                    </div>
-                    <div className="col-scroll">
-                      <Timeline
-                        snapshots={snaps}
-                        summaries={summaries}
-                        selected={snap}
-                        onSelect={setSnap}
-                        onDelete={deleteSnap}
-                        onLabel={labelSnap}
-                        onRevertAll={askRevertAll}
-                      />
-                    </div>
+            {showHistory ? (
+              <div className="hv-history">
+                <div className="hv-hpane">
+                  <div className="col-head">
+                    <h2>Breaking Points</h2>
+                    <span className="base-tag" title="Change badges show what each point changed vs the one before it">
+                      ↔ previous point
+                    </span>
                   </div>
-                  <div className="hv-hpane">
-                    <div className="col-head">
-                      <h2>Changed Files</h2>
-                      <button
-                        className="vs-tag"
-                        title={
-                          vsMode === "point"
-                            ? "Showing what this breaking point changed (vs the previous point). Click to compare with the current working tree."
-                            : "Showing how the current working tree differs from this point. Click to see what the point changed."
-                        }
-                        onClick={() => setVsMode((m) => (m === "point" ? "current" : "point"))}
-                      >
-                        {vsMode === "point" ? "at this point ⇄" : "vs current ⇄"}
-                      </button>
-                      {changes.length > 0 ? (
-                        <span className="sum">
-                          {counts.added > 0 && <span className="sum-pill add">+{counts.added}</span>}
-                          {counts.modified > 0 && <span className="sum-pill mod">~{counts.modified}</span>}
-                          {counts.deleted > 0 && <span className="sum-pill del">−{counts.deleted}</span>}
-                        </span>
-                      ) : (
-                        <span className="changecount">0</span>
-                      )}
-                    </div>
-                    <div className="col-scroll">
-                      <ChangedTree
-                        changes={changes}
-                        selected={openKind === "diff" ? file : null}
-                        onSelect={openChange}
-                        onRevertFile={revertPath}
-                        onRevertFolder={revertFolderPath}
-                        onIgnoreFile={(p) => ignorePath(p, false)}
-                        onIgnoreFolder={(p) => ignorePath(p, true)}
-                      />
-                    </div>
+                  <div className="col-scroll">
+                    <Timeline
+                      snapshots={snaps}
+                      summaries={summaries}
+                      selected={snap}
+                      onSelect={setSnap}
+                      onDelete={deleteSnap}
+                      onLabel={labelSnap}
+                      onRevertAll={askRevertAll}
+                    />
                   </div>
                 </div>
-              </>
+                <div className="hv-hpane">
+                  <div className="col-head">
+                    <h2>Changed Files</h2>
+                    <button
+                      className="vs-tag"
+                      title={
+                        vsMode === "point"
+                          ? "Showing what this breaking point changed (vs the previous point). Click to compare with the current working tree."
+                          : "Showing how the current working tree differs from this point. Click to see what the point changed."
+                      }
+                      onClick={() => setVsMode((m) => (m === "point" ? "current" : "point"))}
+                    >
+                      {vsMode === "point" ? "at this point ⇄" : "vs current ⇄"}
+                    </button>
+                    {changes.length > 0 ? (
+                      <span className="sum">
+                        {counts.added > 0 && <span className="sum-pill add">+{counts.added}</span>}
+                        {counts.modified > 0 && <span className="sum-pill mod">~{counts.modified}</span>}
+                        {counts.deleted > 0 && <span className="sum-pill del">−{counts.deleted}</span>}
+                      </span>
+                    ) : (
+                      <span className="changecount">0</span>
+                    )}
+                  </div>
+                  <div className="col-scroll">
+                    <ChangedTree
+                      changes={changes}
+                      selected={openKind === "diff" ? file : null}
+                      onSelect={openChange}
+                      onRevertFile={revertPath}
+                      onRevertFolder={revertFolderPath}
+                      onIgnoreFile={(p) => ignorePath(p, false)}
+                      onIgnoreFolder={(p) => ignorePath(p, true)}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="col-scroll" style={{ flex: 1 }}>
+                <ProjectTree
+                  files={files}
+                  selected={openKind === "file" ? file : null}
+                  errorFiles={errFiles}
+                  onSelect={openFile}
+                  onOpen={(p) => api.openPath(monitorId, p).catch((e) => toast(String(e), true))}
+                  onReveal={(p) => api.revealPath(monitorId, p).catch((e) => toast(String(e), true))}
+                  onIgnoreFile={(p) => ignorePath(p, false)}
+                  onIgnoreFolder={(p) => ignorePath(p, true)}
+                />
+              </div>
             )}
           </div>
         </div>
@@ -480,6 +689,43 @@ export default function HistoryView({ monitorId, toast }: Props) {
         <Splitter dir="x" onDelta={(d) => setSideW((w) => Math.max(220, Math.min(760, w + d)))} />
 
       <div className="col main">
+        {tabs.length > 0 && (
+          <div className="tabbar">
+            {tabs.map((t) => {
+              const on = file === t.path && openKind === t.kind;
+              return (
+                <div
+                  key={`${t.kind}:${t.path}`}
+                  className={`tab-item${on ? " on" : ""}`}
+                  title={t.path}
+                  onClick={() => {
+                    if (t.kind === "file") recordNav({ path: t.path, line: 1, col: 1 });
+                    activate(t);
+                  }}
+                  onAuxClick={(e) => e.button === 1 && closeTab(t)}
+                >
+                  <FileIcon />
+                  <span className="tab-name">{basename(t.path)}</span>
+                  {t.kind === "diff" && (
+                    <span className="tab-kind" title="Diff view">
+                      ⇆
+                    </span>
+                  )}
+                  <button
+                    className="tab-x"
+                    title="Close (or middle-click the tab)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      closeTab(t);
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {openKind === "file" ? (
           file ? (
             <>
@@ -487,22 +733,6 @@ export default function HistoryView({ monitorId, toast }: Props) {
                 <span className="file" title={file}>
                   {file}
                 </span>
-                <div className="diff-actions" style={{ marginLeft: "auto" }}>
-                  <button
-                    className="tbtn"
-                    onClick={() => api.openPath(monitorId, file).catch((e) => toast(String(e), true))}
-                    title="Open with the default app"
-                  >
-                    Open
-                  </button>
-                  <button
-                    className="tbtn"
-                    onClick={() => api.revealPath(monitorId, file).catch((e) => toast(String(e), true))}
-                    title="Reveal in Finder"
-                  >
-                    Reveal
-                  </button>
-                </div>
               </div>
               {fileContent === null ? (
                 <div className="empty">
@@ -511,7 +741,32 @@ export default function HistoryView({ monitorId, toast }: Props) {
                   <p>It's binary or could not be read as text.</p>
                 </div>
               ) : (
-                <FileView content={fileContent} language={langOf(file)} />
+                <FileView
+                  key={file}
+                  ref={fileViewRef}
+                  onCursorClick={pushCursor}
+                  content={fileContent}
+                  language={langOf(file)}
+                  path={file.startsWith("/") ? file : root && file ? `${root}/${file}` : undefined}
+                  root={root ?? undefined}
+                  readOnly={file.startsWith("/")}
+                  gotoPos={pendingGoto && pendingGoto.path === file ? { line: pendingGoto.line, col: pendingGoto.col } : undefined}
+                  onSave={
+                    file.startsWith("/")
+                      ? undefined
+                      : async (v) => {
+                          if (!file) return;
+                          try {
+                            await api.writeWorkingFile(monitorId, file, v);
+                            setFileContent(v);
+                            await loadSnaps(snap ?? undefined);
+                            toast(`Saved ${basename(file)}`);
+                          } catch (e) {
+                            toast(String(e), true);
+                          }
+                        }
+                  }
+                />
               )}
             </>
           ) : (

@@ -12,6 +12,7 @@ interface Menu {
 interface Props {
   files: string[];
   selected: string | null;
+  errorFiles?: Set<string>;
   onSelect: (path: string) => void;
   onOpen?: (path: string) => void;
   onReveal?: (path: string) => void;
@@ -19,8 +20,17 @@ interface Props {
   onIgnoreFolder?: (prefix: string) => void;
 }
 
-export default function ProjectTree({ files, selected, onSelect, onOpen, onReveal, onIgnoreFile, onIgnoreFolder }: Props) {
+export default function ProjectTree({ files, selected, errorFiles, onSelect, onOpen, onReveal, onIgnoreFile, onIgnoreFolder }: Props) {
   const tree = useMemo(() => buildFileTree(files.map((path) => ({ path }))), [files]);
+  // Folders that contain an error file (every ancestor dir of each error path).
+  const errorDirs = useMemo(() => {
+    const dirs = new Set<string>();
+    for (const f of errorFiles ?? []) {
+      const parts = f.split("/");
+      for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join("/"));
+    }
+    return dirs;
+  }, [errorFiles]);
   // Default collapsed: only paths in this set are open.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -49,11 +59,11 @@ export default function ProjectTree({ files, selected, onSelect, onOpen, onRevea
         rows.push(
           <div
             key={"d:" + node.path}
-            className="trow dir"
+            className={`trow dir${errorDirs.has(node.path) ? " err" : ""}`}
             style={pad}
             onClick={() => toggle(node.path)}
             onContextMenu={(e) => {
-              if (!onIgnoreFolder) return;
+              if (!onReveal && !onIgnoreFolder) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "dir", path: node.path });
             }}
@@ -69,7 +79,7 @@ export default function ProjectTree({ files, selected, onSelect, onOpen, onRevea
         rows.push(
           <div
             key={"f:" + node.path}
-            className={`trow file${selected === node.path ? " on" : ""}`}
+            className={`trow file${selected === node.path ? " on" : ""}${errorFiles?.has(node.path) ? " err" : ""}`}
             style={pad}
             onClick={() => onSelect(node.path)}
             onContextMenu={(e) => {
@@ -104,6 +114,9 @@ export default function ProjectTree({ files, selected, onSelect, onOpen, onRevea
             )}
             {menu.kind === "file" && onIgnoreFile && (
               <button onClick={() => { onIgnoreFile(menu.path); setMenu(null); }}>Ignore this file</button>
+            )}
+            {menu.kind === "dir" && onReveal && (
+              <button onClick={() => { onReveal(menu.path); setMenu(null); }}>Reveal in Finder</button>
             )}
             {menu.kind === "dir" && onIgnoreFolder && (
               <button onClick={() => { onIgnoreFolder(menu.path); setMenu(null); }}>

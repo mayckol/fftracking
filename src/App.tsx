@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./lib/ipc";
 import { comboFor, formatCombo, installShortcuts, useShortcut } from "./lib/shortcuts";
+import { useUIPrefs } from "./lib/uiPrefs";
 import { isConfirmSuppressed } from "./lib/confirmPrefs";
 import ConfirmModal from "./components/ConfirmModal";
 import type { MonitorRow, ResourceUsage } from "./lib/types";
@@ -10,10 +11,10 @@ import SettingsView from "./panels/SettingsView";
 import Sidebar from "./panels/Sidebar";
 import TerminalPanel from "./panels/TerminalPanel";
 
-type Tab = "history" | "git" | "settings";
+type Tab = "files" | "history" | "git" | "settings";
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("history");
+  const [tab, setTab] = useState<Tab>("files");
   const [monitors, setMonitors] = useState<MonitorRow[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [toast, setToast] = useState<{ msg: string; error: boolean } | null>(null);
@@ -22,7 +23,9 @@ export default function App() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [showTerm, setShowTerm] = useState(false);
   const [termH, setTermH] = useState(280);
+  const [sideOpen, setSideOpen] = useState(false);
   const toastTimer = useRef<number>();
+  const prefs = useUIPrefs();
 
   // Suppress the webview's native right-click menu (the "Reload" popup);
   // our own context menus call preventDefault themselves where needed.
@@ -120,7 +123,8 @@ export default function App() {
   useShortcut("nav.history", () => setTab("history"));
   useShortcut("nav.git", () => setTab("git"));
   useShortcut("nav.settings", () => setTab("settings"));
-  useShortcut("capture.snapshot", snapshotNow, tab === "history" && selected != null);
+  const inWorkspace = tab === "files" || tab === "history";
+  useShortcut("capture.snapshot", snapshotNow, inWorkspace && selected != null);
   useShortcut("terminal.toggle", () => setShowTerm((v) => !v));
 
   return (
@@ -132,7 +136,7 @@ export default function App() {
           <small>v0.5.8 · build {__BUILD_ID__}</small>
         </div>
         <nav className="tabs">
-          {(["history", "git", "settings"] as Tab[]).map((t) => (
+          {(["files", "history", "git", "settings"] as Tab[]).map((t) => (
             <button key={t} className={`tab${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
               {t}
             </button>
@@ -158,26 +162,54 @@ export default function App() {
         >
           {">_ Terminal"}
         </button>
-        {tab === "history" && selected != null && (
+        {inWorkspace && selected != null && (
           <button className="tbtn primary" onClick={snapshotNow}>
             ⦿ Snapshot now
           </button>
         )}
       </header>
 
-      {tab === "history" && (
-        <div className="work" style={{ gridTemplateColumns: "232px minmax(0, 1fr)" }}>
-          <Sidebar
-            monitors={monitors}
-            selected={selected}
-            deletingId={deletingId}
-            onSelect={setSelected}
-            onAdd={addFolder}
-            onToggle={toggleFolder}
-            onDelete={askDelete}
-          />
+      {(tab === "files" || tab === "history") && (
+        <div
+          className="work"
+          style={{ gridTemplateColumns: prefs.autohideSidebar ? "minmax(0, 1fr)" : "232px minmax(0, 1fr)" }}
+        >
+          {prefs.autohideSidebar ? (
+            <div
+              className={`side-float${sideOpen ? " open" : ""}`}
+              onMouseEnter={() => setSideOpen(true)}
+              onMouseLeave={() => setSideOpen(false)}
+            >
+              <Sidebar
+                monitors={monitors}
+                selected={selected}
+                deletingId={deletingId}
+                onSelect={setSelected}
+                onAdd={addFolder}
+                onToggle={toggleFolder}
+                onDelete={askDelete}
+              />
+            </div>
+          ) : (
+            <Sidebar
+              monitors={monitors}
+              selected={selected}
+              deletingId={deletingId}
+              onSelect={setSelected}
+              onAdd={addFolder}
+              onToggle={toggleFolder}
+              onDelete={askDelete}
+            />
+          )}
           {selected != null ? (
-            <HistoryView key={selected} monitorId={selected} toast={notify} />
+            <HistoryView
+              key={selected}
+              monitorId={selected}
+              root={selectedMonitor?.root_path ?? null}
+              historyMode={tab === "history"}
+              onModeChange={(history) => setTab(history ? "history" : "files")}
+              toast={notify}
+            />
           ) : (
             <div className="col main">
               <div className="empty">
