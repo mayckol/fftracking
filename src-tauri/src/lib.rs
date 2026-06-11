@@ -1,4 +1,5 @@
 mod commands;
+mod dap;
 mod lsp;
 mod terminal;
 
@@ -47,6 +48,7 @@ pub fn run() {
             });
             app.manage(terminal::TerminalManager::default());
             app.manage(lsp::LspManager::default());
+            app.manage(dap::DapManager::default());
             #[cfg(target_os = "macos")]
             setup_app_menu(app.handle())?;
             setup_tray(app.handle())?;
@@ -116,6 +118,9 @@ pub fn run() {
             commands::lsp_start,
             commands::lsp_send,
             commands::lsp_stop,
+            commands::dap_start,
+            commands::dap_send,
+            commands::dap_stop,
         ])
         .build(tauri::generate_context!())
         .expect("error building fftracking")

@@ -7,10 +7,11 @@ use ffcore::git::{self, GitFileChange, RefList, WorkingStatus};
 use ffcore::query::{FileChange, MonitorRow, SnapshotRow};
 use ffcore::revert::HunkInfo;
 use ffcore::sysmon::ResourceUsage;
-use tauri::State;
+use tauri::{Manager, State};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::DialogExt;
 
+use crate::dap::DapManager;
 use crate::lsp::LspManager;
 use crate::terminal::TerminalManager;
 use crate::AppState;
@@ -437,4 +438,26 @@ pub fn lsp_send(lsp: State<LspManager>, root: String, body: String) -> R<()> {
 #[tauri::command]
 pub fn lsp_stop(lsp: State<LspManager>, root: String) {
     lsp.stop(&root);
+}
+
+// Async + spawn_blocking: start blocks until dlv prints its listen address; a
+// sync command would hold the main thread and freeze the UI for that long.
+#[tauri::command]
+pub async fn dap_start(app: tauri::AppHandle, root: String) -> R<u64> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dap = app.state::<DapManager>();
+        dap.start(&app, root)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn dap_send(dap: State<DapManager>, id: u64, body: String) -> R<()> {
+    dap.send(id, &body)
+}
+
+#[tauri::command]
+pub fn dap_stop(dap: State<DapManager>, id: u64) {
+    dap.stop(id);
 }
