@@ -134,7 +134,7 @@ export default function SettingsView({ toast }: Props) {
         <div className="field">
           <label>
             Keep history for
-            <span className="hint">Older breaking points are pruned.</span>
+            <span className="hint">Older breaking points are pruned. Labeled points are always kept.</span>
           </label>
           <div>
             <input

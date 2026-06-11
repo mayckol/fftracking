@@ -17,9 +17,11 @@ impl PruneStats {
 }
 
 /// Enforces retention: drop snapshots older than `retention_days`, coalesce
-/// each past day to `snapshots_per_past_day` (today stays dense), then evict
-/// oldest past-day snapshots until disk is under `max_disk_gb`. Orphan blobs
-/// are freed by [`delete_snapshot`]; a final sweep catches any stragglers.
+/// each monitor's past days to `snapshots_per_past_day` (today stays dense),
+/// then evict oldest past-day snapshots until disk is under `max_disk_gb`.
+/// Labeled breaking points are never auto-pruned — a user named them on
+/// purpose, so only an explicit delete removes them. Orphan blobs are freed
+/// by [`delete_snapshot`]; a final sweep catches any stragglers.
 pub fn prune(db: &Db, store: &BlobStore, now: i64) -> Result<PruneStats> {
     let s = db.settings()?;
     let today = day_bucket(now);
@@ -27,23 +29,30 @@ pub fn prune(db: &Db, store: &BlobStore, now: i64) -> Result<PruneStats> {
 
     // 1. Age out anything past the retention window.
     let cutoff = now - s.retention_days * SECS_PER_DAY;
-    for id in query_ids(db, "SELECT id FROM snapshots WHERE ts < ?1", [cutoff])? {
+    for id in query_ids(db, "SELECT id FROM snapshots WHERE ts < ?1 AND label IS NULL", [cutoff])? {
         delete_snapshot(db, store, id)?;
         stats.expired += 1;
     }
 
-    // 2. Coalesce past days down to N representatives (first + last).
-    let past_days: Vec<String> = query_strings(
-        db,
-        "SELECT DISTINCT day_bucket FROM snapshots WHERE day_bucket != ?1",
-        [&today],
-    )?;
-    for day in past_days {
-        let ids = query_ids(
-            db,
-            "SELECT id FROM snapshots WHERE day_bucket = ?1 ORDER BY ts, id",
-            [&day],
+    // 2. Coalesce each monitor's past days down to N evenly spaced
+    // representatives. Grouping must include the monitor: a shared day bucket
+    // would otherwise let one monitor's snapshots evict another's.
+    let monitor_days: Vec<(i64, String)> = {
+        let mut stmt = db.conn.prepare(
+            "SELECT DISTINCT monitor_id, day_bucket FROM snapshots WHERE day_bucket != ?1",
         )?;
+        let rows = stmt.query_map([&today], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for (monitor_id, day) in monitor_days {
+        let mut stmt = db.conn.prepare(
+            "SELECT id FROM snapshots
+             WHERE monitor_id = ?1 AND day_bucket = ?2 AND label IS NULL
+             ORDER BY ts, id",
+        )?;
+        let ids = stmt
+            .query_map((monitor_id, &day), |r| r.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
         for id in drop_indices(ids.len(), s.snapshots_per_past_day)
             .into_iter()
             .map(|i| ids[i])
@@ -59,7 +68,9 @@ pub fn prune(db: &Db, store: &BlobStore, now: i64) -> Result<PruneStats> {
         let oldest: Option<i64> = db
             .conn
             .query_row(
-                "SELECT id FROM snapshots WHERE day_bucket != ?1 ORDER BY ts, id LIMIT 1",
+                "SELECT id FROM snapshots
+                 WHERE day_bucket != ?1 AND label IS NULL
+                 ORDER BY ts, id LIMIT 1",
                 [&today],
                 |r| r.get(0),
             )
@@ -69,7 +80,7 @@ pub fn prune(db: &Db, store: &BlobStore, now: i64) -> Result<PruneStats> {
                 delete_snapshot(db, store, id)?;
                 stats.capped += 1;
             }
-            None => break, // only today's snapshots remain; never evict those
+            None => break, // only today's or labeled snapshots remain; never evict those
         }
     }
 
@@ -91,15 +102,17 @@ fn disk_bytes(db: &Db) -> Result<i64> {
 }
 
 /// Indices to delete when coalescing a day's `len` snapshots to `keep`.
-/// keep>=2 retains first+last; keep==1 retains last; keep<=0 retains last.
+/// Survivors are spread evenly across the day (first and last always kept
+/// when keep >= 2); keep<=1 retains only the last.
 fn drop_indices(len: usize, keep: i64) -> Vec<usize> {
-    if len == 0 || len as i64 <= keep.max(1) {
+    let keep = keep.max(1) as usize;
+    if len <= keep {
         return Vec::new();
     }
-    let survivors: Vec<usize> = if keep >= 2 {
-        vec![0, len - 1]
+    let survivors: std::collections::HashSet<usize> = if keep == 1 {
+        std::iter::once(len - 1).collect()
     } else {
-        vec![len - 1]
+        (0..keep).map(|i| i * (len - 1) / (keep - 1)).collect()
     };
     (0..len).filter(|i| !survivors.contains(i)).collect()
 }
@@ -126,5 +139,16 @@ mod tests {
         assert_eq!(drop_indices(2, 2), Vec::<usize>::new());
         assert_eq!(drop_indices(4, 1), vec![0, 1, 2]);
         assert_eq!(drop_indices(1, 2), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn drop_honors_keep_above_two() {
+        // keep=3 over 5: survivors evenly spaced at 0, 2, 4.
+        assert_eq!(drop_indices(5, 3), vec![1, 3]);
+        // keep=4 over 7: survivors at 0, 2, 4, 6.
+        assert_eq!(drop_indices(7, 4), vec![1, 3, 5]);
+        // already at or under the target → nothing dropped.
+        assert_eq!(drop_indices(3, 3), Vec::<usize>::new());
+        assert_eq!(drop_indices(2, 5), Vec::<usize>::new());
     }
 }
