@@ -396,6 +396,95 @@ select:focus {
   background: var(--ac);
 }
 
+/* ---------- integrated terminal ---------- */
+.term-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--line);
+  background: #0a0c10;
+}
+.term-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+  padding: 0 6px 0 4px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-1);
+  flex: 0 0 auto;
+}
+.term-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+}
+.term-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 6px 0 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--tx-2);
+  border: 1px solid transparent;
+}
+.term-tab:hover {
+  background: var(--bg-2);
+}
+.term-tab.on {
+  background: var(--bg-3);
+  color: var(--tx-0);
+  border-color: var(--line);
+}
+.term-tab-x,
+.term-new,
+.term-close {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  color: var(--tx-2);
+  font-size: 12px;
+  line-height: 1;
+}
+.term-tab-x:hover,
+.term-new:hover,
+.term-close:hover {
+  background: var(--bg-3);
+  color: var(--tx-0);
+}
+.term-new {
+  margin-left: 2px;
+  font-size: 13px;
+}
+.term-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.term-slot {
+  position: absolute;
+  inset: 0;
+}
+.term-host {
+  width: 100%;
+  height: 100%;
+  padding: 4px 6px;
+}
+.term-panel .splitter.y {
+  margin: 0;
+  height: 5px;
+}
+
 /* ---------- folder rail ---------- */
 .folder {
   display: flex;

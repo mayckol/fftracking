@@ -34,6 +34,7 @@ export const ACTIONS: ActionDef[] = [
   { id: "nav.settings", label: "Go to Settings tab", group: "Navigation", default: "Mod+3" },
   { id: "nav.nextPoint", label: "Next breaking point", group: "Navigation", default: "Alt+PageDown" },
   { id: "nav.prevPoint", label: "Previous breaking point", group: "Navigation", default: "Alt+PageUp" },
+  { id: "terminal.toggle", label: "Toggle terminal", group: "Navigation", default: "Mod+`" },
 ];
 
 export const IS_MAC = navigator.platform.toUpperCase().includes("MAC");
@@ -142,6 +143,9 @@ function onKeyDown(e: KeyboardEvent) {
   const action = ACTIONS.find((a) => comboFor(a.id) === combo);
   if (!action) return;
   const el = document.activeElement as HTMLElement | null;
+  // While a terminal is focused, only the toggle fires; every other combo goes
+  // to the shell (Ctrl-C, Ctrl-R, etc.).
+  if (action.id !== "terminal.toggle" && el?.closest(".xterm")) return;
   // Diff-scoped bindings (undo/redo) only act when the diff editor is focused,
   // so they don't steal ⌘Z from the commit box or other inputs.
   if (action.scope === "diff" && !el?.closest(".editor-wrap")) return;

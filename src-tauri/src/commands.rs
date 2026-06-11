@@ -11,6 +11,7 @@ use tauri::State;
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::DialogExt;
 
+use crate::terminal::TerminalManager;
 use crate::AppState;
 
 type R<T> = Result<T, String>;
@@ -345,4 +346,30 @@ pub fn autostart_enabled(app: tauri::AppHandle) -> R<bool> {
 #[tauri::command]
 pub fn resource_usage(state: State<AppState>) -> ResourceUsage {
     state.sysmon.lock().expect("sysmon mutex poisoned").sample()
+}
+
+#[tauri::command]
+pub fn terminal_open(
+    app: tauri::AppHandle,
+    term: State<TerminalManager>,
+    cwd: Option<String>,
+    cols: u16,
+    rows: u16,
+) -> R<u64> {
+    term.open(&app, cwd, cols, rows)
+}
+
+#[tauri::command]
+pub fn terminal_write(term: State<TerminalManager>, id: u64, data: String) -> R<()> {
+    term.write(id, data.as_bytes())
+}
+
+#[tauri::command]
+pub fn terminal_resize(term: State<TerminalManager>, id: u64, cols: u16, rows: u16) -> R<()> {
+    term.resize(id, cols, rows)
+}
+
+#[tauri::command]
+pub fn terminal_close(term: State<TerminalManager>, id: u64) {
+    term.close(id);
 }
