@@ -4,6 +4,22 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [0.5.7] — 2026-06-11
+
+### Added
+
+- **Full project file tree in History.** A new *Files* section lists every tracked
+  file on disk (not just the changed ones), beside the existing *Changed Files*.
+  Both sections have a show/hide toggle and are shown by default. Folders and files
+  now carry icons, and long single-child folder chains collapse into one row.
+
+### Changed
+
+- **↑/↓ change navigation now spills across files.** Stepping past the last (↓) or
+  first (↑) change of a file jumps to the next/previous changed file (landing on
+  its first/last change) instead of wrapping within the current file. Applies to
+  both History and Git diff views.
+
 ## [0.5.4] — 2026-06-03
 
 ### Fixed
