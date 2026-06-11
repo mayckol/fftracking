@@ -5,6 +5,7 @@ import { useUIPrefs } from "./lib/uiPrefs";
 import { isConfirmSuppressed } from "./lib/confirmPrefs";
 import { getSelectedText } from "./lib/selection";
 import { getScopeDir } from "./lib/searchScope";
+import { setTerminalOpener } from "./lib/runner";
 import ConfirmModal from "./components/ConfirmModal";
 import SearchPalette, { type PaletteMode } from "./components/SearchPalette";
 import type { MonitorRow, ResourceUsage } from "./lib/types";
@@ -138,6 +139,11 @@ export default function App() {
   const selectedMonitor = monitors.find((m) => m.id === selected) ?? null;
 
   useEffect(installShortcuts, []);
+  // Test-runner clicks need the terminal panel visible before they can type.
+  useEffect(() => {
+    setTerminalOpener(() => setShowTerm(true));
+    return () => setTerminalOpener(null);
+  }, []);
   useShortcut("nav.history", () => setTab("history"));
   useShortcut("nav.git", () => setTab("git"));
   useShortcut("nav.settings", () => setTab("settings"));

@@ -34,6 +34,7 @@ export const ACTIONS: ActionDef[] = [
   { id: "editor.jumpBracket", label: "Go to matching bracket", group: "Editor", default: "Mod+[" },
   { id: "editor.commentLine", label: "Toggle comment (line / selection)", group: "Editor", default: "Mod+/" },
   { id: "editor.implementations", label: "Go to implementations / specifications", group: "Editor", default: "Mod+U" },
+  { id: "test.run", label: "Run test at cursor", group: "Editor", default: "Ctrl+Shift+R" },
   { id: "editor.fold", label: "Collapse block (press twice: all)", group: "Editor", default: "Mod+Shift+-" },
   { id: "editor.unfold", label: "Expand block (press twice: all)", group: "Editor", default: "Mod+Shift+=" },
   { id: "diff.next", label: "Next change", group: "Diff", default: "Alt+ArrowDown" },

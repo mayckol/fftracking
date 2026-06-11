@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { buildFileTree, type TreeNode } from "../lib/filetree";
 import { setScopeDir } from "../lib/searchScope";
+import { runInTerminal } from "../lib/runner";
+import { dirname } from "../lib/util";
 import { FileIcon, FolderIcon } from "../components/Icons";
 
 interface Menu {
@@ -133,9 +135,30 @@ export default function ProjectTree({
             {menu.kind === "file" && onReveal && (
               <button onClick={() => { onReveal(menu.path); setMenu(null); }}>Reveal in Finder</button>
             )}
+            {menu.kind === "file" && menu.path.endsWith("_test.go") && (
+              <button
+                onClick={() => {
+                  const d = dirname(menu.path).replace(/\/$/, "");
+                  runInTerminal(`go test -v ${d ? `./${d}` : "."}`);
+                  setMenu(null);
+                }}
+              >
+                ▶ Run go test (package)
+              </button>
+            )}
             {menu.kind === "file" && onIgnoreFile && (
               <button onClick={() => { onIgnoreFile(menu.path); setMenu(null); }}>
                 Ignore history for this file
+              </button>
+            )}
+            {menu.kind === "dir" && (
+              <button
+                onClick={() => {
+                  runInTerminal(`go test -v ./${menu.path}/...`);
+                  setMenu(null);
+                }}
+              >
+                ▶ Run go test ./{menu.path}/...
               </button>
             )}
             {menu.kind === "dir" && onFindInFolder && (
