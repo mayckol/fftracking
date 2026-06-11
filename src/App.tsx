@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./lib/ipc";
-import { installShortcuts, useShortcut } from "./lib/shortcuts";
+import { comboFor, formatCombo, installShortcuts, useShortcut } from "./lib/shortcuts";
 import { isConfirmSuppressed } from "./lib/confirmPrefs";
 import ConfirmModal from "./components/ConfirmModal";
 import type { MonitorRow, ResourceUsage } from "./lib/types";
@@ -151,6 +151,13 @@ export default function App() {
             </span>
           </div>
         )}
+        <button
+          className={`tbtn${showTerm ? " on" : ""}`}
+          onClick={() => setShowTerm((v) => !v)}
+          title={`${showTerm ? "Hide" : "Show"} terminal (${formatCombo(comboFor("terminal.toggle"))})`}
+        >
+          {">_ Terminal"}
+        </button>
         {tab === "history" && selected != null && (
           <button className="tbtn primary" onClick={snapshotNow}>
             ⦿ Snapshot now
