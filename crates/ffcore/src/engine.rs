@@ -176,6 +176,18 @@ impl Engine {
         crate::ignore::list_paths(&root, &s.ignore_globs, s.respect_gitignore)
     }
 
+    /// Full-text search over the monitor's working tree, under the same
+    /// exclusion rules the capture walk uses.
+    pub fn search_content(
+        &self,
+        monitor_id: i64,
+        opts: &crate::search::SearchOptions,
+    ) -> Result<crate::search::SearchResults> {
+        let s = self.get_settings()?;
+        let root = self.with_db(|db| monitor_root(db, monitor_id))?;
+        crate::search::search_content(&root, opts, &s.ignore_globs, s.respect_gitignore)
+    }
+
     /// Path→hash of the live working tree, under the monitor's capture rules.
     /// The "Current" side of the Local-History (point ↔ current) comparison.
     fn working_hashes(&self, root: &Path, s: &crate::db::Settings) -> Result<PathMap> {

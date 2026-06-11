@@ -4,6 +4,7 @@ import { comboFor, formatCombo, installShortcuts, useShortcut } from "./lib/shor
 import { useUIPrefs } from "./lib/uiPrefs";
 import { isConfirmSuppressed } from "./lib/confirmPrefs";
 import ConfirmModal from "./components/ConfirmModal";
+import SearchPalette, { type PaletteMode } from "./components/SearchPalette";
 import type { MonitorRow, ResourceUsage } from "./lib/types";
 import GitView from "./panels/GitView";
 import HistoryView from "./panels/HistoryView";
@@ -22,6 +23,15 @@ export default function App() {
   const [confirmDel, setConfirmDel] = useState<MonitorRow | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [showTerm, setShowTerm] = useState(false);
+  const [search, setSearch] = useState<PaletteMode | null>(null);
+  // Open-a-file request from the search palette, routed into HistoryView.
+  const [openReq, setOpenReq] = useState<{
+    monitorId: number;
+    path: string;
+    line?: number;
+    col?: number;
+    n: number;
+  } | null>(null);
   const [termH, setTermH] = useState(280);
   const [sideOpen, setSideOpen] = useState(false);
   const toastTimer = useRef<number>();
@@ -126,6 +136,14 @@ export default function App() {
   const inWorkspace = tab === "files" || tab === "history";
   useShortcut("capture.snapshot", snapshotNow, inWorkspace && selected != null);
   useShortcut("terminal.toggle", () => setShowTerm((v) => !v));
+  useShortcut("search.quickOpen", () => setSearch((s) => (s === "files" ? null : "files")), selected != null);
+  useShortcut("search.text", () => setSearch((s) => (s === "text" ? null : "text")), selected != null);
+
+  function openFromSearch(path: string, line?: number, col?: number) {
+    if (selected == null) return;
+    if (tab !== "files" && tab !== "history") setTab("files");
+    setOpenReq((r) => ({ monitorId: selected, path, line, col, n: (r?.n ?? 0) + 1 }));
+  }
 
   return (
     <div className="app">
@@ -208,6 +226,7 @@ export default function App() {
               root={selectedMonitor?.root_path ?? null}
               historyMode={tab === "history"}
               onModeChange={(history) => setTab(history ? "history" : "files")}
+              openReq={openReq}
               toast={notify}
             />
           ) : (
@@ -240,6 +259,17 @@ export default function App() {
           height={termH}
           onResize={(d) => setTermH((h) => Math.max(120, Math.min(window.innerHeight - 140, h - d)))}
           onClose={() => setShowTerm(false)}
+        />
+      )}
+
+      {search && selected != null && (
+        <SearchPalette
+          monitorId={selected}
+          mode={search}
+          onModeChange={setSearch}
+          onClose={() => setSearch(null)}
+          onOpenFile={openFromSearch}
+          onRevealFolder={(p) => api.revealPath(selected, p).catch((e) => notify(String(e), true))}
         />
       )}
 

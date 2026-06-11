@@ -13,7 +13,7 @@ import {
 import type { Settings } from "../lib/types";
 import { FONT_CHOICES, type TabOverflow, setPref, useUIPrefs } from "../lib/uiPrefs";
 
-const GROUP_ORDER: ActionGroup[] = ["Editor", "Diff", "Capture & revert", "Changed files", "Navigation"];
+const GROUP_ORDER: ActionGroup[] = ["Editor", "Diff", "Capture & revert", "Changed files", "Navigation", "Search"];
 
 interface Props {
   toast: (msg: string, error?: boolean) => void;

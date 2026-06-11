@@ -8,6 +8,8 @@ import type {
   MonitorRow,
   RefList,
   ResourceUsage,
+  SearchOptions,
+  SearchResults,
   Settings,
   SnapshotRow,
   WorkingStatus,
@@ -37,6 +39,8 @@ export const api = {
   snapshotWorkingChanges: (monitorId: number, snapshotId: number) =>
     invoke<FileChange[]>("snapshot_working_changes", { monitorId, snapshotId }),
   monitorFiles: (monitorId: number) => invoke<string[]>("monitor_files", { monitorId }),
+  searchContent: (monitorId: number, options: SearchOptions) =>
+    invoke<SearchResults>("search_content", { monitorId, options }),
   terminalOpen: (cwd: string | null, cols: number, rows: number) =>
     invoke<number>("terminal_open", { cwd, cols, rows }),
   terminalWrite: (id: number, data: string) => invoke<void>("terminal_write", { id, data }),

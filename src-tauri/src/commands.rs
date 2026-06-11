@@ -112,6 +112,20 @@ pub fn monitor_files(state: State<AppState>, monitor_id: i64) -> R<Vec<String>> 
     err(state.engine.monitor_files(monitor_id))
 }
 
+// Async + spawn_blocking: scanning a large tree must not block the main thread
+// while the user types in the search box.
+#[tauri::command]
+pub async fn search_content(
+    state: State<'_, AppState>,
+    monitor_id: i64,
+    options: ffcore::search::SearchOptions,
+) -> R<ffcore::search::SearchResults> {
+    let engine = state.engine.clone();
+    tauri::async_runtime::spawn_blocking(move || err(engine.search_content(monitor_id, &options)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 fn abs_path(state: &State<AppState>, monitor_id: i64, path: &str) -> R<PathBuf> {
     Ok(PathBuf::from(err(state.engine.monitor_root_path(monitor_id))?).join(path))
 }

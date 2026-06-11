@@ -4,7 +4,11 @@
 
 import { useEffect } from "react";
 
-export type ActionGroup = "Editor" | "Diff" | "Capture & revert" | "Changed files" | "Navigation";
+export type ActionGroup = "Editor" | "Diff" | "Capture & revert" | "Changed files" | "Navigation" | "Search";
+
+/** Pseudo-combo for two bare Shift presses in quick succession (JetBrains
+ *  "Search Everywhere"). Handled by a dedicated detector, not combo matching. */
+export const DOUBLE_SHIFT = "DoubleShift";
 
 export interface ActionDef {
   id: string;
@@ -42,6 +46,8 @@ export const ACTIONS: ActionDef[] = [
   { id: "nav.nextPoint", label: "Next breaking point", group: "Navigation", default: "Alt+PageDown" },
   { id: "nav.prevPoint", label: "Previous breaking point", group: "Navigation", default: "Alt+PageUp" },
   { id: "terminal.toggle", label: "Toggle terminal", group: "Navigation", default: "Mod+`" },
+  { id: "search.quickOpen", label: "Find files & folders", group: "Search", default: DOUBLE_SHIFT },
+  { id: "search.text", label: "Find in files", group: "Search", default: "Mod+Shift+F" },
 ];
 
 export const IS_MAC = navigator.platform.toUpperCase().includes("MAC");
@@ -116,6 +122,7 @@ const SYMBOL: Record<string, string> = {
 
 export function formatCombo(combo: string): string {
   if (!combo) return "—";
+  if (combo === DOUBLE_SHIFT) return IS_MAC ? "⇧ ⇧" : "Shift Shift";
   const parts = combo.split("+").map((p) => SYMBOL[p] ?? p);
   return parts.join(IS_MAC ? " " : "+");
 }
@@ -134,8 +141,37 @@ export function beginCapture(onCombo: (combo: string) => void): () => void {
   };
 }
 
+const DOUBLE_SHIFT_MS = 400;
+let lastShiftAt = 0;
+
+function fireDoubleShift(e: KeyboardEvent) {
+  const action = ACTIONS.find((a) => comboFor(a.id) === DOUBLE_SHIFT);
+  if (!action) return;
+  // Never steal Shift from a focused terminal.
+  if ((document.activeElement as HTMLElement | null)?.closest(".xterm")) return;
+  const handler = registry.get(action.id);
+  if (!handler) return;
+  e.preventDefault();
+  e.stopPropagation();
+  handler();
+}
+
 function onKeyDown(e: KeyboardEvent) {
   const combo = comboFromEvent(e);
+  // Double-Shift: two bare Shift presses with nothing in between. A held key
+  // (repeat) or any other key/modifier resets the sequence, so Shift-typing
+  // capitals never triggers it.
+  if (e.key === "Shift" && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey && !capturing) {
+    const now = performance.now();
+    if (now - lastShiftAt < DOUBLE_SHIFT_MS) {
+      lastShiftAt = 0;
+      fireDoubleShift(e);
+    } else {
+      lastShiftAt = now;
+    }
+    return;
+  }
+  lastShiftAt = 0;
   if (!combo) return;
   if (capturing) {
     e.preventDefault();
