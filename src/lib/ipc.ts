@@ -37,6 +37,12 @@ export const api = {
   snapshotWorkingChanges: (monitorId: number, snapshotId: number) =>
     invoke<FileChange[]>("snapshot_working_changes", { monitorId, snapshotId }),
   monitorFiles: (monitorId: number) => invoke<string[]>("monitor_files", { monitorId }),
+  terminalOpen: (cwd: string | null, cols: number, rows: number) =>
+    invoke<number>("terminal_open", { cwd, cols, rows }),
+  terminalWrite: (id: number, data: string) => invoke<void>("terminal_write", { id, data }),
+  terminalResize: (id: number, cols: number, rows: number) =>
+    invoke<void>("terminal_resize", { id, cols, rows }),
+  terminalClose: (id: number) => invoke<void>("terminal_close", { id }),
   openPath: (monitorId: number, path: string) => invoke<void>("open_path", { monitorId, path }),
   revealPath: (monitorId: number, path: string) => invoke<void>("reveal_path", { monitorId, path }),
   baseFile: (monitorId: number, snapshotId: number, path: string) =>

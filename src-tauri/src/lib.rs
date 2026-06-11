@@ -1,4 +1,5 @@
 mod commands;
+mod terminal;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -43,6 +44,7 @@ pub fn run() {
                 manager: manager.clone(),
                 sysmon: Mutex::new(SelfMonitor::new()),
             });
+            app.manage(terminal::TerminalManager::default());
             setup_tray(app.handle())?;
             spawn_detect_daemon(engine, manager);
             Ok(())
@@ -99,6 +101,10 @@ pub fn run() {
             commands::set_autostart,
             commands::autostart_enabled,
             commands::resource_usage,
+            commands::terminal_open,
+            commands::terminal_write,
+            commands::terminal_resize,
+            commands::terminal_close,
         ])
         .build(tauri::generate_context!())
         .expect("error building fftracking")

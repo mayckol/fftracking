@@ -8,6 +8,7 @@ import GitView from "./panels/GitView";
 import HistoryView from "./panels/HistoryView";
 import SettingsView from "./panels/SettingsView";
 import Sidebar from "./panels/Sidebar";
+import TerminalPanel from "./panels/TerminalPanel";
 
 type Tab = "history" | "git" | "settings";
 
@@ -19,6 +20,8 @@ export default function App() {
   const [res, setRes] = useState<ResourceUsage | null>(null);
   const [confirmDel, setConfirmDel] = useState<MonitorRow | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [showTerm, setShowTerm] = useState(false);
+  const [termH, setTermH] = useState(280);
   const toastTimer = useRef<number>();
 
   // Suppress the webview's native right-click menu (the "Reload" popup);
@@ -118,6 +121,7 @@ export default function App() {
   useShortcut("nav.git", () => setTab("git"));
   useShortcut("nav.settings", () => setTab("settings"));
   useShortcut("capture.snapshot", snapshotNow, tab === "history" && selected != null);
+  useShortcut("terminal.toggle", () => setShowTerm((v) => !v));
 
   return (
     <div className="app">
@@ -189,6 +193,15 @@ export default function App() {
         <div className="work" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
           <SettingsView toast={notify} />
         </div>
+      )}
+
+      {showTerm && (
+        <TerminalPanel
+          cwd={selectedMonitor?.root_path ?? null}
+          height={termH}
+          onResize={(d) => setTermH((h) => Math.max(120, Math.min(window.innerHeight - 140, h - d)))}
+          onClose={() => setShowTerm(false)}
+        />
       )}
 
       {confirmDel && (
