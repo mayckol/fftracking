@@ -125,7 +125,7 @@ export default function App() {
         <div className="brand">
           <span className="dot" />
           fftracking
-          <small>v0.5.7 · build {__BUILD_ID__}</small>
+          <small>v0.5.8 · build {__BUILD_ID__}</small>
         </div>
         <nav className="tabs">
           {(["history", "git", "settings"] as Tab[]).map((t) => (
@@ -155,7 +155,7 @@ export default function App() {
       </header>
 
       {tab === "history" && (
-        <div className="work">
+        <div className="work" style={{ gridTemplateColumns: "232px minmax(0, 1fr)" }}>
           <Sidebar
             monitors={monitors}
             selected={selected}
@@ -168,16 +168,13 @@ export default function App() {
           {selected != null ? (
             <HistoryView key={selected} monitorId={selected} toast={notify} />
           ) : (
-            <>
-              <div className="col" />
-              <div className="col main">
-                <div className="empty">
-                  <img className="hero-logo" src="/logo.png" alt="fftracking" />
-                  <h3>Track a folder to begin</h3>
-                  <p>Add a folder, or just open a project in VSCode or Zed — fftracking picks it up automatically.</p>
-                </div>
+            <div className="col main">
+              <div className="empty">
+                <img className="hero-logo" src="/logo.png" alt="fftracking" />
+                <h3>Track a folder to begin</h3>
+                <p>Add a folder, or just open a project in VSCode or Zed — fftracking picks it up automatically.</p>
               </div>
-            </>
+            </div>
           )}
         </div>
       )}

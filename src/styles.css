@@ -332,6 +332,70 @@ select:focus {
   min-height: 0;
 }
 
+/* ---------- history view: resizable explorer + history ---------- */
+.hv {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.hv-side {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--bg-1);
+}
+.hv-side-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.hv-history {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border-top: 1px solid var(--line);
+}
+.hv-hpane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.hv-hpane + .hv-hpane {
+  border-top: 1px solid var(--line);
+}
+.hv .col.main {
+  flex: 1;
+  min-width: 0;
+}
+.splitter {
+  flex: 0 0 auto;
+  background: transparent;
+  position: relative;
+  z-index: 5;
+  transition: background 0.12s var(--ease);
+}
+.splitter.x {
+  width: 6px;
+  margin: 0 -3px;
+  cursor: col-resize;
+}
+.splitter.y {
+  height: 6px;
+  margin: -3px 0;
+  cursor: row-resize;
+}
+.splitter:hover,
+.splitter:active {
+  background: var(--ac);
+}
+
 /* ---------- folder rail ---------- */
 .folder {
   display: flex;

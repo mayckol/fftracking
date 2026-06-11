@@ -26,7 +26,9 @@ export default function FileView({ content, language }: Props) {
         scrollBeyondLastLine: false,
         smoothScrolling: true,
         guides: { indentation: false },
-        renderLineHighlight: "none",
+        renderLineHighlight: "all",
+        renderLineHighlightOnlyWhenFocus: false,
+        cursorBlinking: "smooth",
         padding: { top: 10, bottom: 10 },
         wordWrap: "off",
       }}
