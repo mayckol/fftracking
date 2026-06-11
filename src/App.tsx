@@ -6,6 +6,16 @@ import { isConfirmSuppressed } from "./lib/confirmPrefs";
 import { getSelectedText } from "./lib/selection";
 import { getScopeDir } from "./lib/searchScope";
 import { setTerminalOpener } from "./lib/runner";
+import {
+  dbgResume,
+  dbgStepInto,
+  dbgStepOut,
+  dbgStepOver,
+  getDebugSnapshot,
+  setDebugOpener,
+  stopDebug,
+  subscribeDebug,
+} from "./lib/debug";
 import ConfirmModal from "./components/ConfirmModal";
 import SearchPalette, { type PaletteMode } from "./components/SearchPalette";
 import type { MonitorRow, ResourceUsage } from "./lib/types";
@@ -14,6 +24,7 @@ import HistoryView from "./panels/HistoryView";
 import SettingsView from "./panels/SettingsView";
 import Sidebar from "./panels/Sidebar";
 import TerminalPanel from "./panels/TerminalPanel";
+import DebugPanel from "./panels/DebugPanel";
 
 type Tab = "files" | "history" | "git" | "settings";
 
@@ -26,6 +37,9 @@ export default function App() {
   const [confirmDel, setConfirmDel] = useState<MonitorRow | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [showTerm, setShowTerm] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugH, setDebugH] = useState(300);
+  const [dbgStatus, setDbgStatus] = useState(getDebugSnapshot().status);
   const [search, setSearch] = useState<PaletteMode | null>(null);
   // Bumped by ⌘⇧R: tells the palette to open its replace row. Reset on close
   // so a later plain ⌘⇧F doesn't reopen with replace enabled.
@@ -144,6 +158,19 @@ export default function App() {
     setTerminalOpener(() => setShowTerm(true));
     return () => setTerminalOpener(null);
   }, []);
+  // Starting a debug session (gutter "Debug …") reveals the debug panel.
+  useEffect(() => {
+    setDebugOpener(() => setShowDebug(true));
+    return () => setDebugOpener(null);
+  }, []);
+  useEffect(() => subscribeDebug(() => setDbgStatus(getDebugSnapshot().status)), []);
+  const dbgActive = dbgStatus === "starting" || dbgStatus === "running" || dbgStatus === "paused";
+  useShortcut("debug.panel", () => setShowDebug((v) => !v));
+  useShortcut("debug.stepOver", dbgStepOver, dbgStatus === "paused");
+  useShortcut("debug.stepInto", dbgStepInto, dbgStatus === "paused");
+  useShortcut("debug.stepOut", dbgStepOut, dbgStatus === "paused");
+  useShortcut("debug.resume", dbgResume, dbgStatus === "paused");
+  useShortcut("debug.stop", () => stopDebug(), dbgActive);
   useShortcut("nav.history", () => setTab("history"));
   useShortcut("nav.git", () => setTab("git"));
   useShortcut("nav.settings", () => setTab("settings"));
@@ -206,6 +233,13 @@ export default function App() {
             </span>
           </div>
         )}
+        <button
+          className={`tbtn${showDebug ? " on" : ""}`}
+          onClick={() => setShowDebug((v) => !v)}
+          title={`${showDebug ? "Hide" : "Show"} debug panel (${formatCombo(comboFor("debug.panel"))})`}
+        >
+          {dbgActive ? "🐞 Debug ●" : "🐞 Debug"}
+        </button>
         <button
           className={`tbtn${showTerm ? " on" : ""}`}
           onClick={() => setShowTerm((v) => !v)}
@@ -285,6 +319,15 @@ export default function App() {
         <div className="work" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
           <SettingsView toast={notify} />
         </div>
+      )}
+
+      {showDebug && (
+        <DebugPanel
+          root={selectedMonitor?.root_path ?? null}
+          height={debugH}
+          onResize={(d) => setDebugH((h) => Math.max(160, Math.min(window.innerHeight - 140, h - d)))}
+          onClose={() => setShowDebug(false)}
+        />
       )}
 
       {showTerm && (

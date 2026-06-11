@@ -4,7 +4,7 @@
 
 import { useEffect } from "react";
 
-export type ActionGroup = "Editor" | "Diff" | "Capture & revert" | "Changed files" | "Navigation" | "Search";
+export type ActionGroup = "Editor" | "Diff" | "Capture & revert" | "Changed files" | "Navigation" | "Search" | "Debug";
 
 /** Pseudo-combo for two bare Shift presses in quick succession (JetBrains
  *  "Search Everywhere"). Handled by a dedicated detector, not combo matching. */
@@ -49,6 +49,7 @@ export const ACTIONS: ActionDef[] = [
   { id: "file.copyContent", label: "Copy file contents", group: "Changed files", default: "Mod+Alt+C" },
   { id: "file.reveal", label: "Reveal in file manager", group: "Changed files", default: "Mod+Shift+E" },
   { id: "file.open", label: "Open file", group: "Changed files", default: "Mod+Shift+O" },
+  { id: "file.focusInTree", label: "Focus opened file in tree", group: "Changed files", default: "Mod+O" },
   { id: "nav.history", label: "Go to History tab", group: "Navigation", default: "Mod+1" },
   { id: "nav.git", label: "Go to Git tab", group: "Navigation", default: "Mod+2" },
   { id: "nav.settings", label: "Go to Settings tab", group: "Navigation", default: "Mod+3" },
@@ -57,6 +58,14 @@ export const ACTIONS: ActionDef[] = [
   { id: "nav.nextPoint", label: "Next breaking point", group: "Navigation", default: "Alt+PageDown" },
   { id: "nav.prevPoint", label: "Previous breaking point", group: "Navigation", default: "Alt+PageUp" },
   { id: "terminal.toggle", label: "Toggle terminal", group: "Navigation", default: "Mod+`" },
+  // Debug bindings follow JetBrains defaults (F8/F7/⇧F8/F9).
+  { id: "debug.toggleBreakpoint", label: "Toggle breakpoint at cursor", group: "Debug", default: "Mod+F8" },
+  { id: "debug.stepOver", label: "Step over", group: "Debug", default: "F8" },
+  { id: "debug.stepInto", label: "Step into", group: "Debug", default: "F7" },
+  { id: "debug.stepOut", label: "Step out", group: "Debug", default: "Shift+F8" },
+  { id: "debug.resume", label: "Resume program", group: "Debug", default: "F9" },
+  { id: "debug.stop", label: "Stop debug session", group: "Debug", default: "Mod+F2" },
+  { id: "debug.panel", label: "Toggle debug panel", group: "Debug", default: "Mod+Shift+D" },
   { id: "search.quickOpen", label: "Find files & folders", group: "Search", default: DOUBLE_SHIFT },
   { id: "search.text", label: "Find in files", group: "Search", default: "Mod+Shift+F" },
   { id: "search.replace", label: "Replace in files", group: "Search", default: "Mod+Shift+R" },
@@ -203,8 +212,9 @@ function onKeyDown(e: KeyboardEvent) {
     cb(combo);
     return;
   }
-  // Don't hijack plain typing in inputs/editors; only modified combos fire there.
-  if (inTextField() && !/(^|\+)(Mod|Alt)(\+|$)/.test(combo)) return;
+  // Don't hijack plain typing in inputs/editors; only modified combos and
+  // function keys (debug stepping) fire there.
+  if (inTextField() && !/(^|\+)(Mod|Alt)(\+|$)/.test(combo) && !/^(Shift\+)?F\d+$/.test(combo)) return;
   const action = ACTIONS.find((a) => comboFor(a.id) === combo);
   if (!action) return;
   const el = document.activeElement as HTMLElement | null;

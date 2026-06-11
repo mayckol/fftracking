@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, useImperativeHandle, forwardRef, useEffect } from "react";
 import { buildFileTree, type TreeNode } from "../lib/filetree";
 import { setScopeDir } from "../lib/searchScope";
 import { runInTerminal } from "../lib/runner";
 import { dirname } from "../lib/util";
-import { FileIcon, FolderIcon } from "../components/Icons";
+import { FileIcon, FolderIcon, GoIcon } from "../components/Icons";
 
 interface Menu {
   x: number;
@@ -25,7 +25,11 @@ interface Props {
   onReplaceInFolder?: (prefix: string) => void;
 }
 
-export default function ProjectTree({
+export interface ProjectTreeHandle {
+  focusInTree: () => void;
+}
+
+const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
   files,
   selected,
   errorFiles,
@@ -36,7 +40,38 @@ export default function ProjectTree({
   onIgnoreFolder,
   onFindInFolder,
   onReplaceInFolder,
-}: Props) {
+}: Props, ref) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const pendingFocusRef = useRef(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [menu, setMenu] = useState<Menu | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    focusInTree: () => {
+      if (selected) {
+        pendingFocusRef.current = true;
+        const parts = selected.split("/");
+        setExpanded((prev) => {
+          const next = new Set(prev);
+          for (let i = 1; i < parts.length; i++) {
+            next.add(parts.slice(0, i).join("/"));
+          }
+          return next;
+        });
+      }
+    }
+  }), [selected]);
+
+  useEffect(() => {
+    if (pendingFocusRef.current && selected) {
+      pendingFocusRef.current = false;
+      const elem = containerRef.current?.querySelector(`[data-path="${selected}"]`) as HTMLElement | null;
+      if (elem) {
+        elem.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
+  }, [expanded, selected]);
+
   const tree = useMemo(() => buildFileTree(files.map((path) => ({ path }))), [files]);
   // Folders that contain an error file (every ancestor dir of each error path).
   const errorDirs = useMemo(() => {
@@ -47,13 +82,10 @@ export default function ProjectTree({
     }
     return dirs;
   }, [errorFiles]);
-  // Default collapsed: only paths in this set are open.
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [menu, setMenu] = useState<Menu | null>(null);
 
   if (files.length === 0) {
     return (
-      <div className="empty" style={{ padding: "24px 20px" }}>
+      <div ref={containerRef} className="empty" style={{ padding: "24px 20px" }}>
         <p>No files tracked in this folder.</p>
       </div>
     );
@@ -99,6 +131,7 @@ export default function ProjectTree({
         rows.push(
           <div
             key={"f:" + node.path}
+            data-path={node.path}
             className={`trow file${selected === node.path ? " on" : ""}${errorFiles?.has(node.path) ? " err" : ""}`}
             style={pad}
             onClick={() => {
@@ -113,7 +146,7 @@ export default function ProjectTree({
             title={node.path}
           >
             <span className="chev" />
-            <FileIcon />
+            {node.path.endsWith(".go") ? <GoIcon /> : <FileIcon />}
             <span className="tname">{node.name}</span>
           </div>,
         );
@@ -123,7 +156,7 @@ export default function ProjectTree({
   walk(tree, 0);
 
   return (
-    <>
+    <div ref={containerRef}>
       {rows}
       {menu && (
         <>
@@ -178,6 +211,8 @@ export default function ProjectTree({
           </div>
         </>
       )}
-    </>
+    </div>
   );
-}
+});
+ProjectTree.displayName = "ProjectTree";
+export default ProjectTree;

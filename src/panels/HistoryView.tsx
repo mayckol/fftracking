@@ -10,7 +10,7 @@ import { getErrorPaths, setNavHandler, subscribeDiagnostics } from "../lib/lsp";
 import { recordRecent } from "../lib/fuzzy";
 import ConfirmModal from "../components/ConfirmModal";
 import ChangedTree from "./ChangedTree";
-import ProjectTree from "./ProjectTree";
+import ProjectTree, { type ProjectTreeHandle } from "./ProjectTree";
 import FileView, { type FileHandle } from "../components/FileView";
 import Splitter from "../components/Splitter";
 import Timeline from "./Timeline";
@@ -75,6 +75,7 @@ export default function HistoryView({
   // Back/Forward navigation history (JetBrains-style; mouse buttons 4/5). Refs,
   // not state — it drives setFile/setPendingGoto rather than rendering itself.
   const fileViewRef = useRef<FileHandle | null>(null);
+  const projectTreeRef = useRef<ProjectTreeHandle | null>(null);
   const navStack = useRef<{ path: string; line: number; col: number }[]>([]);
   const navIdx = useRef(-1);
   const fileRef = useRef<string | null>(file);
@@ -608,6 +609,7 @@ export default function HistoryView({
     () => file && api.openPath(monitorId, file).catch((e) => toast(String(e), true)),
     !!file,
   );
+  useShortcut("file.focusInTree", () => projectTreeRef.current?.focusInTree(), !showHistory && !!file);
   useShortcut("nav.nextPoint", () => gotoPoint(1));
   useShortcut("nav.prevPoint", () => gotoPoint(-1));
   useShortcut("nav.back", () => navGoRef.current(-1));
@@ -701,6 +703,7 @@ export default function HistoryView({
             ) : (
               <div className="col-scroll" style={{ flex: 1 }}>
                 <ProjectTree
+                  ref={projectTreeRef}
                   files={files}
                   selected={openKind === "file" ? file : null}
                   errorFiles={errFiles}

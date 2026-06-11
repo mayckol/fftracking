@@ -12,6 +12,14 @@ import {
 } from "../lib/lsp";
 import { registerEditor } from "../lib/selection";
 import { runInTerminal } from "../lib/runner";
+import { breakpointLines, subscribeBreakpoints, toggleBreakpoint } from "../lib/breakpoints";
+import {
+  getDebugSnapshot,
+  registerDebugHover,
+  startDebug,
+  subscribeDebug,
+  type LaunchConfig,
+} from "../lib/debug";
 import { comboFor, formatCombo } from "../lib/shortcuts";
 import { editorPrefOptions, getPrefs, useUIPrefs } from "../lib/uiPrefs";
 
@@ -104,10 +112,12 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   // Implementation-target picker (several results → JetBrains-style popup).
   const [implPick, setImplPick] = useState<{ x: number; y: number; locs: ImplLocation[] } | null>(null);
   const jumpToRef = useRef<(loc: ImplLocation) => void>(() => {});
-  // Test-run scope menu (function / file / package / table case).
-  const [testPick, setTestPick] = useState<{ x: number; y: number; items: { label: string; cmd: string }[] } | null>(
-    null,
-  );
+  // Run/debug scope menu (test function / file / package / table case / main).
+  const [testPick, setTestPick] = useState<{
+    x: number;
+    y: number;
+    items: { label: string; cmd?: string; dbg?: LaunchConfig }[];
+  } | null>(null);
   const [diag, setDiag] = useState({ errors: 0, warnings: 0 });
   const editorRef = useRef<MEditor.IStandaloneCodeEditor | null>(null);
 
@@ -272,19 +282,40 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
         const cmdFile = () => `go test -v -run '^(${allTests.join("|")})$' ${pkg}`;
         const cmdPkg = `go test -v ${pkg}`;
 
-        const menuFor = (m: TestMark): { label: string; cmd: string }[] => {
+        // Debug variants launch the same scope under delve (DAP test mode).
+        const pkgAbs = path.slice(0, path.lastIndexOf("/"));
+        const dbgTest = (label: string, pattern?: string): LaunchConfig => ({
+          root,
+          name: label,
+          mode: "test",
+          program: pkgAbs,
+          args: pattern ? ["-test.run", pattern, "-test.v"] : ["-test.v"],
+        });
+
+        type MenuItem = { label: string; cmd?: string; dbg?: LaunchConfig };
+        const menuFor = (m: TestMark): MenuItem[] => {
           if (m.kind === "pkg") {
-            const items = [{ label: `Run package tests (${pkg})`, cmd: cmdPkg }];
+            const items: MenuItem[] = [
+              { label: `Run package tests (${pkg})`, cmd: cmdPkg },
+              { label: `Debug package tests (${pkg})`, dbg: dbgTest(`Debug package tests (${pkg})`) },
+            ];
             if (allTests.length) items.push({ label: "Run file tests", cmd: cmdFile() });
             return items;
           }
-          const items =
+          const items: MenuItem[] =
             m.kind === "case"
               ? [
                   { label: `Run case "${m.sub}"`, cmd: cmdCase(m) },
+                  {
+                    label: `Debug case "${m.sub}"`,
+                    dbg: dbgTest(`Debug case "${m.sub}"`, `^${m.test}$/^${caseRx(m.sub ?? "")}$`),
+                  },
                   { label: `Run ${m.test}`, cmd: cmdTest(m.test) },
                 ]
-              : [{ label: `Run ${m.test}`, cmd: cmdTest(m.test) }];
+              : [
+                  { label: `Run ${m.test}`, cmd: cmdTest(m.test) },
+                  { label: `Debug ${m.test}`, dbg: dbgTest(`Debug ${m.test}`, `^${m.test}$`) },
+                ];
           if (allTests.length > 1) items.push({ label: "Run file tests", cmd: cmdFile() });
           items.push({ label: `Run package tests (${pkg})`, cmd: cmdPkg });
           return items;
@@ -320,6 +351,163 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           if (best?.kind === "pkg") runInTerminal(cmdPkg);
           else if (best) runInTerminal(best.kind === "case" ? cmdCase(best) : cmdTest(best.test));
           else if (allTests.length) runInTerminal(cmdFile());
+        });
+      }
+    }
+
+    // JetBrains-style run/debug icon on `func main()` lines.
+    if (language === "go" && path && root && !readOnly && !path.endsWith("_test.go")) {
+      const mmodel = editor.getModel();
+      if (mmodel) {
+        const rel = path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+        const dir = rel.includes("/") ? `./${rel.slice(0, rel.lastIndexOf("/"))}` : ".";
+        const pkgAbs = path.slice(0, path.lastIndexOf("/"));
+        const mainLines = new Set<number>();
+        let mainDecos: string[] = [];
+        const scanMain = () => {
+          mainLines.clear();
+          for (let i = 1; i <= mmodel.getLineCount(); i++) {
+            if (/^func main\s*\(/.test(mmodel.getLineContent(i))) mainLines.add(i);
+          }
+          mainDecos = editor.deltaDecorations(
+            mainDecos,
+            [...mainLines].map((line) => ({
+              range: new monaco.Range(line, 1, line, 1),
+              options: {
+                glyphMarginClassName: "test-glyph test-fn",
+                glyphMarginHoverMessage: { value: `Run / debug **${dir}**` },
+              },
+            })),
+          );
+        };
+        scanMain();
+        let mainTimer = 0;
+        mmodel.onDidChangeContent(() => {
+          window.clearTimeout(mainTimer);
+          mainTimer = window.setTimeout(scanMain, 400);
+        });
+        editor.onMouseDown((e) => {
+          if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
+          const line = e.target.position?.lineNumber;
+          if (!line || !mainLines.has(line)) return;
+          e.event.preventDefault();
+          const be = e.event.browserEvent;
+          setTestPick({
+            x: be.clientX,
+            y: be.clientY,
+            items: [
+              { label: `Run ${dir}`, cmd: `go run ${dir}` },
+              { label: `Debug ${dir}`, dbg: { root, name: `Debug ${dir}`, mode: "debug", program: pkgAbs } },
+            ],
+          });
+        });
+      }
+    }
+
+    // Breakpoints: click the line-number gutter (or empty glyph margin) to
+    // toggle; while paused, the current execution line is highlighted.
+    if (language === "go" && path && root && !readOnly) {
+      const bmodel = editor.getModel();
+      if (bmodel) {
+        let bpDecos: string[] = [];
+        const renderBps = () => {
+          const max = bmodel.getLineCount();
+          bpDecos = editor.deltaDecorations(
+            bpDecos,
+            [...breakpointLines(path)]
+              .filter((l) => l <= max)
+              .map((line) => ({
+                range: new monaco.Range(line, 1, line, 1),
+                options: {
+                  glyphMarginClassName: "bp-glyph",
+                  glyphMarginHoverMessage: { value: "Breakpoint — click to remove" },
+                },
+              })),
+          );
+        };
+        renderBps();
+        const unsubBp = subscribeBreakpoints((p) => {
+          if (p === path && !bmodel.isDisposed()) renderBps();
+        });
+
+        editor.onMouseDown((e) => {
+          const MT = monaco.editor.MouseTargetType;
+          if (e.target.type !== MT.GUTTER_GLYPH_MARGIN && e.target.type !== MT.GUTTER_LINE_NUMBERS) return;
+          if (e.target.type === MT.GUTTER_GLYPH_MARGIN) {
+            // Lines whose glyph slot is owned by a run/impl marker keep their
+            // click behaviour; breakpoints go on the line-number gutter there.
+            const cls = (e.target.element as HTMLElement | null)?.classList;
+            if (cls && (cls.contains("test-glyph") || cls.contains("impl-glyph"))) return;
+          }
+          const line = e.target.position?.lineNumber;
+          if (!line) return;
+          e.event.preventDefault();
+          toggleBreakpoint(path, line);
+        });
+        bind("debug.toggleBreakpoint", () => {
+          const line = editor.getPosition()?.lineNumber;
+          if (line) toggleBreakpoint(path, line);
+        });
+
+        registerDebugHover(monaco);
+
+        // JetBrains-style inline values: each local/argument is annotated at
+        // its last mention at-or-above the execution line.
+        const fmtVal = (v: string) => {
+          const flat = v.replace(/\s+/g, " ").trim();
+          return flat.length > 60 ? `${flat.slice(0, 60)}…` : flat;
+        };
+        const inlineValueDecos = (f: { line: number }, vars: { name: string; value: string }[]) => {
+          const byLine = new Map<number, string[]>();
+          const from = Math.max(1, f.line - 150);
+          for (const v of vars.slice(0, 80)) {
+            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(v.name)) continue;
+            const rx = new RegExp(`\\b${v.name}\\b`);
+            for (let ln = f.line; ln >= from; ln--) {
+              if (!rx.test(bmodel.getLineContent(ln))) continue;
+              const list = byLine.get(ln) ?? [];
+              list.push(`${v.name} = ${fmtVal(v.value)}`);
+              byLine.set(ln, list);
+              break;
+            }
+          }
+          return [...byLine.entries()].map(([ln, parts]) => {
+            const col = bmodel.getLineMaxColumn(ln);
+            return {
+              range: new monaco.Range(ln, col, ln, col),
+              options: {
+                after: { content: `   ${parts.join("   ")}`, inlineClassName: "debug-inline-val" },
+              },
+            };
+          });
+        };
+
+        let execDecos: string[] = [];
+        const renderExec = () => {
+          const s = getDebugSnapshot();
+          const f = s.currentFrame;
+          if (s.status === "paused" && f?.path === path && f.line > 0 && f.line <= bmodel.getLineCount()) {
+            execDecos = editor.deltaDecorations(execDecos, [
+              {
+                range: new monaco.Range(f.line, 1, f.line, 1),
+                options: {
+                  isWholeLine: true,
+                  className: "debug-exec-line",
+                  glyphMarginClassName: "debug-exec-glyph",
+                },
+              },
+              ...inlineValueDecos(f, s.frameVars),
+            ]);
+            editor.revealLineInCenterIfOutsideViewport(f.line);
+          } else if (execDecos.length) {
+            execDecos = editor.deltaDecorations(execDecos, []);
+          }
+        };
+        renderExec();
+        const unsubDbg = subscribeDebug(renderExec);
+        bmodel.onWillDispose(() => {
+          unsubBp();
+          unsubDbg();
         });
       }
     }
@@ -533,13 +721,14 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
             {testPick.items.map((it) => (
               <button
                 key={it.label}
-                title={it.cmd}
+                title={it.cmd ?? it.dbg?.name}
                 onClick={() => {
                   setTestPick(null);
-                  runInTerminal(it.cmd);
+                  if (it.cmd) runInTerminal(it.cmd);
+                  else if (it.dbg) startDebug(it.dbg).catch(() => {});
                 }}
               >
-                ▶ {it.label}
+                {it.dbg ? "🐞" : "▶"} {it.label}
               </button>
             ))}
           </div>
