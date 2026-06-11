@@ -168,6 +168,14 @@ impl Engine {
         Ok(changes.into_iter().filter(|c| !filter.ignored(&c.path)).collect())
     }
 
+    /// Every live working-tree path under the monitor's capture rules — the full
+    /// on-disk file list (not just changes), for the project tree view.
+    pub fn monitor_files(&self, monitor_id: i64) -> Result<Vec<String>> {
+        let s = self.get_settings()?;
+        let root = self.with_db(|db| monitor_root(db, monitor_id))?;
+        crate::ignore::list_paths(&root, &s.ignore_globs, s.respect_gitignore)
+    }
+
     /// Path→hash of the live working tree, under the monitor's capture rules.
     /// The "Current" side of the Local-History (point ↔ current) comparison.
     fn working_hashes(&self, root: &Path, s: &crate::db::Settings) -> Result<PathMap> {
