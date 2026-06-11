@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { buildFileTree, type TreeNode } from "../lib/filetree";
+import { setScopeDir } from "../lib/searchScope";
 import { FileIcon, FolderIcon } from "../components/Icons";
 
 interface Menu {
@@ -18,9 +19,22 @@ interface Props {
   onReveal?: (path: string) => void;
   onIgnoreFile?: (path: string) => void;
   onIgnoreFolder?: (prefix: string) => void;
+  onFindInFolder?: (prefix: string) => void;
+  onReplaceInFolder?: (prefix: string) => void;
 }
 
-export default function ProjectTree({ files, selected, errorFiles, onSelect, onOpen, onReveal, onIgnoreFile, onIgnoreFolder }: Props) {
+export default function ProjectTree({
+  files,
+  selected,
+  errorFiles,
+  onSelect,
+  onOpen,
+  onReveal,
+  onIgnoreFile,
+  onIgnoreFolder,
+  onFindInFolder,
+  onReplaceInFolder,
+}: Props) {
   const tree = useMemo(() => buildFileTree(files.map((path) => ({ path }))), [files]);
   // Folders that contain an error file (every ancestor dir of each error path).
   const errorDirs = useMemo(() => {
@@ -61,9 +75,13 @@ export default function ProjectTree({ files, selected, errorFiles, onSelect, onO
             key={"d:" + node.path}
             className={`trow dir${errorDirs.has(node.path) ? " err" : ""}`}
             style={pad}
-            onClick={() => toggle(node.path)}
+            onClick={() => {
+              toggle(node.path);
+              // Clicked folder becomes the find/replace scope (⌘⇧F / ⌘⇧R).
+              setScopeDir(node.path);
+            }}
             onContextMenu={(e) => {
-              if (!onReveal && !onIgnoreFolder) return;
+              if (!onReveal && !onIgnoreFolder && !onFindInFolder && !onReplaceInFolder) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "dir", path: node.path });
             }}
@@ -81,7 +99,10 @@ export default function ProjectTree({ files, selected, errorFiles, onSelect, onO
             key={"f:" + node.path}
             className={`trow file${selected === node.path ? " on" : ""}${errorFiles?.has(node.path) ? " err" : ""}`}
             style={pad}
-            onClick={() => onSelect(node.path)}
+            onClick={() => {
+              setScopeDir(null);
+              onSelect(node.path);
+            }}
             onContextMenu={(e) => {
               if (!onOpen && !onReveal && !onIgnoreFile) return;
               e.preventDefault();
@@ -113,14 +134,22 @@ export default function ProjectTree({ files, selected, errorFiles, onSelect, onO
               <button onClick={() => { onReveal(menu.path); setMenu(null); }}>Reveal in Finder</button>
             )}
             {menu.kind === "file" && onIgnoreFile && (
-              <button onClick={() => { onIgnoreFile(menu.path); setMenu(null); }}>Ignore this file</button>
+              <button onClick={() => { onIgnoreFile(menu.path); setMenu(null); }}>
+                Ignore history for this file
+              </button>
+            )}
+            {menu.kind === "dir" && onFindInFolder && (
+              <button onClick={() => { onFindInFolder(menu.path); setMenu(null); }}>Find in folder</button>
+            )}
+            {menu.kind === "dir" && onReplaceInFolder && (
+              <button onClick={() => { onReplaceInFolder(menu.path); setMenu(null); }}>Replace in folder</button>
             )}
             {menu.kind === "dir" && onReveal && (
               <button onClick={() => { onReveal(menu.path); setMenu(null); }}>Reveal in Finder</button>
             )}
             {menu.kind === "dir" && onIgnoreFolder && (
               <button onClick={() => { onIgnoreFolder(menu.path); setMenu(null); }}>
-                Ignore this folder (<code>{menu.path}/**</code>)
+                Ignore history for this path (<code>{menu.path}/**</code>)
               </button>
             )}
           </div>

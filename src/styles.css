@@ -1075,6 +1075,35 @@ button.vs-tag:hover {
   margin-top: var(--s4);
 }
 
+/* JetBrains-style implementation gutter markers */
+.impl-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+.impl-glyph.impl-down::before {
+  content: "↓";
+  color: var(--add);
+}
+.impl-glyph.impl-up::before {
+  content: "↑";
+  color: var(--ac);
+}
+.impl-glyph:hover::before {
+  filter: brightness(1.4);
+}
+
+/* ⌘-hover go-to-definition link inside Monaco */
+.goto-link-word {
+  text-decoration: underline;
+  cursor: pointer;
+  color: var(--ac) !important;
+}
+
 /* ---------- search palette (⇧⇧ quick open / ⌘⇧F find in files) ---------- */
 .palette-overlay {
   place-items: start center;
@@ -1145,6 +1174,59 @@ button.vs-tag:hover {
   color: var(--ac);
   background: var(--ac-glow);
   border-color: var(--ac-dim);
+}
+.palette-scope {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 4px var(--s3);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-3);
+  font-size: var(--fs-xs);
+  color: var(--tx-1);
+}
+.palette-scope code {
+  font-family: var(--mono);
+  color: var(--ac);
+}
+.palette-scope button {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--tx-2);
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+}
+.palette-scope button:hover {
+  color: var(--tx-0);
+  background: var(--bg-4);
+}
+.palette-replace {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-3);
+}
+.palette-replace input {
+  flex: 1;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  outline: none;
+  color: var(--tx-0);
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  padding: 5px 8px;
+}
+.palette-replace input:focus {
+  border-color: var(--ac-dim);
+}
+.palette-replace .tbtn {
+  flex-shrink: 0;
+}
+.palette-replaced {
+  color: var(--add);
 }
 .palette-list {
   max-height: 52vh;

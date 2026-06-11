@@ -23,6 +23,8 @@ interface Props {
   onModeChange?: (history: boolean) => void;
   /** File-open request from the search palette (n bumps on every accept). */
   openReq?: { monitorId: number; path: string; line?: number; col?: number; n: number } | null;
+  /** Tree context menu → open the search palette scoped to a folder. */
+  onSearchInFolder?: (prefix: string, replace: boolean) => void;
   toast: (msg: string, error?: boolean) => void;
 }
 
@@ -32,7 +34,15 @@ interface EditorTab {
   kind: TabKind;
 }
 
-export default function HistoryView({ monitorId, root, historyMode, onModeChange, openReq, toast }: Props) {
+export default function HistoryView({
+  monitorId,
+  root,
+  historyMode,
+  onModeChange,
+  openReq,
+  onSearchInFolder,
+  toast,
+}: Props) {
   const [snaps, setSnaps] = useState<SnapshotRow[]>([]);
   const [snap, setSnap] = useState<number | null>(null);
   const [summaries, setSummaries] = useState<Record<number, ChangeSummary>>({});
@@ -699,6 +709,8 @@ export default function HistoryView({ monitorId, root, historyMode, onModeChange
                   onReveal={(p) => api.revealPath(monitorId, p).catch((e) => toast(String(e), true))}
                   onIgnoreFile={(p) => ignorePath(p, false)}
                   onIgnoreFolder={(p) => ignorePath(p, true)}
+                  onFindInFolder={onSearchInFolder && ((p) => onSearchInFolder(p, false))}
+                  onReplaceInFolder={onSearchInFolder && ((p) => onSearchInFolder(p, true))}
                 />
               </div>
             )}

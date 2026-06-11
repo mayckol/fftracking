@@ -168,6 +168,8 @@ async function ensureConn(root: string): Promise<Conn> {
           },
           signatureHelp: {},
           definition: {},
+          implementation: {},
+          documentSymbol: { hierarchicalDocumentSymbolSupport: true },
           formatting: {},
           publishDiagnostics: {},
         },
@@ -316,6 +318,22 @@ function registerProviders(monaco: typeof Monaco) {
     },
   });
 
+  monaco.languages.registerImplementationProvider("go", {
+    async provideImplementation(model, position) {
+      const d = docForModel(model);
+      if (!d) return null;
+      const r = await request(d.conn, "textDocument/implementation", {
+        textDocument: { uri: d.uri },
+        position: pos(position),
+      });
+      const locs: Json[] = Array.isArray(r) ? r : r ? [r] : [];
+      return locs.map((l) => ({
+        uri: monaco.Uri.parse(l.uri ?? l.targetUri),
+        range: range(l.range ?? l.targetSelectionRange ?? l.targetRange),
+      }));
+    },
+  });
+
   monaco.languages.registerSignatureHelpProvider("go", {
     signatureHelpTriggerCharacters: ["(", ","],
     async provideSignatureHelp(model, position) {
@@ -352,6 +370,119 @@ function registerProviders(monaco: typeof Monaco) {
       return (edits ?? []).map((e) => ({ range: range(e.range), text: e.newText }));
     },
   });
+}
+
+export interface ImplLocation {
+  /** Absolute file path. */
+  path: string;
+  line: number;
+  col: number;
+}
+
+/** Implementation / specification targets for the symbol at (line, col),
+ *  resolved straight from gopls (1-based Monaco coordinates in and out). */
+export async function implementationLocations(
+  model: Monaco.editor.ITextModel,
+  line: number,
+  col: number,
+): Promise<ImplLocation[]> {
+  const d = docForModel(model);
+  if (!d) return [];
+  const r = await request(d.conn, "textDocument/implementation", {
+    textDocument: { uri: d.uri },
+    position: { line: line - 1, character: col - 1 },
+  });
+  const locs: Json[] = Array.isArray(r) ? r : r ? [r] : [];
+  return locs.map((l) => {
+    const rg = l.range ?? l.targetSelectionRange ?? l.targetRange;
+    return {
+      path: uriToPath(l.uri ?? l.targetUri),
+      line: rg.start.line + 1,
+      col: rg.start.character + 1,
+    };
+  });
+}
+
+/** Routes a cross-file jump through the host's open-file handler (the same
+ *  path ⌘-click definition uses). False when no handler is mounted. */
+export function openLocation(path: string, line: number, col: number): boolean {
+  if (!navHandler) return false;
+  navHandler(path, line, col);
+  return true;
+}
+
+/** A gutter marker for the implementations relationship (JetBrains-style).
+ *  "impls": interface / interface method that concrete types implement (↓);
+ *  "spec": concrete type / method that satisfies an interface (↑). */
+export interface ImplAnnotation {
+  line: number;
+  col: number;
+  kind: "impls" | "spec";
+  count: number;
+}
+
+// LSP SymbolKind values we annotate.
+const SK_CLASS = 5;
+const SK_METHOD = 6;
+const SK_INTERFACE = 11;
+const SK_STRUCT = 23;
+// Don't hammer gopls on generated files with hundreds of symbols.
+const MAX_IMPL_PROBES = 150;
+
+/** Scans `model`'s document symbols and probes gopls for implementation links,
+ *  returning one annotation per symbol that has any. */
+export async function implementationAnnotations(
+  model: Monaco.editor.ITextModel,
+): Promise<ImplAnnotation[]> {
+  const d = docForModel(model);
+  if (!d) return [];
+  const symbols: Json[] =
+    (await request(d.conn, "textDocument/documentSymbol", {
+      textDocument: { uri: d.uri },
+    })) ?? [];
+
+  const targets: { sym: Json; kind: "impls" | "spec" }[] = [];
+  const walk = (list: Json[], inInterface: boolean) => {
+    for (const s of list) {
+      if (targets.length >= MAX_IMPL_PROBES) return;
+      if (s.kind === SK_INTERFACE) {
+        targets.push({ sym: s, kind: "impls" });
+        walk(s.children ?? [], true);
+      } else if (s.kind === SK_METHOD) {
+        targets.push({ sym: s, kind: inInterface ? "impls" : "spec" });
+      } else if (s.kind === SK_STRUCT || s.kind === SK_CLASS) {
+        targets.push({ sym: s, kind: "spec" });
+        walk(s.children ?? [], false);
+      } else {
+        walk(s.children ?? [], inInterface);
+      }
+    }
+  };
+  walk(symbols, false);
+
+  const out = await Promise.all(
+    targets.map(async ({ sym, kind }) => {
+      const sel = sym.selectionRange ?? sym.range;
+      if (!sel) return null;
+      try {
+        const r = await request(d.conn, "textDocument/implementation", {
+          textDocument: { uri: d.uri },
+          position: { line: sel.start.line, character: sel.start.character },
+        });
+        const locs: Json[] = Array.isArray(r) ? r : r ? [r] : [];
+        if (locs.length === 0) return null;
+        return {
+          line: sel.start.line + 1,
+          col: sel.start.character + 1,
+          kind,
+          count: locs.length,
+        } satisfies ImplAnnotation;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return out.filter((a): a is ImplAnnotation => a !== null);
 }
 
 interface AttachArgs {

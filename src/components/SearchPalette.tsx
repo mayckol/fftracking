@@ -10,6 +10,12 @@ export type PaletteMode = "files" | "text";
 interface Props {
   monitorId: number;
   mode: PaletteMode;
+  /** Seeds the query when the palette opens (editor selection at invoke time). */
+  initialQuery?: string;
+  /** Root-relative folder to scope text search/replace to. */
+  initialScope?: string | null;
+  /** Bumps when ⌘⇧R fires; >0 opens the replace row. */
+  replaceReq?: number;
   onModeChange: (mode: PaletteMode) => void;
   onClose: () => void;
   onOpenFile: (path: string, line?: number, col?: number) => void;
@@ -48,8 +54,20 @@ function highlightAt(text: string, positions: number[]) {
   return <>{out}</>;
 }
 
-export default function SearchPalette({ monitorId, mode, onModeChange, onClose, onOpenFile, onRevealFolder }: Props) {
-  const [query, setQuery] = useState("");
+export default function SearchPalette({
+  monitorId,
+  mode,
+  initialQuery = "",
+  initialScope = null,
+  replaceReq = 0,
+  onModeChange,
+  onClose,
+  onOpenFile,
+  onRevealFolder,
+}: Props) {
+  // Seed once on mount; the input is focused+selected, so typing overwrites it.
+  const [query, setQuery] = useState(initialQuery);
+  const [scope, setScope] = useState<string | null>(initialScope);
   const [sel, setSel] = useState(0);
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
   const [matches, setMatches] = useState<SearchMatch[]>([]);
@@ -59,14 +77,40 @@ export default function SearchPalette({ monitorId, mode, onModeChange, onClose, 
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
   const [regex, setRegex] = useState(false);
+  const [replaceOn, setReplaceOn] = useState(replaceReq > 0);
+  const [replacement, setReplacement] = useState("");
+  // Two-step confirm for replace-all (window.confirm is dead in the webview).
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [replaceMsg, setReplaceMsg] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchSeq = useRef(0);
 
   useEffect(() => {
+    if (replaceReq > 0) setReplaceOn(true);
+  }, [replaceReq]);
+
+  const options = { query, case_sensitive: caseSensitive, regex, whole_word: wholeWord, dir: scope };
+
+  useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
   }, [mode]);
+
+  // Window-level so Esc closes no matter where focus ended up (clicking a
+  // result row blurs the input, so the palette's own keydown never fires).
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", onEsc, true);
+    return () => window.removeEventListener("keydown", onEsc, true);
+  }, [onClose]);
 
   // File list for quick open: one walk when the palette opens, then every
   // keystroke matches in memory. Folders are derived from the file paths.
@@ -149,6 +193,7 @@ export default function SearchPalette({ monitorId, mode, onModeChange, onClose, 
           case_sensitive: caseSensitive,
           regex,
           whole_word: wholeWord,
+          dir: scope,
         })
         .then((r) => {
           if (seq !== searchSeq.current) return;
@@ -166,7 +211,61 @@ export default function SearchPalette({ monitorId, mode, onModeChange, onClose, 
         });
     }, DEBOUNCE_MS);
     return () => window.clearTimeout(t);
-  }, [mode, query, caseSensitive, regex, wholeWord, monitorId]);
+  }, [mode, query, caseSensitive, regex, wholeWord, scope, monitorId, refresh]);
+
+  // A different query/options invalidates both the armed confirm and the last
+  // replace report.
+  useEffect(() => {
+    setArmed(false);
+    setReplaceMsg(null);
+  }, [query, caseSensitive, regex, wholeWord, scope, mode]);
+
+  async function replaceSelected() {
+    const m = matches[sel];
+    if (!m || busy || !query) return;
+    setBusy(true);
+    try {
+      const n = await api.replaceMatch(monitorId, {
+        path: m.path,
+        line: m.line,
+        options,
+        replacement,
+      });
+      setReplaceMsg(
+        n > 0
+          ? `Replaced ${n} occurrence${n === 1 ? "" : "s"} in ${m.path}:${m.line}`
+          : "Line changed on disk — nothing replaced, results refreshed",
+      );
+    } catch (e) {
+      setReplaceMsg(String(e));
+    } finally {
+      setBusy(false);
+      setRefresh((r) => r + 1);
+    }
+  }
+
+  async function replaceAllClick() {
+    if (busy || !query || matches.length === 0) return;
+    if (!armed) {
+      setArmed(true);
+      return;
+    }
+    setArmed(false);
+    setBusy(true);
+    try {
+      const r = await api.replaceAll(monitorId, { options, replacement });
+      setReplaceMsg(
+        `Replaced ${r.replacements} match${r.replacements === 1 ? "" : "es"} in ${r.files} file${
+          r.files === 1 ? "" : "s"
+        } · breaking point captured first`,
+      );
+    } catch (e) {
+      setReplaceMsg(String(e));
+    } finally {
+      setBusy(false);
+      setRefresh((r) => r + 1);
+    }
+  }
 
   const rowCount = mode === "files" ? fileRows.length : matches.length;
   useEffect(() => setSel(0), [query, mode]);
@@ -193,10 +292,7 @@ export default function SearchPalette({ monitorId, mode, onModeChange, onClose, 
   };
 
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      onClose();
-    } else if (e.key === "ArrowDown") {
+    if (e.key === "ArrowDown") {
       e.preventDefault();
       setSel((s) => Math.min(rowCount - 1, s + 1));
     } else if (e.key === "ArrowUp") {
@@ -258,9 +354,61 @@ export default function SearchPalette({ monitorId, mode, onModeChange, onClose, 
               <button className={regex ? "on" : ""} title="Regular expression" onClick={() => setRegex((v) => !v)}>
                 .*
               </button>
+              <button
+                className={replaceOn ? "on" : ""}
+                title="Toggle replace"
+                onClick={() => setReplaceOn((v) => !v)}
+              >
+                ⇄
+              </button>
             </div>
           )}
         </div>
+
+        {mode === "text" && scope && (
+          <div className="palette-scope">
+            <span>
+              in <code>{scope}/</code>
+            </span>
+            <button title="Search the whole workspace instead" onClick={() => setScope(null)}>
+              × clear
+            </button>
+          </div>
+        )}
+
+        {mode === "text" && replaceOn && (
+          <div className="palette-replace">
+            <input
+              value={replacement}
+              spellCheck={false}
+              placeholder={regex ? "Replace with… ($1 for groups)" : "Replace with…"}
+              onChange={(e) => setReplacement(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  replaceSelected();
+                }
+              }}
+            />
+            <button
+              className="tbtn"
+              disabled={busy || !matches[sel]}
+              title="Replace the matches on the selected line (↵ in this field)"
+              onClick={replaceSelected}
+            >
+              Replace
+            </button>
+            <button
+              className={`tbtn${armed ? " danger" : ""}`}
+              disabled={busy || matches.length === 0}
+              title="Replace every match in the workspace (a breaking point is captured first)"
+              onClick={replaceAllClick}
+            >
+              {armed ? `Confirm: replace ${matches.length}${truncated ? "+" : ""}` : "Replace all"}
+            </button>
+          </div>
+        )}
 
         <div className="palette-list" ref={listRef}>
           {mode === "files" ? (
@@ -322,13 +470,18 @@ export default function SearchPalette({ monitorId, mode, onModeChange, onClose, 
         </div>
 
         <div className="palette-foot">
-          {mode === "text" && matches.length > 0 && (
-            <span>
-              {matches.length}
-              {truncated ? "+" : ""} match{matches.length === 1 ? "" : "es"} in {grouped.length} file
-              {grouped.length === 1 ? "" : "s"}
-              {truncated && " · results capped — refine the query"}
-            </span>
+          {mode === "text" && replaceMsg ? (
+            <span className="palette-replaced">{replaceMsg}</span>
+          ) : (
+            mode === "text" &&
+            matches.length > 0 && (
+              <span>
+                {matches.length}
+                {truncated ? "+" : ""} match{matches.length === 1 ? "" : "es"} in {grouped.length} file
+                {grouped.length === 1 ? "" : "s"}
+                {truncated && " · results capped — refine the query"}
+              </span>
+            )
           )}
           <span className="palette-keys">↑↓ navigate · ↵ open · esc close</span>
         </div>
