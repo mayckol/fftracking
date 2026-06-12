@@ -3,7 +3,7 @@ import { buildFileTree, type TreeNode } from "../lib/filetree";
 import { setScopeDir } from "../lib/searchScope";
 import { runInTerminal } from "../lib/runner";
 import { dirname } from "../lib/util";
-import { FileIcon, FolderIcon, GoIcon } from "../components/Icons";
+import { FileTypeIcon, FolderTypeIcon } from "../components/FileTypeIcon";
 
 interface Menu {
   x: number;
@@ -194,7 +194,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
             title={node.path}
           >
             <span className="chev">{open ? "▾" : "▸"}</span>
-            <FolderIcon open={open} />
+            <FolderTypeIcon name={node.name} open={open} />
             <span className="dname">{node.name}</span>
           </div>,
         );
@@ -220,7 +220,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
             title={node.path}
           >
             <span className="chev" />
-            {node.path.endsWith(".go") ? <GoIcon /> : <FileIcon />}
+            <FileTypeIcon name={node.name} />
             <span className="tname">{node.name}</span>
           </div>,
         );

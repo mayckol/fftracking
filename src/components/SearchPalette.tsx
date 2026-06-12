@@ -3,7 +3,7 @@ import { api } from "../lib/ipc";
 import { fuzzyMatch, getRecents } from "../lib/fuzzy";
 import type { SearchMatch } from "../lib/types";
 import { basename, dirname } from "../lib/util";
-import { FileIcon, FolderIcon } from "./Icons";
+import { FileTypeIcon, FolderTypeIcon } from "./FileTypeIcon";
 
 export type PaletteMode = "files" | "text";
 
@@ -425,7 +425,7 @@ export default function SearchPalette({
                   onMouseMove={() => setSel(i)}
                   onClick={() => accept(i)}
                 >
-                  {r.isDir ? <FolderIcon /> : <FileIcon />}
+                  {r.isDir ? <FolderTypeIcon name={r.path} /> : <FileTypeIcon name={r.path} />}
                   <span className="palette-name">{highlightAt(r.path, r.positions)}</span>
                   {r.isDir && <span className="palette-hint">reveal</span>}
                 </div>
@@ -441,7 +441,7 @@ export default function SearchPalette({
             grouped.map((g) => (
               <div key={g.path} className="palette-group">
                 <div className="palette-file">
-                  <FileIcon />
+                  <FileTypeIcon name={g.path} />
                   <span className="palette-name">{g.path}</span>
                   <span className="palette-count">{g.items.length}</span>
                 </div>

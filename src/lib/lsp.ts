@@ -82,6 +82,9 @@ function notify(c: Conn, method: string, params: Json) {
 const GOPLS_SETTINGS: Json = {
   completeUnimported: true,
   usePlaceholders: true,
+  // Off by default in gopls; needed for rich highlighting (functions, types,
+  // namespaces) beyond Monaco's lexical Go tokenizer.
+  semanticTokens: true,
 };
 
 /** Applies an LSP WorkspaceEdit to whatever target models are open. All edits
@@ -232,6 +235,23 @@ async function ensureConn(root: string): Promise<Conn> {
           documentSymbol: { hierarchicalDocumentSymbolSupport: true },
           formatting: {},
           publishDiagnostics: {},
+          semanticTokens: {
+            requests: { full: true },
+            // Token names gopls may answer with; the actual mapping comes from
+            // the legend in the server's initialize result.
+            tokenTypes: [
+              "namespace", "type", "class", "enum", "interface", "struct",
+              "typeParameter", "parameter", "variable", "property", "enumMember",
+              "event", "function", "method", "macro", "keyword", "modifier",
+              "comment", "string", "number", "regexp", "operator", "decorator",
+              "label",
+            ],
+            tokenModifiers: [
+              "declaration", "definition", "readonly", "static", "deprecated",
+              "abstract", "async", "modification", "documentation", "defaultLibrary",
+            ],
+            formats: ["relative"],
+          },
         },
         workspace: {
           configuration: true,
@@ -244,6 +264,8 @@ async function ensureConn(root: string): Promise<Conn> {
     });
     const sync = init?.capabilities?.textDocumentSync;
     c.syncKind = typeof sync === "number" ? sync : (sync?.change ?? 1);
+    const legend = init?.capabilities?.semanticTokensProvider?.legend;
+    if (legend) registerSemanticTokens(legend);
     notify(c, "initialized", {});
     resolveReady();
   } catch (e) {
@@ -252,6 +274,27 @@ async function ensureConn(root: string): Promise<Conn> {
     throw e;
   }
   return c;
+}
+
+// Registered lazily: Monaco needs the token legend, and that only arrives in
+// gopls's initialize result. One registration covers every workspace.
+let semanticRegistered = false;
+function registerSemanticTokens(legend: { tokenTypes: string[]; tokenModifiers: string[] }) {
+  if (semanticRegistered || !M) return;
+  semanticRegistered = true;
+  M.languages.registerDocumentSemanticTokensProvider("go", {
+    getLegend: () => legend,
+    async provideDocumentSemanticTokens(model) {
+      const d = docForModel(model);
+      if (!d) return null;
+      const r = await request(d.conn, "textDocument/semanticTokens/full", {
+        textDocument: { uri: d.uri },
+      });
+      if (!r?.data) return null;
+      return { data: new Uint32Array(r.data), resultId: r.resultId };
+    },
+    releaseDocumentSemanticTokens() {},
+  });
 }
 
 function pos(p: Monaco.IPosition) {

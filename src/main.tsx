@@ -14,12 +14,27 @@ import "@fontsource/jetbrains-mono/700.css";
 
 import App from "./App";
 import "./styles.css";
+import { applyTheme, getTheme } from "./lib/themes";
+import { applyUIVars, getPrefs, subscribePrefs } from "./lib/uiPrefs";
+import { defineAllThemes } from "./components/monacoTheme";
+
+// Theme CSS variables must land before first paint; Monaco picks its theme up
+// via the `theme` prop on the editors.
+applyTheme(getTheme(getPrefs().theme));
+applyUIVars(getPrefs());
+subscribePrefs(() => {
+  applyTheme(getTheme(getPrefs().theme));
+  applyUIVars(getPrefs());
+});
 
 // Bundle Monaco locally (no CDN) so the app works fully offline.
 (self as unknown as { MonacoEnvironment: unknown }).MonacoEnvironment = {
   getWorker: () => new editorWorker(),
 };
 loader.config({ monaco });
+// Define editor themes at startup, not just in editor beforeMount — already
+// mounted editors otherwise keep stale theme data across HMR/theme edits.
+defineAllThemes(monaco);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/ipc";
 import type { Settings } from "../lib/types";
 import { FONT_CHOICES, type GoImportStyle, type TabOverflow, setPref, useUIPrefs } from "../lib/uiPrefs";
+import { THEMES } from "../lib/themes";
+import { ICON_PACKS } from "../lib/iconPacks";
 
 interface Props {
   toast: (msg: string, error?: boolean) => void;
@@ -180,6 +182,71 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
         </div>
 
         <div className="section-title" id="set-interface">Interface</div>
+
+        <div className="field">
+          <label>
+            Theme
+            <span className="hint">Colors for the whole app: panels, chrome, editor and diff.</span>
+          </label>
+          <select value={prefs.theme} onChange={(e) => setPref("theme", e.target.value)} style={{ width: 200 }}>
+            {THEMES.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="field">
+          <label>
+            File icons
+            <span className="hint">Icon set for the project tree, tabs and search results.</span>
+          </label>
+          <select value={prefs.iconPack} onChange={(e) => setPref("iconPack", e.target.value)} style={{ width: 200 }}>
+            {ICON_PACKS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="field">
+          <label>
+            Folder &amp; file font
+            <span className="hint">Font family for folder and file names in the project tree.</span>
+          </label>
+          <select
+            value={prefs.treeFont}
+            onChange={(e) => setPref("treeFont", e.target.value)}
+            style={{ width: 200, fontFamily: prefs.treeFont }}
+          >
+            <option value="Archivo" style={{ fontFamily: "Archivo" }}>
+              Archivo (UI)
+            </option>
+            {FONT_CHOICES.map((f) => (
+              <option key={f} value={f} style={{ fontFamily: `${f}, monospace` }}>
+                {f}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="field">
+          <label>
+            Folder &amp; file size
+            <span className="hint">Font size of project-tree names, in pixels.</span>
+          </label>
+          <input
+            type="number"
+            min={9}
+            max={22}
+            step={0.5}
+            value={prefs.treeFontSize}
+            onChange={(e) => setPref("treeFontSize", Math.max(9, Math.min(22, +e.target.value || 11.5)))}
+            style={{ width: 90 }}
+          />
+        </div>
 
         <div className="field">
           <label>

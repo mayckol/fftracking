@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { DiffEditor as MonacoDiff, type Monaco } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import type { HunkInfo } from "../lib/types";
-import { defineTheme, THEME } from "./monacoTheme";
+import { defineAllThemes, monacoThemeId } from "./monacoTheme";
 import { registerEditor } from "../lib/selection";
 import { editorPrefOptions, useUIPrefs } from "../lib/uiPrefs";
 
@@ -197,11 +197,11 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
     <MonacoDiff
       key={`${inline ? "inline" : "split"}-${editable ? "rw" : "ro"}`}
       className="editor-wrap"
-      theme={THEME}
+      theme={monacoThemeId(prefs.theme)}
       language={language}
       original={original}
       modified={modified}
-      beforeMount={defineTheme}
+      beforeMount={defineAllThemes}
       onMount={handleMount}
       options={{
         readOnly: !editable,

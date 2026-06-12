@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { FileChange } from "../lib/types";
 import { buildFileTree, type TreeNode } from "../lib/filetree";
-import { FolderIcon } from "../components/Icons";
+import { FolderTypeIcon } from "../components/FileTypeIcon";
 
 const GLYPH = { added: "A", modified: "M", deleted: "D" } as const;
 
@@ -76,7 +76,7 @@ export default function ChangedTree({
             title={node.path}
           >
             <span className="chev">{open ? "▾" : "▸"}</span>
-            <FolderIcon open={open} />
+            <FolderTypeIcon name={node.name} open={open} />
             <span className="dname">{node.name}</span>
           </div>,
         );

@@ -230,7 +230,7 @@ export default function App() {
           <small>v0.5.8</small>
         </div>
         <nav className="tabs">
-          {(["git", "settings"] as Tab[]).map((t) => (
+          {(["files", "git", "settings"] as Tab[]).map((t) => (
             <button key={t} className={`tab${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
               {t}
             </button>
@@ -313,7 +313,6 @@ export default function App() {
               <div className="empty">
                 <img className="hero-logo" src="/logo.png" alt="fftracking" />
                 <h3>Track a folder to begin</h3>
-                <p>Add a folder, or just open a project in VSCode or Zed — fftracking picks it up automatically.</p>
               </div>
             </div>
           )}
@@ -371,6 +370,10 @@ export default function App() {
             setSettingsPalette(false);
             if (id === "keymap") {
               setShortcutsOpen(true);
+              return;
+            }
+            if (id === "reload") {
+              window.location.reload();
               return;
             }
             // "sec:<name>" → open the Settings tab and scroll to that section.

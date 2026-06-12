@@ -2,6 +2,7 @@
 // broadcast to subscribers so open views update live.
 
 import { useEffect, useReducer } from "react";
+import { getTheme } from "./themes";
 
 export type TabOverflow = "fifo" | "block";
 
@@ -20,6 +21,11 @@ export interface UIPrefs {
   fontFamily: string;
   fontSize: number;
   indentGuides: boolean;
+  theme: string;
+  iconPack: string;
+  // Font + size for folder/file names in the project tree.
+  treeFont: string;
+  treeFontSize: number;
 }
 
 const DEFAULTS: UIPrefs = {
@@ -32,7 +38,17 @@ const DEFAULTS: UIPrefs = {
   fontFamily: "JetBrains Mono",
   fontSize: 12.5,
   indentGuides: true,
+  theme: "tokyo-night",
+  iconPack: "material",
+  treeFont: "JetBrains Mono",
+  treeFontSize: 11.5,
 };
+
+/** Pushes prefs that drive CSS (not Monaco) onto the document root. */
+export function applyUIVars(p: UIPrefs) {
+  document.documentElement.style.setProperty("--tree-font", `${p.treeFont}, ui-monospace, monospace`);
+  document.documentElement.style.setProperty("--tree-font-size", `${p.treeFontSize}px`);
+}
 
 export const FONT_CHOICES = [
   "JetBrains Mono",
@@ -48,14 +64,15 @@ export const FONT_CHOICES = [
 
 // Shared Monaco options derived from prefs: font + indentation guides + rulers.
 export function editorPrefOptions(p: UIPrefs) {
+  const themeVars = getTheme(p.theme).cssVars;
   return {
     fontFamily: `${p.fontFamily}, monospace`,
     fontSize: p.fontSize,
     guides: { indentation: p.indentGuides, highlightActiveIndentation: p.indentGuides },
     // Soft column guides at the conventional 80/120 line-length limits.
     rulers: [
-      { column: 80, color: "#1c2430" },
-      { column: 120, color: "#283344" },
+      { column: 80, color: themeVars["--ruler-80"] },
+      { column: 120, color: themeVars["--ruler-120"] },
     ],
   };
 }
@@ -81,6 +98,13 @@ export function setPref<K extends keyof UIPrefs>(key: K, value: UIPrefs[K]) {
   cur = { ...cur, [key]: value };
   localStorage.setItem(KEY, JSON.stringify(cur));
   subs.forEach((fn) => fn());
+}
+
+export function subscribePrefs(fn: () => void): () => void {
+  subs.add(fn);
+  return () => {
+    subs.delete(fn);
+  };
 }
 
 export function useUIPrefs(): UIPrefs {
