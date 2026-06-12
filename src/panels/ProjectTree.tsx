@@ -16,10 +16,14 @@ interface Props {
   files: string[];
   selected: string | null;
   errorFiles?: Set<string>;
+  /** Files differing from the baseline (git HEAD / latest breaking point) —
+   *  tinted green; an LSP error on the same file wins. */
+  changedFiles?: Set<string>;
   rootPath?: string | null;
   onSelect: (path: string) => void;
   onOpen?: (path: string) => void;
   onReveal?: (path: string) => void;
+  onShowHistory?: (path: string, isDir: boolean) => void;
   onCopyPath?: (text: string, label: string) => void;
   onIgnoreFile?: (path: string) => void;
   onIgnoreFolder?: (prefix: string) => void;
@@ -29,16 +33,19 @@ interface Props {
 
 export interface ProjectTreeHandle {
   focusInTree: () => void;
+  revealDir: (path: string) => void;
 }
 
 const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
   files,
   selected,
   errorFiles,
+  changedFiles,
   rootPath,
   onSelect,
   onOpen,
   onReveal,
+  onShowHistory,
   onCopyPath,
   onIgnoreFile,
   onIgnoreFolder,
@@ -46,14 +53,17 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
   onReplaceInFolder,
 }: Props, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const pendingFocusRef = useRef(false);
+  const pendingScrollRef = useRef<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [hlDir, setHlDir] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
+
+  const tree = useMemo(() => buildFileTree(files.map((path) => ({ path }))), [files]);
 
   useImperativeHandle(ref, () => ({
     focusInTree: () => {
       if (selected) {
-        pendingFocusRef.current = true;
+        pendingScrollRef.current = selected;
         const parts = selected.split("/");
         setExpanded((prev) => {
           const next = new Set(prev);
@@ -63,20 +73,52 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
           return next;
         });
       }
-    }
-  }), [selected]);
+    },
+    revealDir: (path: string) => {
+      // Compact folders: the row for `path` may have merged into a deeper
+      // single-child chain — fall back to the first row inside it.
+      const findRow = (nodes: TreeNode[]): string | null => {
+        for (const n of nodes) {
+          if (n.kind !== "dir") continue;
+          if (n.path === path || n.path.startsWith(`${path}/`)) return n.path;
+          const hit = findRow(n.children);
+          if (hit) return hit;
+        }
+        return null;
+      };
+      const row = findRow(tree);
+      if (!row) return;
+      const collectNested = (nodes: TreeNode[], into: Set<string>, under: boolean) => {
+        for (const n of nodes) {
+          if (n.kind !== "dir") continue;
+          const inside = under || n.path === row;
+          if (inside) into.add(n.path);
+          collectNested(n.children, into, inside);
+        }
+      };
+      setHlDir(row);
+      pendingScrollRef.current = row;
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        const parts = row.split("/");
+        for (let i = 1; i <= parts.length; i++) {
+          next.add(parts.slice(0, i).join("/"));
+        }
+        collectNested(tree, next, false);
+        return next;
+      });
+    },
+  }), [selected, tree]);
 
   useEffect(() => {
-    if (pendingFocusRef.current && selected) {
-      pendingFocusRef.current = false;
-      const elem = containerRef.current?.querySelector(`[data-path="${selected}"]`) as HTMLElement | null;
-      if (elem) {
-        elem.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      }
+    const target = pendingScrollRef.current;
+    if (!target) return;
+    pendingScrollRef.current = null;
+    const elem = containerRef.current?.querySelector(`[data-path="${target}"]`) as HTMLElement | null;
+    if (elem) {
+      elem.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
-  }, [expanded, selected]);
-
-  const tree = useMemo(() => buildFileTree(files.map((path) => ({ path }))), [files]);
+  }, [expanded]);
   // Folders that contain an error file (every ancestor dir of each error path).
   const errorDirs = useMemo(() => {
     const dirs = new Set<string>();
@@ -86,6 +128,14 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
     }
     return dirs;
   }, [errorFiles]);
+  const changedDirs = useMemo(() => {
+    const dirs = new Set<string>();
+    for (const f of changedFiles ?? []) {
+      const parts = f.split("/");
+      for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join("/"));
+    }
+    return dirs;
+  }, [changedFiles]);
 
   if (files.length === 0) {
     return (
@@ -123,18 +173,21 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
       const pad = { paddingLeft: `${8 + depth * 14}px` };
       if (node.kind === "dir") {
         const open = expanded.has(node.path);
+        const dErr = errorDirs.has(node.path);
         rows.push(
           <div
             key={"d:" + node.path}
-            className={`trow dir${errorDirs.has(node.path) ? " err" : ""}`}
+            data-path={node.path}
+            className={`trow dir${hlDir === node.path ? " on" : ""}${dErr ? " err" : changedDirs.has(node.path) ? " chg" : ""}`}
             style={pad}
             onClick={() => {
+              setHlDir(null);
               toggle(node.path);
               // Clicked folder becomes the find/replace scope (⌘⇧F / ⌘⇧R).
               setScopeDir(node.path);
             }}
             onContextMenu={(e) => {
-              if (!onReveal && !onIgnoreFolder && !onFindInFolder && !onReplaceInFolder && !onCopyPath) return;
+              if (!onReveal && !onIgnoreFolder && !onFindInFolder && !onReplaceInFolder && !onCopyPath && !onShowHistory) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "dir", path: node.path });
             }}
@@ -147,18 +200,20 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
         );
         if (open) walk(node.children, depth + 1);
       } else {
+        const fErr = errorFiles?.has(node.path);
         rows.push(
           <div
             key={"f:" + node.path}
             data-path={node.path}
-            className={`trow file${selected === node.path ? " on" : ""}${errorFiles?.has(node.path) ? " err" : ""}`}
+            className={`trow file${selected === node.path ? " on" : ""}${fErr ? " err" : changedFiles?.has(node.path) ? " chg" : ""}`}
             style={pad}
             onClick={() => {
+              setHlDir(null);
               setScopeDir(null);
               onSelect(node.path);
             }}
             onContextMenu={(e) => {
-              if (!onOpen && !onReveal && !onIgnoreFile && !onCopyPath) return;
+              if (!onOpen && !onReveal && !onIgnoreFile && !onCopyPath && !onShowHistory) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "file", path: node.path });
             }}
@@ -183,6 +238,9 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
           <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
             {menu.kind === "file" && onOpen && (
               <button onClick={() => { onOpen(menu.path); setMenu(null); }}>Open file</button>
+            )}
+            {menu.kind === "file" && onShowHistory && (
+              <button onClick={() => { onShowHistory(menu.path, false); setMenu(null); }}>Show history for this file</button>
             )}
             {menu.kind === "file" && onReveal && (
               <button onClick={() => { onReveal(menu.path); setMenu(null); }}>Reveal in Finder</button>
@@ -213,6 +271,9 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
               >
                 ▶ Run go test ./{menu.path}/...
               </button>
+            )}
+            {menu.kind === "dir" && onShowHistory && (
+              <button onClick={() => { onShowHistory(menu.path, true); setMenu(null); }}>Show history for this folder</button>
             )}
             {menu.kind === "dir" && onFindInFolder && (
               <button onClick={() => { onFindInFolder(menu.path); setMenu(null); }}>Find in folder</button>

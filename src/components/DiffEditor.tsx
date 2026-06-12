@@ -170,6 +170,9 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
     applyDecorations();
 
     const me = diff.getModifiedEditor();
+    me.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyR, () =>
+      me.getAction("editor.action.startFindReplaceAction")?.run(),
+    );
     me.onMouseDown((e) => {
       if (!editable) return;
       if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && e.target.position) {

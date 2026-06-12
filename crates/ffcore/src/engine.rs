@@ -278,6 +278,52 @@ impl Engine {
         Ok(out)
     }
 
+    /// Like `snapshot_change_summaries`, but scoped to a single file or folder:
+    /// counts only changes under `prefix` and drops points that didn't touch it.
+    /// Backs the "history for this file/folder only" view.
+    pub fn snapshot_change_summaries_under(
+        &self,
+        monitor_id: i64,
+        prefix: &str,
+    ) -> Result<Vec<ChangeSummary>> {
+        let ids: Vec<i64> = self.with_db(|db| {
+            let mut stmt = db
+                .conn
+                .prepare("SELECT id FROM snapshots WHERE monitor_id = ?1 ORDER BY ts ASC, id ASC")?;
+            let rows = stmt.query_map([monitor_id], |r| r.get(0))?;
+            Ok(rows.collect::<rusqlite::Result<Vec<i64>>>()?)
+        })?;
+
+        let maps: Vec<PathMap> =
+            ids.iter().map(|id| self.manifest_map(*id)).collect::<Result<_>>()?;
+
+        let s = self.get_settings()?;
+        let root = self.with_db(|db| monitor_root(db, monitor_id))?;
+        let filter = crate::ignore::PathFilter::build(&root, &s.ignore_globs, s.respect_gitignore)?;
+        let under = |p: &str| prefix.is_empty() || p == prefix || p.starts_with(&format!("{prefix}/"));
+
+        let mut out = Vec::new();
+        // The first point is the baseline (no preceding diff), so scoped history
+        // starts at the second point — the first time the path actually changes.
+        for i in 1..ids.len() {
+            let changes: Vec<FileChange> = diff_maps(&maps[i - 1], &maps[i])
+                .into_iter()
+                .filter(|c| !filter.ignored(&c.path) && under(&c.path))
+                .collect();
+            if changes.is_empty() {
+                continue;
+            }
+            let count = |st: ChangeStatus| changes.iter().filter(|c| c.status == st).count() as i64;
+            out.push(ChangeSummary {
+                id: ids[i],
+                added: count(ChangeStatus::Added),
+                modified: count(ChangeStatus::Modified),
+                deleted: count(ChangeStatus::Deleted),
+            });
+        }
+        Ok(out)
+    }
+
     /// Resets one working-tree file to its current-branch (HEAD) version,
     /// recreating it if deleted or removing it if not committed. Takes a safety
     /// snapshot first, like every other revert.

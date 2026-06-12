@@ -11,7 +11,7 @@ import {
   subscribe,
 } from "../lib/shortcuts";
 import type { Settings } from "../lib/types";
-import { FONT_CHOICES, type TabOverflow, setPref, useUIPrefs } from "../lib/uiPrefs";
+import { FONT_CHOICES, type GoImportStyle, type TabOverflow, setPref, useUIPrefs } from "../lib/uiPrefs";
 
 const GROUP_ORDER: ActionGroup[] = ["Editor", "Diff", "Capture & revert", "Changed files", "Navigation", "Search"];
 
@@ -293,6 +293,34 @@ export default function SettingsView({ toast }: Props) {
               onChange={(e) => setPref("formatOnSave", e.target.checked)}
             />
             <span className="changecount">{prefs.formatOnSave ? "Format on save" : "Save as-is"}</span>
+          </label>
+        </div>
+
+        <div className="field">
+          <label>
+            Go import grouping
+            <span className="hint">
+              How auto-import places new imports. Follow .golangci.yml uses the gci sections (or
+              goimports local-prefixes) from the workspace config; Match existing groups mirrors the
+              file's current layout; Flat keeps one alphabetical block.
+            </span>
+          </label>
+          <select
+            value={prefs.goImportStyle}
+            onChange={(e) => setPref("goImportStyle", e.target.value as GoImportStyle)}
+            style={{ width: 200 }}
+          >
+            <option value="golangci">Follow .golangci.yml</option>
+            <option value="grouped">Match existing groups</option>
+            <option value="flat">Flat (alphabetical)</option>
+          </select>
+          <label style={{ display: "inline-flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+            <input
+              type="checkbox"
+              checked={prefs.goImportsOnSave}
+              onChange={(e) => setPref("goImportsOnSave", e.target.checked)}
+            />
+            <span className="changecount">Regroup whole import block on save</span>
           </label>
         </div>
 

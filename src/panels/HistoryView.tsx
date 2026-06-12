@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
 import { api } from "../lib/ipc";
-import type { ChangeSummary, FileChange, HunkInfo, SnapshotRow } from "../lib/types";
+import type { BaseInfo, ChangeSummary, FileChange, HunkInfo, SnapshotRow } from "../lib/types";
 import { basename, dayLabel, dirname, fmtTime, langOf } from "../lib/util";
 import { useShortcut } from "../lib/shortcuts";
 import { isConfirmSuppressed } from "../lib/confirmPrefs";
@@ -21,8 +21,9 @@ interface Props {
   root: string | null;
   historyMode?: boolean;
   onModeChange?: (history: boolean) => void;
-  /** File-open request from the search palette (n bumps on every accept). */
-  openReq?: { monitorId: number; path: string; line?: number; col?: number; n: number } | null;
+  /** Open request from the search palette (n bumps on every accept). Files
+   *  open in a tab; dirs are revealed in the project tree instead. */
+  openReq?: { monitorId: number; path: string; line?: number; col?: number; kind?: "file" | "dir"; n: number } | null;
   /** Tree context menu → open the search palette scoped to a folder. */
   onSearchInFolder?: (prefix: string, replace: boolean) => void;
   toast: (msg: string, error?: boolean) => void;
@@ -65,6 +66,17 @@ export default function HistoryView({
   // Full on-disk file list for the project tree (all files, not just changes).
   const [files, setFiles] = useState<string[]>([]);
   const [fileContent, setFileContent] = useState<string | null>("");
+  // Which file `fileContent` belongs to — the editor must never mount with a
+  // previous file's text (its undo stack would record the swap as an edit).
+  const [contentFor, setContentFor] = useState<string | null>(null);
+  // Baseline for the editor's VCS-style gutter stripes: git HEAD when the
+  // monitor sits in a repo, else the latest breaking point. "" = no baseline
+  // version exists (new file → everything reads as added).
+  const [baseInfo, setBaseInfo] = useState<BaseInfo | null>(null);
+  const [fileBase, setFileBase] = useState<string>("");
+  const [baseFor, setBaseFor] = useState<string | null>(null);
+  // Files differing from the same baseline, to tint their tree rows green.
+  const [treeChanged, setTreeChanged] = useState<Set<string>>(new Set());
   // Drag-resizable side-pane width (px).
   const [sideW, setSideW] = useState(340);
   // Relative paths (under `root`) that currently have LSP errors, for the tree.
@@ -76,6 +88,9 @@ export default function HistoryView({
   // not state — it drives setFile/setPendingGoto rather than rendering itself.
   const fileViewRef = useRef<FileHandle | null>(null);
   const projectTreeRef = useRef<ProjectTreeHandle | null>(null);
+  const pendingTreeFocus = useRef(false);
+  // Dir path waiting to be revealed once the tree mounts (history → files flip).
+  const pendingTreeReveal = useRef<string | null>(null);
   const navStack = useRef<{ path: string; line: number; col: number }[]>([]);
   const navIdx = useRef(-1);
   const fileRef = useRef<string | null>(file);
@@ -203,6 +218,11 @@ export default function HistoryView({
   // the previous point — the same base the timeline badges use), "current" =
   // drift between the point and the live working tree (JetBrains Local History).
   const [vsMode, setVsMode] = useState<"point" | "current">("point");
+  // When set, the history view is scoped to one file/folder: the timeline shows
+  // only points that changed this path, and the changed-files list is filtered
+  // to it. Cleared by the banner's ✕ or a monitor switch.
+  const [historyFilter, setHistoryFilter] = useState<string | null>(null);
+  const [scopedSummaries, setScopedSummaries] = useState<Record<number, ChangeSummary>>({});
   const diffApi = useRef<DiffHandle>(null);
   const summariesKey = useRef("");
   const diffReq = useRef(0);
@@ -238,6 +258,7 @@ export default function HistoryView({
 
   useEffect(() => {
     setSnap(null);
+    setHistoryFilter(null);
     summariesKey.current = "";
     // Reopen the last file viewed for this monitor, if any. Reset nav history.
     const last = localStorage.getItem(lastFileKey(monitorId));
@@ -260,6 +281,20 @@ export default function HistoryView({
   useEffect(() => {
     if (historyMode !== undefined) setShowHistory(historyMode);
   }, [historyMode]);
+
+  // Deferred tree focus/reveal after flipping out of history mode (tree just mounted).
+  useEffect(() => {
+    if (showHistory) return;
+    if (pendingTreeFocus.current) {
+      pendingTreeFocus.current = false;
+      projectTreeRef.current?.focusInTree();
+    }
+    if (pendingTreeReveal.current) {
+      const path = pendingTreeReveal.current;
+      pendingTreeReveal.current = null;
+      projectTreeRef.current?.revealDir(path);
+    }
+  }, [showHistory]);
 
   // Mirror LSP error files (absolute) into root-relative paths for the tree.
   useEffect(() => {
@@ -301,7 +336,17 @@ export default function HistoryView({
   useEffect(() => {
     if (!openReq || openReq.monitorId !== monitorId || openReq.n === lastOpenReq.current) return;
     lastOpenReq.current = openReq.n;
-    const { path, line, col } = openReq;
+    const { path, line, col, kind } = openReq;
+    if (kind === "dir") {
+      if (showHistory) {
+        pendingTreeReveal.current = path;
+        setShowHistory(false);
+        onModeChange?.(false);
+      } else {
+        projectTreeRef.current?.revealDir(path);
+      }
+      return;
+    }
     recordNav({ path, line: line ?? 1, col: col ?? 1 });
     openTab(path, "file");
     if (line != null) setPendingGoto({ path, line, col: col ?? 1 });
@@ -330,6 +375,36 @@ export default function HistoryView({
     return () => window.clearInterval(t);
   }, [loadSnaps]);
 
+  // Scoped history: which points touched the filtered path (+ scoped badges).
+  // Re-runs only when the point set actually changes, not on every poll.
+  const snapsKey = snaps.map((s) => s.id).join(",");
+  useEffect(() => {
+    if (!historyFilter) {
+      setScopedSummaries({});
+      return;
+    }
+    let alive = true;
+    api
+      .snapshotSummariesUnder(monitorId, historyFilter)
+      .then((rows) => alive && setScopedSummaries(Object.fromEntries(rows.map((s) => [s.id, s]))))
+      .catch(() => alive && setScopedSummaries({}));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyFilter, monitorId, snapsKey, reload]);
+
+  // When scoping, jump selection to the newest point that touched the path if
+  // the current one falls outside the filtered set.
+  useEffect(() => {
+    if (!historyFilter) return;
+    setSnap((cur) => {
+      if (cur && scopedSummaries[cur]) return cur;
+      const first = snaps.find((s) => scopedSummaries[s.id]);
+      return first?.id ?? null;
+    });
+  }, [scopedSummaries, historyFilter, snaps]);
+
   useEffect(() => {
     let alive = true;
     api
@@ -349,12 +424,99 @@ export default function HistoryView({
     let alive = true;
     const load = file.startsWith("/") ? api.readTextFile(file) : api.workingFile(monitorId, file);
     load
-      .then((c) => alive && setFileContent(c))
-      .catch(() => alive && setFileContent(null));
+      .then((c) => {
+        if (alive) {
+          setFileContent(c);
+          setContentFor(file);
+        }
+      })
+      .catch(() => {
+        if (alive) {
+          setFileContent(null);
+          setContentFor(file);
+        }
+      });
     return () => {
       alive = false;
     };
   }, [openKind, file, monitorId]);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .monitorBaseInfo(monitorId)
+      .then((b) => alive && setBaseInfo(b))
+      .catch(() => alive && setBaseInfo(null));
+    return () => {
+      alive = false;
+    };
+  }, [monitorId]);
+
+  // Gutter-stripe baseline for the open working file. Re-fetched when the
+  // point set changes: in snapshot mode the latest point IS the baseline, and
+  // in git mode a save is a natural moment to pick up a new HEAD.
+  const latestSnap = snaps[0]?.id ?? null;
+  useEffect(() => {
+    if (openKind !== "file" || !file || file.startsWith("/")) {
+      setBaseFor(null);
+      return;
+    }
+    let alive = true;
+    (async () => {
+      let base: string | null = null;
+      try {
+        if (baseInfo?.kind === "git" && baseInfo.repo_root && root) {
+          // The monitor root may be a subfolder of the repo — git paths are
+          // relative to the repo root.
+          const prefix = baseInfo.repo_root.endsWith("/") ? baseInfo.repo_root : `${baseInfo.repo_root}/`;
+          const sub = root === baseInfo.repo_root ? "" : root.startsWith(prefix) ? `${root.slice(prefix.length)}/` : "";
+          base = await api.gitFile(baseInfo.repo_root, "HEAD", `${sub}${file}`);
+        } else if (latestSnap != null) {
+          base = await api.fileAt(latestSnap, file);
+        }
+      } catch {
+        base = null;
+      }
+      if (!alive) return;
+      setFileBase(base ?? "");
+      setBaseFor(file);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [openKind, file, monitorId, root, baseInfo, latestSnap, reload]);
+
+  // Changed-files set for the tree tint, refreshed on the same cadence as the
+  // timeline poll. Git mode: status vs HEAD (paths are repo-relative — map to
+  // monitor-relative). Fallback: drift vs the latest breaking point.
+  useEffect(() => {
+    let alive = true;
+    const refresh = async () => {
+      try {
+        let paths: string[] = [];
+        if (baseInfo?.kind === "git" && baseInfo.repo_root && root) {
+          const st = await api.gitStatus(baseInfo.repo_root);
+          const prefix = baseInfo.repo_root.endsWith("/") ? baseInfo.repo_root : `${baseInfo.repo_root}/`;
+          const sub = root === baseInfo.repo_root ? "" : root.startsWith(prefix) ? `${root.slice(prefix.length)}/` : "";
+          paths = [...st.staged, ...st.unstaged]
+            .map((c) => c.path)
+            .filter((p) => p.startsWith(sub))
+            .map((p) => p.slice(sub.length));
+        } else if (latestSnap != null) {
+          paths = (await api.snapshotWorkingChanges(monitorId, latestSnap)).map((c) => c.path);
+        }
+        if (alive) setTreeChanged(new Set(paths));
+      } catch {
+        if (alive) setTreeChanged(new Set());
+      }
+    };
+    refresh();
+    const t = window.setInterval(refresh, 3000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, [monitorId, root, baseInfo, latestSnap, reload]);
 
   // List the files for the selected mode — the same pair the diff shows, so a
   // row always opens a real diff. "point" matches the timeline badges (what
@@ -609,14 +771,34 @@ export default function HistoryView({
     () => file && api.openPath(monitorId, file).catch((e) => toast(String(e), true)),
     !!file,
   );
-  useShortcut("file.focusInTree", () => projectTreeRef.current?.focusInTree(), !showHistory && !!file);
+  useShortcut(
+    "file.focusInTree",
+    () => {
+      // In history mode the tree isn't mounted; flip to the files view and run
+      // the focus once it renders (see the pendingTreeFocus effect).
+      if (showHistory) {
+        pendingTreeFocus.current = true;
+        setShowHistory(false);
+        onModeChange?.(false);
+      } else {
+        projectTreeRef.current?.focusInTree();
+      }
+    },
+    !!file,
+  );
   useShortcut("nav.nextPoint", () => gotoPoint(1));
   useShortcut("nav.prevPoint", () => gotoPoint(-1));
   useShortcut("nav.back", () => navGoRef.current(-1));
   useShortcut("nav.forward", () => navGoRef.current(1));
 
+  const underFilter = (p: string) =>
+    !historyFilter || p === historyFilter || p.startsWith(`${historyFilter}/`);
+  const displaySnaps = historyFilter ? snaps.filter((s) => scopedSummaries[s.id]) : snaps;
+  const displaySummaries = historyFilter ? scopedSummaries : summaries;
+  const displayChanges = historyFilter ? changes.filter((c) => underFilter(c.path)) : changes;
+
   const counts = { added: 0, modified: 0, deleted: 0 };
-  for (const c of changes) counts[c.status]++;
+  for (const c of displayChanges) counts[c.status]++;
   const sel = snaps.find((s) => s.id === snap);
   const beforeLabel = sel ? `${dayLabel(sel.day_bucket)}, ${fmtTime(sel.ts)}` : "Before";
 
@@ -644,6 +826,14 @@ export default function HistoryView({
           <div className="hv-side-body">
             {showHistory ? (
               <div className="hv-history">
+                {historyFilter && (
+                  <div className="hv-filter" title={historyFilter}>
+                    <span className="hv-filter-path">⏱ {historyFilter}</span>
+                    <button className="hv-filter-clear" title="Show full history" onClick={() => setHistoryFilter(null)}>
+                      ✕
+                    </button>
+                  </div>
+                )}
                 <div className="hv-hpane">
                   <div className="col-head">
                     <h2>Breaking Points</h2>
@@ -652,15 +842,21 @@ export default function HistoryView({
                     </span>
                   </div>
                   <div className="col-scroll">
-                    <Timeline
-                      snapshots={snaps}
-                      summaries={summaries}
-                      selected={snap}
-                      onSelect={setSnap}
-                      onDelete={deleteSnap}
-                      onLabel={labelSnap}
-                      onRevertAll={askRevertAll}
-                    />
+                    {historyFilter && displaySnaps.length === 0 ? (
+                      <div className="empty" style={{ padding: "16px 12px" }}>
+                        <p>No breaking points changed this path.</p>
+                      </div>
+                    ) : (
+                      <Timeline
+                        snapshots={displaySnaps}
+                        summaries={displaySummaries}
+                        selected={snap}
+                        onSelect={setSnap}
+                        onDelete={deleteSnap}
+                        onLabel={labelSnap}
+                        onRevertAll={askRevertAll}
+                      />
+                    )}
                   </div>
                 </div>
                 <div className="hv-hpane">
@@ -677,7 +873,7 @@ export default function HistoryView({
                     >
                       {vsMode === "point" ? "at this point ⇄" : "vs current ⇄"}
                     </button>
-                    {changes.length > 0 ? (
+                    {displayChanges.length > 0 ? (
                       <span className="sum">
                         {counts.added > 0 && <span className="sum-pill add">+{counts.added}</span>}
                         {counts.modified > 0 && <span className="sum-pill mod">~{counts.modified}</span>}
@@ -689,7 +885,7 @@ export default function HistoryView({
                   </div>
                   <div className="col-scroll">
                     <ChangedTree
-                      changes={changes}
+                      changes={displayChanges}
                       selected={openKind === "diff" ? file : null}
                       onSelect={openChange}
                       onRevertFile={revertPath}
@@ -707,10 +903,16 @@ export default function HistoryView({
                   files={files}
                   selected={openKind === "file" ? file : null}
                   errorFiles={errFiles}
+                  changedFiles={treeChanged}
                   rootPath={root}
                   onSelect={openFile}
                   onOpen={(p) => api.openPath(monitorId, p).catch((e) => toast(String(e), true))}
                   onReveal={(p) => api.revealPath(monitorId, p).catch((e) => toast(String(e), true))}
+                  onShowHistory={(p) => {
+                    setHistoryFilter(p);
+                    setShowHistory(true);
+                    onModeChange?.(true);
+                  }}
                   onCopyPath={copyToClipboard}
                   onIgnoreFile={(p) => ignorePath(p, false)}
                   onIgnoreFolder={(p) => ignorePath(p, true)}
@@ -770,7 +972,11 @@ export default function HistoryView({
                   {file}
                 </span>
               </div>
-              {fileContent === null ? (
+              {contentFor !== file ? (
+                // Still loading this file — mounting the editor with the
+                // previous file's content would poison its undo stack.
+                <div className="editor-shell" />
+              ) : fileContent === null ? (
                 <div className="empty">
                   <div className="glyph">⛔</div>
                   <h3>Can't display this file</h3>
@@ -786,6 +992,7 @@ export default function HistoryView({
                   path={file.startsWith("/") ? file : root && file ? `${root}/${file}` : undefined}
                   root={root ?? undefined}
                   readOnly={file.startsWith("/")}
+                  diffBase={!file.startsWith("/") && baseFor === file ? fileBase : undefined}
                   gotoPos={pendingGoto && pendingGoto.path === file ? { line: pendingGoto.line, col: pendingGoto.col } : undefined}
                   onSave={
                     file.startsWith("/")

@@ -5,11 +5,18 @@ import { useEffect, useReducer } from "react";
 
 export type TabOverflow = "fifo" | "block";
 
+/** How Go auto-import places new imports (and how on-save regrouping sorts
+ *  the block): follow .golangci.yml sections, mirror the file's existing
+ *  groups, or keep one flat alphabetical block. */
+export type GoImportStyle = "golangci" | "grouped" | "flat";
+
 export interface UIPrefs {
   autohideSidebar: boolean;
   maxTabs: number;
   tabOverflow: TabOverflow;
   formatOnSave: boolean;
+  goImportStyle: GoImportStyle;
+  goImportsOnSave: boolean;
   fontFamily: string;
   fontSize: number;
   indentGuides: boolean;
@@ -20,6 +27,8 @@ const DEFAULTS: UIPrefs = {
   maxTabs: 8,
   tabOverflow: "fifo",
   formatOnSave: false,
+  goImportStyle: "grouped",
+  goImportsOnSave: false,
   fontFamily: "JetBrains Mono",
   fontSize: 12.5,
   indentGuides: true,
@@ -37,12 +46,17 @@ export const FONT_CHOICES = [
   "IBM Plex Mono",
 ];
 
-// Shared Monaco options derived from prefs: font + indentation guides.
+// Shared Monaco options derived from prefs: font + indentation guides + rulers.
 export function editorPrefOptions(p: UIPrefs) {
   return {
     fontFamily: `${p.fontFamily}, monospace`,
     fontSize: p.fontSize,
     guides: { indentation: p.indentGuides, highlightActiveIndentation: p.indentGuides },
+    // Soft column guides at the conventional 80/120 line-length limits.
+    rulers: [
+      { column: 80, color: "#1c2430" },
+      { column: 120, color: "#283344" },
+    ],
   };
 }
 

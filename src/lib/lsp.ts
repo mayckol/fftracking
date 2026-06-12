@@ -6,6 +6,8 @@
 import type * as Monaco from "monaco-editor";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./ipc";
+import { cachedGoImportsConfig, importPlanner, loadGoImportsConfig, pkgNameOf } from "./goimports";
+import { getPrefs } from "./uiPrefs";
 
 type Json = any;
 
@@ -14,6 +16,8 @@ interface Conn {
   seq: number;
   ready: Promise<void>;
   pending: Map<number, (result: Json, error?: Json) => void>;
+  /** TextDocumentSyncKind from the server: 2 = incremental, else full. */
+  syncKind: number;
 }
 
 interface Doc {
@@ -71,9 +75,45 @@ function notify(c: Conn, method: string, params: Json) {
   rawSend(c.root, { jsonrpc: "2.0", method, params });
 }
 
+// Settings handed to gopls via workspace/configuration. completeUnimported
+// makes unimported package members show up in completion (with the import
+// attached as an additionalTextEdit); usePlaceholders gives JetBrains-style
+// argument placeholders on call completion.
+const GOPLS_SETTINGS: Json = {
+  completeUnimported: true,
+  usePlaceholders: true,
+};
+
+/** Applies an LSP WorkspaceEdit to whatever target models are open. All edits
+ *  for one document go through a single pushEditOperations call (LSP TextEdits
+ *  are all relative to the same document state) so undo stays one step. */
+function applyWorkspaceEdit(we: Json): boolean {
+  if (!we) return false;
+  let applied = false;
+  const apply = (uri: string, edits: Json[]) => {
+    const doc = docs.get(uriToPath(uri));
+    if (!doc || !edits?.length) return;
+    doc.model.pushEditOperations(
+      [],
+      edits.map((e) => ({ range: range(e.range), text: e.newText })),
+      () => null,
+    );
+    applied = true;
+  };
+  if (Array.isArray(we.documentChanges)) {
+    for (const dc of we.documentChanges) {
+      if (dc.textDocument && dc.edits) apply(dc.textDocument.uri, dc.edits);
+    }
+  } else if (we.changes) {
+    for (const [uri, edits] of Object.entries(we.changes)) apply(uri, edits as Json[]);
+  }
+  return applied;
+}
+
 // gopls sends a few requests back that must be answered or it stalls.
 function serverReply(method: string, params: Json): Json {
-  if (method === "workspace/configuration") return (params?.items ?? []).map(() => ({}));
+  if (method === "workspace/configuration") return (params?.items ?? []).map(() => GOPLS_SETTINGS);
+  if (method === "workspace/applyEdit") return { applied: applyWorkspaceEdit(params?.edit) };
   return null;
 }
 
@@ -149,12 +189,12 @@ async function ensureConn(root: string): Promise<Conn> {
     resolveReady = res;
     rejectReady = rej;
   });
-  const c: Conn = { root, seq: 0, ready, pending: new Map() };
+  const c: Conn = { root, seq: 0, ready, pending: new Map(), syncKind: 1 };
   conns.set(root, c);
   try {
     await ensureListener();
     await api.lspStart(root);
-    await request(c, "initialize", {
+    const init = await request(c, "initialize", {
       processId: null,
       rootUri: fileUri(root),
       workspaceFolders: [{ uri: fileUri(root), name: root.split("/").pop() || root }],
@@ -164,7 +204,27 @@ async function ensureConn(root: string): Promise<Conn> {
           hover: { contentFormat: ["markdown", "plaintext"] },
           completion: {
             contextSupport: true,
-            completionItem: { snippetSupport: true, documentationFormat: ["markdown", "plaintext"] },
+            completionItem: {
+              snippetSupport: true,
+              documentationFormat: ["markdown", "plaintext"],
+              commitCharactersSupport: true,
+              preselectSupport: true,
+              insertReplaceSupport: true,
+              deprecatedSupport: true,
+              labelDetailsSupport: true,
+              // Lets gopls defer the expensive parts (docs, import edits for
+              // unimported symbols) to completionItem/resolve — the list
+              // itself comes back faster.
+              resolveSupport: { properties: ["documentation", "detail", "additionalTextEdits"] },
+            },
+          },
+          codeAction: {
+            codeActionLiteralSupport: {
+              codeActionKind: {
+                valueSet: ["quickfix", "refactor", "source", "source.organizeImports"],
+              },
+            },
+            resolveSupport: { properties: ["edit"] },
           },
           signatureHelp: {},
           definition: {},
@@ -173,9 +233,17 @@ async function ensureConn(root: string): Promise<Conn> {
           formatting: {},
           publishDiagnostics: {},
         },
-        workspace: { configuration: true, workspaceFolders: true },
+        workspace: {
+          configuration: true,
+          workspaceFolders: true,
+          applyEdit: true,
+          workspaceEdit: { documentChanges: true },
+          symbol: {},
+        },
       },
     });
+    const sync = init?.capabilities?.textDocumentSync;
+    c.syncKind = typeof sync === "number" ? sync : (sync?.change ?? 1);
     notify(c, "initialized", {});
     resolveReady();
   } catch (e) {
@@ -221,6 +289,73 @@ function ckind(k: number | undefined): Monaco.languages.CompletionItemKind {
   return (K as Json)[name] ?? K.Text;
 }
 
+// LSP SymbolKind → Monaco CompletionItemKind for synthesized symbol items.
+function symCkind(k: number | undefined): Monaco.languages.CompletionItemKind {
+  const K = M!.languages.CompletionItemKind;
+  switch (k) {
+    case 5: return K.Class;
+    case 6: return K.Method;
+    case 8: return K.Field;
+    case 10: return K.Enum;
+    case 11: return K.Interface;
+    case 12: return K.Function;
+    case 13: return K.Variable;
+    case 14: return K.Constant;
+    case 23: return K.Struct;
+    default: return K.Reference;
+  }
+}
+
+const SYMBOL_ITEM_CAP = 50;
+
+/** Turns workspace/symbol hits into `pkg.Symbol` completion items carrying the
+ *  import as an additionalTextEdit — bare-identifier auto-import, the case
+ *  gopls's own completion doesn't cover. */
+function symbolSuggestions(args: {
+  model: Monaco.editor.ITextModel;
+  uri: string;
+  root: string;
+  symbols: Json[];
+  items: Json[];
+  fallbackRange: Monaco.IRange;
+}): Json[] {
+  const { model, uri, root, symbols, items, fallbackRange } = args;
+  if (!symbols.length) return [];
+  const plan = importPlanner(model, cachedGoImportsConfig(root), getPrefs().goImportStyle);
+  const curDir = uriToPath(uri).replace(/\/[^/]*$/, "");
+  const offered = new Set(
+    items.map((it) => (typeof it.label === "string" ? it.label : it.label?.label)),
+  );
+  const out: Json[] = [];
+  const seen = new Set<string>();
+  for (const s of symbols) {
+    if (out.length >= SYMBOL_ITEM_CAP) break;
+    const locUri = s?.location?.uri;
+    const pkgPath = s?.containerName;
+    if (!locUri || !pkgPath || !/^[A-Z]/.test(s.name ?? "")) continue;
+    // Same package: no qualifier needed, gopls completes these already.
+    if (uriToPath(locUri).replace(/\/[^/]*$/, "") === curDir) continue;
+    const p = plan(pkgPath, pkgNameOf(pkgPath));
+    if (!p) continue;
+    const label = p.qualifier ? `${p.qualifier}.${s.name}` : s.name;
+    if (seen.has(label) || offered.has(label)) continue;
+    seen.add(label);
+    out.push({
+      label: { label, description: pkgPath },
+      kind: symCkind(s.kind),
+      insertText: label,
+      // Filter against the bare name — that's what the user typed.
+      filterText: s.name,
+      // Sink below gopls's context-aware suggestions.
+      sortText: "￿" + s.name,
+      detail: pkgPath,
+      additionalTextEdits: p.edit ? [p.edit] : undefined,
+      range: fallbackRange,
+    });
+  }
+  return out;
+}
+
 function registerProviders(monaco: typeof Monaco) {
   if (registered) return;
   registered = true;
@@ -258,47 +393,168 @@ function registerProviders(monaco: typeof Monaco) {
     },
   });
 
+  const lspEdit = (e: Json) => ({ range: range(e.range), text: e.newText });
+  const lspDoc = (doc: Json) =>
+    typeof doc === "string" ? doc : doc ? { value: doc.value } : undefined;
+
   monaco.languages.registerCompletionItemProvider("go", {
     triggerCharacters: ["."],
-    async provideCompletionItems(model, position) {
+    async provideCompletionItems(model, position, context) {
       const d = docForModel(model);
       if (!d) return { suggestions: [] };
-      const r = await request(d.conn, "textDocument/completion", {
-        textDocument: { uri: d.uri },
-        position: pos(position),
-      });
-      const items: Json[] = Array.isArray(r) ? r : r?.items ?? [];
       const word = model.getWordUntilPosition(position);
-      const rng = {
+      // Bare-identifier cross-package completion (JetBrains style): gopls only
+      // completes unimported symbols when qualified, so in parallel with the
+      // normal request we hit its workspace symbol index and synthesize
+      // `pkg.Symbol` items with the import edit attached. Skipped on `.`
+      // trigger (member access — qualified path already handles it).
+      const wantSymbols = context.triggerCharacter !== "." && word.word.length >= 2;
+      const [r, syms] = await Promise.all([
+        request(d.conn, "textDocument/completion", {
+          textDocument: { uri: d.uri },
+          position: pos(position),
+        }),
+        wantSymbols
+          ? request(d.conn, "workspace/symbol", { query: word.word }).catch(() => [])
+          : Promise.resolve([]),
+      ]);
+      const items: Json[] = Array.isArray(r) ? r : r?.items ?? [];
+      const fallbackRange = {
         startLineNumber: position.lineNumber,
         endLineNumber: position.lineNumber,
         startColumn: word.startColumn,
         endColumn: word.endColumn,
       };
+      const symbolItems = symbolSuggestions({
+        model,
+        uri: d.uri,
+        root: d.conn.root,
+        symbols: syms ?? [],
+        items,
+        fallbackRange,
+      });
       return {
-        suggestions: items.map((it) => {
+        incomplete: r?.isIncomplete || symbolItems.length > 0,
+        suggestions: symbolItems.concat(items.map((it) => {
           const label = typeof it.label === "string" ? it.label : it.label.label;
+          const te = it.textEdit;
+          const rng =
+            te?.insert && te?.replace
+              ? { insert: range(te.insert), replace: range(te.replace) }
+              : te?.range
+                ? range(te.range)
+                : fallbackRange;
           return {
-            label,
+            label: it.labelDetails ? { label, detail: it.labelDetails.detail, description: it.labelDetails.description } : label,
             kind: ckind(it.kind),
-            insertText: it.insertText ?? it.textEdit?.newText ?? label,
+            insertText: it.insertText ?? te?.newText ?? label,
             insertTextRules:
               it.insertTextFormat === 2
                 ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
                 : undefined,
             detail: it.detail,
-            documentation:
-              typeof it.documentation === "string"
-                ? it.documentation
-                : it.documentation
-                  ? { value: it.documentation.value }
-                  : undefined,
+            documentation: lspDoc(it.documentation),
             sortText: it.sortText,
             filterText: it.filterText,
+            preselect: it.preselect,
+            commitCharacters: it.commitCharacters,
+            tags: it.tags?.includes(1) ? [monaco.languages.CompletionItemTag.Deprecated] : undefined,
+            // This is what makes auto-import work: gopls attaches the import
+            // statement here and Monaco applies it when the item is accepted.
+            additionalTextEdits: it.additionalTextEdits?.map(lspEdit),
             range: rng,
-          };
-        }),
+            // Raw LSP item so resolveCompletionItem can round-trip it.
+            __lsp: { item: it, conn: d.conn },
+          } as Json;
+        })),
       };
+    },
+    // gopls defers docs + import edits for unimported symbols to resolve;
+    // Monaco calls this only for the focused item, and applies
+    // additionalTextEdits that arrive here even after accept.
+    async resolveCompletionItem(item: Json) {
+      const raw = item.__lsp;
+      if (!raw || item.__resolved) return item;
+      item.__resolved = true;
+      try {
+        const r = await request(raw.conn, "completionItem/resolve", raw.item);
+        if (r) {
+          if (r.detail) item.detail = r.detail;
+          if (r.documentation) item.documentation = lspDoc(r.documentation);
+          if (r.additionalTextEdits?.length) item.additionalTextEdits = r.additionalTextEdits.map(lspEdit);
+        }
+      } catch {
+        // Resolve is best-effort; the unresolved item is still usable.
+      }
+      return item;
+    },
+  });
+
+  monaco.languages.registerCodeActionProvider("go", {
+    async provideCodeActions(model, rng, context) {
+      const d = docForModel(model);
+      if (!d) return null;
+      let actions: Json[];
+      try {
+        actions =
+          (await request(d.conn, "textDocument/codeAction", {
+            textDocument: { uri: d.uri },
+            range: {
+              start: { line: rng.startLineNumber - 1, character: rng.startColumn - 1 },
+              end: { line: rng.endLineNumber - 1, character: rng.endColumn - 1 },
+            },
+            context: {
+              diagnostics: context.markers.map((m) => ({
+                range: {
+                  start: { line: m.startLineNumber - 1, character: m.startColumn - 1 },
+                  end: { line: m.endLineNumber - 1, character: m.endColumn - 1 },
+                },
+                message: m.message,
+                severity: m.severity === M!.MarkerSeverity.Error ? 1 : 2,
+                source: m.source,
+              })),
+              only: context.only ? [context.only] : undefined,
+            },
+          })) ?? [];
+      } catch {
+        return null;
+      }
+      return {
+        actions: actions
+          .filter((a) => a && a.title)
+          .map((a) => ({
+            title: a.title,
+            kind: a.kind,
+            isPreferred: a.isPreferred,
+            diagnostics: [],
+            edit: undefined,
+            __lsp: { action: a, conn: d.conn },
+          })) as Json[],
+        dispose() {},
+      };
+    },
+    async resolveCodeAction(action: Json) {
+      const raw = action.__lsp;
+      if (!raw) return action;
+      let a = raw.action;
+      // Lazily resolve the edit, then run it ourselves: Monaco's workspace
+      // edit service can't write files the host owns, and command-style
+      // actions go back to gopls which answers with workspace/applyEdit.
+      if (!a.edit && a.data) {
+        try {
+          a = (await request(raw.conn, "codeAction/resolve", a)) ?? a;
+        } catch {
+          /* fall through to command */
+        }
+      }
+      if (a.edit) applyWorkspaceEdit(a.edit);
+      else if (a.command) {
+        request(raw.conn, "workspace/executeCommand", {
+          command: a.command.command,
+          arguments: a.command.arguments,
+        }).catch(() => {});
+      }
+      return action;
     },
   });
 
@@ -403,6 +659,65 @@ export async function implementationLocations(
   });
 }
 
+export interface IfaceSymbol {
+  name: string;
+  /** Import path (gopls puts it in containerName). */
+  pkgPath: string;
+  /** Absolute file path of the declaration. */
+  path: string;
+  /** 1-based declaration line. */
+  line: number;
+}
+
+/** Interfaces matching `query` from gopls's workspace symbol index (covers the
+ *  workspace and its dependencies). Backs the implement-interface picker. */
+export async function workspaceInterfaces(
+  model: Monaco.editor.ITextModel,
+  query: string,
+): Promise<IfaceSymbol[]> {
+  const d = docForModel(model);
+  if (!d) return [];
+  const syms: Json[] = (await request(d.conn, "workspace/symbol", { query })) ?? [];
+  return syms
+    .filter((s) => s?.kind === SK_INTERFACE && s.location?.uri)
+    .map((s) => ({
+      name: s.name as string,
+      pkgPath: (s.containerName as string) ?? "",
+      path: uriToPath(s.location.uri),
+      line: (s.location.range?.start?.line ?? 0) + 1,
+    }));
+}
+
+/** Asks gopls for the source.organizeImports action on `model` and applies it
+ *  (add missing / drop unused imports). No-op for non-LSP models. */
+export async function organizeImports(model: Monaco.editor.ITextModel): Promise<void> {
+  const d = docForModel(model);
+  if (!d) return;
+  try {
+    const actions: Json[] =
+      (await request(d.conn, "textDocument/codeAction", {
+        textDocument: { uri: d.uri },
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: model.getLineCount() - 1, character: 0 },
+        },
+        context: { diagnostics: [], only: ["source.organizeImports"] },
+      })) ?? [];
+    for (let a of actions) {
+      if (!a.edit && a.data) a = (await request(d.conn, "codeAction/resolve", a)) ?? a;
+      if (a.edit) applyWorkspaceEdit(a.edit);
+      else if (a.command) {
+        await request(d.conn, "workspace/executeCommand", {
+          command: a.command.command,
+          arguments: a.command.arguments,
+        });
+      }
+    }
+  } catch {
+    // Best-effort: formatting still proceeds without import cleanup.
+  }
+}
+
 /** Routes a cross-file jump through the host's open-file handler (the same
  *  path ⌘-click definition uses). False when no handler is mounted. */
 export function openLocation(path: string, line: number, col: number): boolean {
@@ -497,6 +812,13 @@ interface AttachArgs {
 export async function attachGo({ monaco, model, root, path }: AttachArgs) {
   M = monaco;
   registerProviders(monaco);
+  // Models are kept per path across editor remounts — same model showing up
+  // again is already open and listened to; re-attaching would double didOpen
+  // and the didChange subscription.
+  if (docs.get(path)?.model === model) return;
+  // Warm the .golangci.yml/go.mod config cache so completion (sync hot path)
+  // can read it.
+  loadGoImportsConfig(root).catch(() => {});
   const c = await ensureConn(root);
   const uri = fileUri(path);
   docs.set(path, { model, root, uri });
@@ -506,11 +828,25 @@ export async function attachGo({ monaco, model, root, path }: AttachArgs) {
   });
 
   let version = 1;
-  const sub = model.onDidChangeContent(() => {
+  const sub = model.onDidChangeContent((e) => {
     version++;
+    // Incremental sync when the server supports it (gopls does): send only
+    // the changed ranges instead of re-serializing the whole file per
+    // keystroke. Monaco orders the changes so sequential application is
+    // correct, which matches LSP semantics.
+    const contentChanges =
+      c.syncKind === 2
+        ? e.changes.map((ch) => ({
+            range: {
+              start: { line: ch.range.startLineNumber - 1, character: ch.range.startColumn - 1 },
+              end: { line: ch.range.endLineNumber - 1, character: ch.range.endColumn - 1 },
+            },
+            text: ch.text,
+          }))
+        : [{ text: model.getValue() }];
     notify(c, "textDocument/didChange", {
       textDocument: { uri, version },
-      contentChanges: [{ text: model.getValue() }],
+      contentChanges,
     });
   });
   model.onWillDispose(() => {
