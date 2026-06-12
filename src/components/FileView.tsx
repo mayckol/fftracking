@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Editor, type Monaco, type OnMount } from "@monaco-editor/react";
 import type { editor as MEditor } from "monaco-editor";
 import { defineTheme, THEME } from "./monacoTheme";
@@ -7,9 +7,14 @@ import {
   implementationAnnotations,
   implementationLocations,
   openLocation,
+  organizeImports,
+  workspaceInterfaces,
+  type IfaceSymbol,
   type ImplAnnotation,
   type ImplLocation,
 } from "../lib/lsp";
+import { buildStubs, packageNameOf } from "../lib/implement";
+import { applyImportGrouping, cachedGoImportsConfig, importPlanner } from "../lib/goimports";
 import { registerEditor } from "../lib/selection";
 import { runInTerminal } from "../lib/runner";
 import { breakpointLines, subscribeBreakpoints, toggleBreakpoint } from "../lib/breakpoints";
@@ -22,6 +27,8 @@ import {
 } from "../lib/debug";
 import { comboFor, formatCombo } from "../lib/shortcuts";
 import { editorPrefOptions, getPrefs, useUIPrefs } from "../lib/uiPrefs";
+import { api } from "../lib/ipc";
+import type { HunkInfo } from "../lib/types";
 
 export interface FileHandle {
   reveal: (line: number, col: number) => void;
@@ -76,6 +83,11 @@ interface Props {
   readOnly?: boolean;
   // Fired on a plain left-click (not ⌘-click) so the host can log a nav point.
   onCursorClick?: (line: number, col: number) => void;
+  // Baseline text for the VCS-style gutter (git HEAD or the latest breaking
+  // point). Lines differing from it get colored change stripes; clicking a
+  // stripe opens a JetBrains-style popup with the old block + rollback/copy.
+  // undefined = feature off (still loading, external file).
+  diffBase?: string | null;
 }
 
 const LANG_LABEL: Record<string, string> = {
@@ -103,7 +115,7 @@ function langLabel(id: string): string {
 type LspState = "off" | "starting" | "ready" | "error";
 
 const FileView = forwardRef<FileHandle, Props>(function FileView(
-  { content, language, onSave, path, root, gotoPos, readOnly, onCursorClick },
+  { content, language, onSave, path, root, gotoPos, readOnly, onCursorClick, diffBase },
   ref,
 ) {
   const prefs = useUIPrefs();
@@ -120,6 +132,113 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   } | null>(null);
   const [diag, setDiag] = useState({ errors: 0, warnings: 0 });
   const editorRef = useRef<MEditor.IStandaloneCodeEditor | null>(null);
+
+  // VCS-style gutter change stripes vs `diffBase`. Hunk sides: old_* indexes
+  // the editor content, new_* the baseline (text_hunks swaps its args).
+  const [gutPop, setGutPop] = useState<{ x: number; y: number; idx: number } | null>(null);
+  const [gutHunks, setGutHunks] = useState<HunkInfo[]>([]);
+  const [oldHtml, setOldHtml] = useState("");
+  const diffBaseRef = useRef(diffBase);
+  diffBaseRef.current = diffBase;
+  const recomputeRef = useRef<() => void>(() => {});
+  const gutCtlRef = useRef<{
+    goto: (idx: number) => void;
+    rollback: (h: HunkInfo) => void;
+    checkout: () => void;
+  }>({
+    goto: () => {},
+    rollback: () => {},
+    checkout: () => {},
+  });
+  const monacoApiRef = useRef<Monaco | null>(null);
+
+  useEffect(() => {
+    setGutPop(null);
+    recomputeRef.current();
+  }, [diffBase]);
+
+  // Implement-interface picker (Ctrl+I, JetBrains-style): search gopls's
+  // workspace symbols, pick an interface, name the type, insert stubs.
+  const [ifaceGen, setIfaceGen] = useState<{
+    x: number;
+    y: number;
+    step: "search" | "name";
+    query: string;
+    nonProject: boolean;
+    results: IfaceSymbol[];
+    sel: number;
+    iface?: IfaceSymbol;
+    typeName: string;
+    busy: boolean;
+  } | null>(null);
+  const ifaceInsertRef = useRef<(iface: IfaceSymbol, typeName: string) => Promise<void>>(async () => {});
+
+  useEffect(() => {
+    if (!ifaceGen || ifaceGen.step !== "search") return;
+    const m = editorRef.current?.getModel();
+    if (!m) return;
+    const { query, nonProject } = ifaceGen;
+    let alive = true;
+    const t = window.setTimeout(async () => {
+      const all = await workspaceInterfaces(m, query).catch(() => []);
+      if (!alive) return;
+      const prefix = root ? (root.endsWith("/") ? root : `${root}/`) : "";
+      const scoped = nonProject || !prefix ? all : all.filter((s) => s.path.startsWith(prefix));
+      // Project results first; gopls's own ranking within each group.
+      const inProj = (s: IfaceSymbol) => (prefix && s.path.startsWith(prefix) ? 0 : 1);
+      scoped.sort((a, b) => inProj(a) - inProj(b));
+      setIfaceGen((cur) =>
+        cur && cur.step === "search" && cur.query === query && cur.nonProject === nonProject
+          ? { ...cur, results: scoped.slice(0, 50), sel: 0 }
+          : cur,
+      );
+    }, 200);
+    return () => {
+      alive = false;
+      window.clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ifaceGen?.step, ifaceGen?.query, ifaceGen?.nonProject, root]);
+
+  // Previous block of the hunk under the popup, syntax-colored with Monaco's
+  // tokenizer so it reads like the editor.
+  const popHunk = gutPop ? gutHunks[gutPop.idx] : undefined;
+  const popOldText =
+    popHunk && diffBase != null && popHunk.new_len > 0
+      ? diffBase
+          .split("\n")
+          .slice(popHunk.new_start, popHunk.new_start + popHunk.new_len)
+          .join("\n")
+      : "";
+  useEffect(() => {
+    if (!popOldText || !monacoApiRef.current) {
+      setOldHtml("");
+      return;
+    }
+    let alive = true;
+    monacoApiRef.current.editor
+      .colorize(popOldText, language, { tabSize: 4 })
+      .then((h) => alive && setOldHtml(h))
+      .catch(() => alive && setOldHtml(""));
+    return () => {
+      alive = false;
+    };
+  }, [popOldText, language]);
+
+  // External reload of the open file (snapshot restore, git ops): the editor
+  // is uncontrolled (defaultValue), so push the new text in ourselves.
+  // setValue also resets that file's undo stack — correct for a disk reload.
+  // Skipped on mount: the model already holds the right content, and a kept
+  // model may carry unsaved edits we must not wipe.
+  const firstContent = useRef(true);
+  useEffect(() => {
+    if (firstContent.current) {
+      firstContent.current = false;
+      return;
+    }
+    const m = editorRef.current?.getModel();
+    if (m && m.getValue() !== content) m.setValue(content);
+  }, [content]);
 
   useImperativeHandle(ref, () => ({
     reveal(line, col) {
@@ -168,16 +287,32 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           if (uris.some((u) => u.toString() === model.uri.toString())) recount();
         }),
       );
-      model.onWillDispose(() => subs.forEach((s) => s.dispose()));
+      // Models now outlive the editor (kept per path for undo history), so
+      // tie listener cleanup to the editor instance instead.
+      editor.onDidDispose(() => subs.forEach((s) => s.dispose()));
     }
 
-    const format = () => editor.getAction("editor.action.formatDocument")?.run();
+    // JetBrains-style reformat: gopls fixes missing/unused imports, the
+    // grouping pass reorders the block per the chosen style, then gofmt runs
+    // over the result.
+    const groupImports = async () => {
+      const m = editor.getModel();
+      if (m && language === "go" && root && getPrefs().goImportsOnSave)
+        await applyImportGrouping(m, root, getPrefs().goImportStyle);
+    };
+    const format = async () => {
+      const m = editor.getModel();
+      if (m && language === "go") await organizeImports(m);
+      await groupImports();
+      await editor.getAction("editor.action.formatDocument")?.run();
+    };
     const bind = (id: string, fn: () => void) => {
       const kb = toKeybinding(monaco, comboFor(id));
       if (kb) editor.addCommand(kb, fn);
     };
     bind("editor.save", async () => {
       if (getPrefs().formatOnSave) await format();
+      else await groupImports();
       onSave?.(editor.getValue());
     });
     bind("editor.format", () => format());
@@ -188,6 +323,9 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     bind("editor.deleteWord", () => editor.trigger("ff", "deleteWordLeft", null));
     bind("editor.deleteLine", () => run("editor.action.deleteLines"));
     bind("editor.findNext", () => run("editor.action.nextMatchFindAction"));
+    // Opens the find widget with the replace row expanded; if find is already
+    // open (find-only), it widens it to show replace.
+    bind("editor.replace", () => run("editor.action.startFindReplaceAction"));
     bind("editor.expandSelection", () => run("editor.action.smartSelect.expand"));
     bind("editor.shrinkSelection", () => run("editor.action.smartSelect.shrink"));
     bind("editor.jumpBracket", () => run("editor.action.jumpToBracket"));
@@ -594,6 +732,80 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           );
         });
 
+        // Implement interface (Ctrl+I): picker at the caret. When the caret
+        // sits on a `type X …` declaration the stubs target that type;
+        // otherwise a new type is created.
+        bind("editor.implementIface", () => {
+          if (readOnly) return;
+          const p = editor.getPosition();
+          if (!p) return;
+          const vis = editor.getScrolledVisiblePosition(p);
+          const r = editor.getDomNode()?.getBoundingClientRect();
+          const onType = /^type\s+([A-Za-z_]\w*)/.exec(model.getLineContent(p.lineNumber));
+          setIfaceGen({
+            x: (r?.left ?? 0) + (vis?.left ?? 0),
+            y: (r?.top ?? 0) + (vis?.top ?? 0) + (vis?.height ?? 18),
+            step: "search",
+            query: "",
+            nonProject: true,
+            results: [],
+            sel: 0,
+            typeName: onType?.[1] ?? "",
+            busy: false,
+          });
+        });
+
+        ifaceInsertRef.current = async (iface, typeName) => {
+          const src = await api.readTextFile(iface.path).catch(() => null);
+          if (src == null || model.isDisposed()) {
+            setIfaceGen(null);
+            return;
+          }
+          const dirOf = (p: string) => p.slice(0, p.lastIndexOf("/"));
+          const qualifier = dirOf(iface.path) === dirOf(path) ? "" : packageNameOf(src);
+          // The type may already exist in this file — then only methods go in.
+          const exists = new RegExp(`^type\\s+${typeName}\\b`, "m").test(model.getValue());
+          const stub = buildStubs({
+            source: src,
+            ifaceName: iface.name,
+            line: iface.line,
+            typeName,
+            qualifier,
+            ifacePkgPath: iface.pkgPath,
+            createType: !exists,
+          });
+          setIfaceGen(null);
+          if (!stub) return;
+          // Plan the imports the signatures reference (resolved through the
+          // interface file's import block — deterministic, unlike waiting for
+          // gopls to digest the change). The planner binds each path to a
+          // qualifier (existing alias, or the canonical package name for a
+          // fresh plain import) — rewrite the stub to whatever it bound.
+          const plan = importPlanner(model, cachedGoImportsConfig(root), getPrefs().goImportStyle);
+          let text = stub.text;
+          const importEdits: MEditor.IIdentifiedSingleEditOperation[] = [];
+          for (const imp of stub.imports) {
+            const p = plan(imp.path, imp.name);
+            if (!p) continue;
+            if (p.qualifier !== imp.pkg) {
+              text = text.replace(new RegExp(`\\b${imp.pkg}\\.`, "g"), p.qualifier ? `${p.qualifier}.` : "");
+            }
+            if (p.edit) importEdits.push({ range: p.edit.range, text: p.edit.text, forceMoveMarkers: true });
+          }
+          const ln = editor.getPosition()?.lineNumber ?? model.getLineCount();
+          const col = model.getLineMaxColumn(ln);
+          // Stub goes in first — it sits below the import block, so the import
+          // inserts (planned against the pre-stub layout) stay valid either way.
+          editor.executeEdits("ff-implement", [
+            { range: new monaco.Range(ln, col, ln, col), text: `\n\n${text}`, forceMoveMarkers: true },
+          ]);
+          if (importEdits.length) editor.executeEdits("ff-implement-imports", importEdits);
+          // gopls catches anything left (and drops nothing we just added), gofmt tidies.
+          await organizeImports(model);
+          await editor.getAction("editor.action.formatDocument")?.run();
+          editor.focus();
+        };
+
         attachGo({ monaco, model, root, path })
           .then(() => {
             setLsp("ready");
@@ -640,6 +852,119 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       }
     }
 
+    // JetBrains-style VCS gutter: stripes on lines that differ from the
+    // baseline; click → popup with the old block, rollback and navigation.
+    monacoApiRef.current = monaco;
+    if (model) {
+      const gmodel = model;
+      // Stripe anchor line (1-based, editor side). Pure deletions sit between
+      // two lines — anchor on the line above the gap.
+      const hunkLine = (h: HunkInfo) => (h.old_len > 0 ? h.old_start + 1 : Math.max(1, h.old_start));
+      const hunkCovers = (h: HunkInfo, line: number) =>
+        h.old_len > 0 ? line >= h.old_start + 1 && line <= h.old_start + h.old_len : line === hunkLine(h);
+
+      let changeDecos: string[] = [];
+      const renderChanges = (hk: HunkInfo[]) => {
+        changeDecos = editor.deltaDecorations(
+          changeDecos,
+          hk.map((h) => ({
+            range: new monaco.Range(hunkLine(h), 1, h.old_len > 0 ? h.old_start + h.old_len : hunkLine(h), 1),
+            options: {
+              linesDecorationsClassName: `ff-gut-change ${h.new_len === 0 ? "add" : h.old_len === 0 ? "del" : "mod"}`,
+              stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+            },
+          })),
+        );
+      };
+
+      const hunksRef = { current: [] as HunkInfo[] };
+      let gutToken = 0;
+      const recompute = async () => {
+        const base = diffBaseRef.current;
+        if (base == null || gmodel.isDisposed()) {
+          hunksRef.current = [];
+          setGutHunks([]);
+          if (!gmodel.isDisposed()) renderChanges([]);
+          return;
+        }
+        const tok = ++gutToken;
+        const hk = await api.textHunks(base, gmodel.getValue()).catch(() => null);
+        if (!hk || tok !== gutToken || gmodel.isDisposed()) return;
+        hunksRef.current = hk;
+        setGutHunks(hk);
+        renderChanges(hk);
+      };
+      recomputeRef.current = recompute;
+      recompute();
+      let gutTimer = 0;
+      const gutSub = gmodel.onDidChangeContent(() => {
+        window.clearTimeout(gutTimer);
+        gutTimer = window.setTimeout(recompute, 350);
+      });
+      editor.onDidDispose(() => gutSub.dispose());
+
+      editor.onMouseDown((e) => {
+        if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS) return;
+        if (!(e.target.element as HTMLElement | null)?.classList.contains("ff-gut-change")) return;
+        const line = e.target.position?.lineNumber;
+        if (!line) return;
+        const idx = hunksRef.current.findIndex((h) => hunkCovers(h, line));
+        if (idx < 0) return;
+        e.event.preventDefault();
+        const be = e.event.browserEvent;
+        setGutPop({ x: be.clientX, y: be.clientY, idx });
+      });
+
+      // ↑/↓ in the popup: reveal the adjacent change and re-anchor the popup
+      // under its stripe (reveal scrolls async, so position after it settles).
+      const openPopAt = (idx: number) => {
+        const h = hunksRef.current[idx];
+        if (!h) return;
+        const line = hunkLine(h);
+        editor.revealLineInCenterIfOutsideViewport(line);
+        window.setTimeout(() => {
+          const vis = editor.getScrolledVisiblePosition({ lineNumber: line, column: 1 });
+          const r = editor.getDomNode()?.getBoundingClientRect();
+          setGutPop({
+            x: (r?.left ?? 0) + 48,
+            y: (r?.top ?? 0) + (vis?.top ?? 0) + (vis?.height ?? 19),
+            idx,
+          });
+        }, 140);
+      };
+      gutCtlRef.current = {
+        goto: openPopAt,
+        // Restores the block to the baseline via an editor edit (so it lands in
+        // the native undo stack), then persists through the normal save path.
+        rollback: (h) => {
+          const base = diffBaseRef.current;
+          if (base == null || gmodel.isDisposed()) return;
+          const repl =
+            h.new_len > 0
+              ? base
+                  .split("\n")
+                  .slice(h.new_start, h.new_start + h.new_len)
+                  .join("\n") + "\n"
+              : "";
+          const range = new monaco.Range(h.old_start + 1, 1, h.old_start + h.old_len + 1, 1);
+          editor.executeEdits("ff-rollback", [{ range, text: repl, forceMoveMarkers: true }]);
+          setGutPop(null);
+          editor.focus();
+          onSave?.(editor.getValue());
+        },
+        // Checkout the whole file from the baseline — every change reverts at
+        // once, still as a single undoable edit.
+        checkout: () => {
+          const base = diffBaseRef.current;
+          if (base == null || gmodel.isDisposed()) return;
+          editor.executeEdits("ff-checkout", [{ range: gmodel.getFullModelRange(), text: base, forceMoveMarkers: true }]);
+          setGutPop(null);
+          editor.focus();
+          onSave?.(editor.getValue());
+        },
+      };
+    }
+
     // Content arrives async on (re)mount; reveal after it settles.
     if (gotoPos) {
       window.setTimeout(() => {
@@ -663,7 +988,13 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
         className="editor-wrap"
         theme={THEME}
         language={language}
-        value={content}
+        // Uncontrolled + one model per file path: keeps an isolated undo stack
+        // per file and never records content swaps as undoable edits (which
+        // made ⌘Z blank the file / pull in another file's text). External
+        // content changes are synced by the effect above.
+        path={path}
+        defaultValue={content}
+        keepCurrentModel={!!path}
         beforeMount={defineTheme}
         onMount={onMount}
         options={{
@@ -732,6 +1063,184 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
                 {it.dbg ? "🐞" : "▶"} {it.label}
               </button>
             ))}
+          </div>
+        </>
+      )}
+      {ifaceGen && (
+        <>
+          <div
+            className="ctx-backdrop"
+            onClick={() => setIfaceGen(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setIfaceGen(null);
+            }}
+          />
+          <div
+            className="iface-pop"
+            style={{
+              left: Math.max(8, Math.min(ifaceGen.x, window.innerWidth - 560)),
+              top: Math.max(8, Math.min(ifaceGen.y, window.innerHeight - 340)),
+            }}
+          >
+            {ifaceGen.step === "search" ? (
+              <>
+                <div className="iface-pop-head">
+                  <span>Choose interface to implement:</span>
+                  <label className="iface-pop-toggle" title="Include interfaces outside this project (dependencies, stdlib)">
+                    <input
+                      type="checkbox"
+                      checked={ifaceGen.nonProject}
+                      onChange={(e) => setIfaceGen({ ...ifaceGen, nonProject: e.target.checked })}
+                    />
+                    Non-project
+                  </label>
+                </div>
+                <input
+                  className="iface-pop-search"
+                  autoFocus
+                  placeholder="Search interfaces…"
+                  value={ifaceGen.query}
+                  onChange={(e) => setIfaceGen({ ...ifaceGen, query: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setIfaceGen(null);
+                    else if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setIfaceGen({ ...ifaceGen, sel: Math.min(ifaceGen.sel + 1, ifaceGen.results.length - 1) });
+                    } else if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setIfaceGen({ ...ifaceGen, sel: Math.max(ifaceGen.sel - 1, 0) });
+                    } else if (e.key === "Enter") {
+                      const hit = ifaceGen.results[ifaceGen.sel];
+                      if (hit)
+                        setIfaceGen({
+                          ...ifaceGen,
+                          step: "name",
+                          iface: hit,
+                          typeName: ifaceGen.typeName || `${hit.name}Impl`,
+                        });
+                    }
+                  }}
+                />
+                <div className="iface-pop-list">
+                  {ifaceGen.results.map((s, i) => (
+                    <button
+                      key={`${s.path}:${s.line}:${s.name}`}
+                      className={i === ifaceGen.sel ? "on" : ""}
+                      onMouseEnter={() => setIfaceGen({ ...ifaceGen, sel: i })}
+                      onClick={() =>
+                        setIfaceGen({
+                          ...ifaceGen,
+                          step: "name",
+                          iface: s,
+                          typeName: ifaceGen.typeName || `${s.name}Impl`,
+                        })
+                      }
+                    >
+                      <span className="iface-name">{s.name}</span>
+                      <span className="iface-pkg">in {s.pkgPath || s.path}</span>
+                    </button>
+                  ))}
+                  {ifaceGen.results.length === 0 && (
+                    <div className="iface-pop-none">{ifaceGen.query ? "No interfaces match." : "Type to search…"}</div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="iface-pop-head">
+                  <span>
+                    Implement <b>{ifaceGen.iface?.name}</b> — type name:
+                  </span>
+                </div>
+                <input
+                  className="iface-pop-search"
+                  autoFocus
+                  value={ifaceGen.typeName}
+                  disabled={ifaceGen.busy}
+                  onChange={(e) => setIfaceGen({ ...ifaceGen, typeName: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setIfaceGen(null);
+                    else if (e.key === "Enter" && ifaceGen.iface && /^[A-Za-z_]\w*$/.test(ifaceGen.typeName)) {
+                      setIfaceGen({ ...ifaceGen, busy: true });
+                      ifaceInsertRef.current(ifaceGen.iface, ifaceGen.typeName);
+                    }
+                  }}
+                />
+                <div className="iface-pop-none">
+                  {ifaceGen.busy ? "Generating…" : "Enter creates the type with method stubs; Esc cancels."}
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+      {gutPop && popHunk && (
+        <>
+          <div
+            className="ctx-backdrop"
+            onClick={() => setGutPop(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setGutPop(null);
+            }}
+          />
+          <div
+            className="gut-pop"
+            style={{
+              left: Math.max(8, Math.min(gutPop.x, window.innerWidth - 580)),
+              top: Math.max(8, Math.min(gutPop.y, window.innerHeight - 280)),
+            }}
+          >
+            <div className="gut-pop-bar">
+              <button
+                title="Previous change"
+                disabled={gutPop.idx === 0}
+                onClick={() => gutCtlRef.current.goto(gutPop.idx - 1)}
+              >
+                ↑
+              </button>
+              <button
+                title="Next change"
+                disabled={gutPop.idx >= gutHunks.length - 1}
+                onClick={() => gutCtlRef.current.goto(gutPop.idx + 1)}
+              >
+                ↓
+              </button>
+              <button title="Rollback this change" onClick={() => gutCtlRef.current.rollback(popHunk)}>
+                ⟲
+              </button>
+              <button
+                title="Checkout the base version of the whole file (reverts every change; ⌘Z undoes)"
+                onClick={() => gutCtlRef.current.checkout()}
+              >
+                ⤓
+              </button>
+              {popHunk.new_len > 0 && (
+                <button
+                  title="Copy the previous text"
+                  onClick={() => navigator.clipboard.writeText(popOldText).catch(() => {})}
+                >
+                  ⧉
+                </button>
+              )}
+              <span className="gut-pop-count">
+                {popHunk.new_len === 0 ? "Added" : popHunk.old_len === 0 ? "Deleted" : "Changed"} ·{" "}
+                {gutPop.idx + 1}/{gutHunks.length}
+              </span>
+              <button title="Close" onClick={() => setGutPop(null)}>
+                ✕
+              </button>
+            </div>
+            {popHunk.new_len > 0 ? (
+              oldHtml ? (
+                <pre className="gut-pop-code" dangerouslySetInnerHTML={{ __html: oldHtml }} />
+              ) : (
+                <pre className="gut-pop-code">{popOldText}</pre>
+              )
+            ) : (
+              <div className="gut-pop-empty">New lines — no base content</div>
+            )}
           </div>
         </>
       )}

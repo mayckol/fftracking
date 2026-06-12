@@ -191,6 +191,15 @@ pub fn snapshot_summaries(state: State<AppState>, monitor_id: i64) -> R<Vec<Chan
 }
 
 #[tauri::command]
+pub fn snapshot_summaries_under(
+    state: State<AppState>,
+    monitor_id: i64,
+    prefix: String,
+) -> R<Vec<ChangeSummary>> {
+    err(state.engine.snapshot_change_summaries_under(monitor_id, &prefix))
+}
+
+#[tauri::command]
 pub fn git_reset_file(state: State<AppState>, monitor_id: i64, path: String) -> R<()> {
     err(state.engine.git_reset_file(monitor_id, &path))
 }

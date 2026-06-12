@@ -19,7 +19,7 @@ export function defineTheme(monaco: Monaco) {
       "editorLineNumber.foreground": "#3d4855",
       "editorLineNumber.activeForeground": "#9aa7b4",
       "editor.lineHighlightBackground": "#161b22",
-      "editor.lineHighlightBorder": "#2b3744",
+      "editor.lineHighlightBorder": "#00000000",
       "editor.selectionBackground": "#33455a",
       "editor.selectionHighlightBackground": "#2b374466",
       "diffEditor.insertedTextBackground": "#3fb95022",

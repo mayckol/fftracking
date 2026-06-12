@@ -367,6 +367,36 @@ select:focus {
   min-height: 0;
   border-top: 1px solid var(--line);
 }
+.hv-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+}
+.hv-filter-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent, #6aa0ff);
+}
+.hv-filter-clear {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--muted, #888);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 1;
+}
+.hv-filter-clear:hover {
+  color: var(--fg, #ddd);
+}
 .hv-hpane {
   display: flex;
   flex-direction: column;
@@ -990,7 +1020,8 @@ button.vs-tag:hover {
 .trow:hover {
   background: var(--bg-2);
 }
-.trow.file.on {
+.trow.file.on,
+.trow.dir.on {
   background: var(--bg-3);
   border-left-color: var(--ac);
 }
@@ -1739,6 +1770,12 @@ button.vs-tag:hover {
 .trow.dir.err .dname {
   color: #d2786a;
 }
+/* changed vs the baseline (git HEAD / latest point); error tint wins —
+   rows never carry both classes */
+.trow.file.chg .tname,
+.trow.dir.chg .dname {
+  color: #3e9e54;
+}
 .statusbar .sb-lsp.ready {
   color: #5fb37a;
 }
@@ -1830,6 +1867,190 @@ button.vs-tag:hover {
 .ff-revert-glyph:hover::after {
   filter: brightness(1.18);
   transform: scale(1.08);
+}
+
+/* JetBrains-style VCS gutter: change stripes in the editor + click popup */
+.ff-gut-change {
+  cursor: pointer;
+}
+/* one div per line — no radius and a 1px overlap so a multi-line hunk reads
+   as a single continuous bar, not stacked segments */
+.ff-gut-change::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: -1px;
+  bottom: -1px;
+  width: 3px;
+}
+.ff-gut-change.add::before {
+  background: var(--add);
+}
+.ff-gut-change.mod::before {
+  background: var(--mod);
+}
+/* a pure deletion sits between two lines: small arrow at the bottom edge */
+.ff-gut-change.del::before {
+  top: auto;
+  bottom: -4px;
+  height: 8px;
+  width: 8px;
+  left: 1px;
+  border-radius: 1px;
+  background: var(--del);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+.ff-gut-change:hover::before {
+  filter: brightness(1.3);
+}
+
+.gut-pop {
+  position: fixed;
+  z-index: 61;
+  min-width: 340px;
+  max-width: 560px;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.gut-pop-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.gut-pop-bar button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  color: var(--tx-1);
+}
+.gut-pop-bar button:hover:not(:disabled) {
+  background: var(--bg-4);
+  color: var(--tx-0);
+}
+.gut-pop-bar button:disabled {
+  opacity: 0.35;
+}
+.gut-pop-count {
+  margin-left: auto;
+  padding: 0 4px;
+  font-size: var(--fs-xs);
+  color: var(--tx-2);
+  white-space: nowrap;
+}
+.gut-pop-code {
+  margin: 0;
+  padding: 6px 10px;
+  max-height: 200px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg-1);
+  white-space: pre;
+}
+.gut-pop-empty {
+  padding: 6px 10px;
+  font-size: var(--fs-xs);
+  font-style: italic;
+  color: var(--tx-2);
+  background: var(--bg-1);
+}
+
+/* implement-interface picker (Ctrl+I, JetBrains-style) */
+.iface-pop {
+  position: fixed;
+  z-index: 61;
+  width: 540px;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.iface-pop-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: 7px 10px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.iface-pop-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--tx-1);
+  cursor: pointer;
+}
+.iface-pop-search {
+  width: 100%;
+  padding: 7px 10px;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--tx-0);
+  background: var(--bg-1);
+  border: none;
+  border-bottom: 1px solid var(--line);
+  outline: none;
+}
+.iface-pop-list {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+}
+.iface-pop-list button {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  width: 100%;
+  padding: 5px 8px;
+  text-align: left;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.iface-pop-list button.on {
+  background: var(--ac);
+}
+.iface-pop-list button.on .iface-name,
+.iface-pop-list button.on .iface-pkg {
+  color: #0a0c10;
+}
+.iface-name {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--tx-0);
+  white-space: nowrap;
+}
+.iface-pkg {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--tx-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.iface-pop-none {
+  padding: 8px 10px;
+  font-size: var(--fs-xs);
+  font-style: italic;
+  color: var(--tx-2);
 }
 
 /* per-scope revert toolbar (JetBrains-style change-block reverts) */

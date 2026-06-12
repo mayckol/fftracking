@@ -66,6 +66,8 @@ export const api = {
     invoke<string | null>("base_file", { monitorId, snapshotId, path }),
   snapshotSummaries: (monitorId: number) =>
     invoke<ChangeSummary[]>("snapshot_summaries", { monitorId }),
+  snapshotSummariesUnder: (monitorId: number, prefix: string) =>
+    invoke<ChangeSummary[]>("snapshot_summaries_under", { monitorId, prefix }),
   gitResetFile: (monitorId: number, path: string) =>
     invoke<void>("git_reset_file", { monitorId, path }),
   gitResetFolder: (monitorId: number, prefix: string, removeExtraneous: boolean) =>

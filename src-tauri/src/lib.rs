@@ -78,6 +78,7 @@ pub fn run() {
             commands::reveal_path,
             commands::base_file,
             commands::snapshot_summaries,
+            commands::snapshot_summaries_under,
             commands::git_reset_file,
             commands::git_reset_folder,
             commands::snapshot_files,

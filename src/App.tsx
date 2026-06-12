@@ -47,12 +47,13 @@ export default function App() {
   useEffect(() => {
     if (search === null) setReplaceReq(0);
   }, [search]);
-  // Open-a-file request from the search palette, routed into HistoryView.
+  // Open-a-file / reveal-a-folder request from the search palette, routed into HistoryView.
   const [openReq, setOpenReq] = useState<{
     monitorId: number;
     path: string;
     line?: number;
     col?: number;
+    kind?: "file" | "dir";
     n: number;
   } | null>(null);
   const [termH, setTermH] = useState(280);
@@ -205,6 +206,14 @@ export default function App() {
     setOpenReq((r) => ({ monitorId: selected, path, line, col, n: (r?.n ?? 0) + 1 }));
   }
 
+  // Folder picked in the palette: highlight it in the project tree (expanding
+  // its nested folders) rather than opening the OS file manager.
+  function revealFolderFromSearch(path: string) {
+    if (selected == null) return;
+    if (tab !== "files" && tab !== "history") setTab("files");
+    setOpenReq((r) => ({ monitorId: selected, path, kind: "dir" as const, n: (r?.n ?? 0) + 1 }));
+  }
+
   return (
     <div className="app">
       <header className="titlebar">
@@ -349,7 +358,7 @@ export default function App() {
           onModeChange={setSearch}
           onClose={() => setSearch(null)}
           onOpenFile={openFromSearch}
-          onRevealFolder={(p) => api.revealPath(selected, p).catch((e) => notify(String(e), true))}
+          onRevealFolder={revealFolderFromSearch}
         />
       )}
 
