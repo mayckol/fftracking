@@ -87,15 +87,16 @@ jobs:
           set -euo pipefail
           [ -n "${TAP_TOKEN:-}" ] || { echo "HOMEBREW_TAP_GITHUB_TOKEN not set — skipping cask update"; exit 0; }
           TAG="${GITHUB_REF_NAME}"; VER="${TAG#v}"
-          DMG="fftracking_${VER}_aarch64.dmg"
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$DMG" --dir .
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "*aarch64*.dmg" --dir .
+          DMG="$(ls *aarch64*.dmg 2>/dev/null | head -1)"
+          [ -n "$DMG" ] || { echo "No DMG found matching *aarch64*.dmg"; exit 1; }
           SHA="$(shasum -a 256 "$DMG" | awk '{print $1}')"
           cat > fftracking.rb <<EOF
           cask "fftracking" do
             version "${VER}"
             sha256 "${SHA}"
 
-            url "https://github.com/mayckol/fftracking/releases/download/v#{version}/fftracking_#{version}_aarch64.dmg"
+            url "https://github.com/mayckol/fftracking/releases/download/v#{version}/${DMG}"
             name "fftracking"
             desc "Local file-history & breaking-point tracker"
             homepage "https://github.com/mayckol/fftracking"
