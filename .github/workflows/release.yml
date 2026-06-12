@@ -48,6 +48,19 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
+      # Keep the bundled version in lockstep with the git tag. tauri-action stamps
+      # bundle filenames (e.g. fftracking_<ver>_amd64.AppImage) from this config
+      # version; if it lags the tag, the published assets no longer match the URL
+      # the install script builds and downloads 404.
+      - name: Sync version from tag
+        shell: bash
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          sed -i.bak -E "s/(\"version\":[[:space:]]*\")[^\"]*\"/\1${VER}\"/" src-tauri/tauri.conf.json
+          sed -i.bak -E "s/^version = \".*\"/version = \"${VER}\"/" src-tauri/Cargo.toml
+          rm -f src-tauri/tauri.conf.json.bak src-tauri/Cargo.toml.bak
+          echo "synced to $VER"; grep -m1 '"version"' src-tauri/tauri.conf.json
+
       - run: npm ci
 
       - uses: tauri-apps/tauri-action@v0
