@@ -34,6 +34,8 @@ export const ACTIONS: ActionDef[] = [
   { id: "editor.expandSelection", label: "Expand selection", group: "Editor", default: "Mod+Shift+]" },
   { id: "editor.shrinkSelection", label: "Shrink selection", group: "Editor", default: "Mod+Shift+[" },
   { id: "editor.jumpBracket", label: "Go to matching bracket", group: "Editor", default: "Mod+[" },
+  { id: "editor.gotoFileStart", label: "Go to first line", group: "Editor", default: "Mod+ArrowUp" },
+  { id: "editor.gotoFileEnd", label: "Go to last line", group: "Editor", default: "Mod+ArrowDown" },
   { id: "editor.commentLine", label: "Toggle comment (line / selection)", group: "Editor", default: "Mod+/" },
   { id: "editor.implementations", label: "Go to implementations / specifications", group: "Editor", default: "Mod+U" },
   { id: "editor.implementIface", label: "Implement interface (generate stubs)", group: "Editor", default: "Ctrl+I" },
@@ -61,6 +63,7 @@ export const ACTIONS: ActionDef[] = [
   { id: "nav.nextPoint", label: "Next breaking point", group: "Navigation", default: "Alt+PageDown" },
   { id: "nav.prevPoint", label: "Previous breaking point", group: "Navigation", default: "Alt+PageUp" },
   { id: "terminal.toggle", label: "Toggle terminal", group: "Navigation", default: "Mod+`" },
+  { id: "settings.palette", label: "Open settings palette", group: "Navigation", default: "Mod+," },
   // Debug bindings follow JetBrains defaults (F8/F7/⇧F8/F9).
   { id: "debug.toggleBreakpoint", label: "Toggle breakpoint at cursor", group: "Debug", default: "Mod+F8" },
   { id: "debug.stepOver", label: "Step over", group: "Debug", default: "F8" },

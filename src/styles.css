@@ -1655,6 +1655,12 @@ button.vs-tag:hover {
 .palette-keys {
   margin-left: auto;
 }
+.palette.shortcuts .keys {
+  padding: 2px 9px 4px;
+}
+.palette.shortcuts .palette-file {
+  background: var(--bg-2);
+}
 
 .ctx-backdrop {
   position: fixed;

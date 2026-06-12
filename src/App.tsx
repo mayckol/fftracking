@@ -18,6 +18,8 @@ import {
 } from "./lib/debug";
 import ConfirmModal from "./components/ConfirmModal";
 import SearchPalette, { type PaletteMode } from "./components/SearchPalette";
+import SettingsPalette from "./components/SettingsPalette";
+import ShortcutsModal from "./components/ShortcutsModal";
 import type { MonitorRow, ResourceUsage } from "./lib/types";
 import GitView from "./panels/GitView";
 import HistoryView from "./panels/HistoryView";
@@ -41,6 +43,10 @@ export default function App() {
   const [debugH, setDebugH] = useState(300);
   const [dbgStatus, setDbgStatus] = useState(getDebugSnapshot().status);
   const [search, setSearch] = useState<PaletteMode | null>(null);
+  const [settingsPalette, setSettingsPalette] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Settings section to scroll to when routed from the settings palette.
+  const [settingsScroll, setSettingsScroll] = useState<string | null>(null);
   // Bumped by ⌘⇧R: tells the palette to open its replace row. Reset on close
   // so a later plain ⌘⇧F doesn't reopen with replace enabled.
   const [replaceReq, setReplaceReq] = useState(0);
@@ -178,6 +184,7 @@ export default function App() {
   const inWorkspace = tab === "files" || tab === "history";
   useShortcut("capture.snapshot", snapshotNow, inWorkspace && selected != null);
   useShortcut("terminal.toggle", () => setShowTerm((v) => !v));
+  useShortcut("settings.palette", () => setSettingsPalette((v) => !v));
   // Seeds for the palette, captured at the moment the shortcut fires — query
   // from the editor selection (first line, like VSCode's ⌘⇧F), scope from the
   // last folder clicked in the project tree.
@@ -220,10 +227,10 @@ export default function App() {
         <div className="brand">
           <span className="dot" />
           fftracking
-          <small>v0.5.8 · build {__BUILD_ID__}</small>
+          <small>v0.5.8</small>
         </div>
         <nav className="tabs">
-          {(["files", "history", "git", "settings"] as Tab[]).map((t) => (
+          {(["git", "settings"] as Tab[]).map((t) => (
             <button key={t} className={`tab${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
               {t}
             </button>
@@ -256,11 +263,6 @@ export default function App() {
         >
           {">_ Terminal"}
         </button>
-        {inWorkspace && selected != null && (
-          <button className="tbtn primary" onClick={snapshotNow}>
-            ⦿ Snapshot now
-          </button>
-        )}
       </header>
 
       {(tab === "files" || tab === "history") && (
@@ -326,7 +328,7 @@ export default function App() {
 
       {tab === "settings" && (
         <div className="work" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
-          <SettingsView toast={notify} />
+          <SettingsView toast={notify} scrollTo={settingsScroll} onOpenShortcuts={() => setShortcutsOpen(true)} />
         </div>
       )}
 
@@ -361,6 +363,27 @@ export default function App() {
           onRevealFolder={revealFolderFromSearch}
         />
       )}
+
+      {settingsPalette && (
+        <SettingsPalette
+          onClose={() => setSettingsPalette(false)}
+          onSelect={(id) => {
+            setSettingsPalette(false);
+            if (id === "keymap") {
+              setShortcutsOpen(true);
+              return;
+            }
+            // "sec:<name>" → open the Settings tab and scroll to that section.
+            const sec = id.replace(/^sec:/, "");
+            setTab("settings");
+            // Force the effect to refire even when re-selecting the same section.
+            setSettingsScroll(null);
+            requestAnimationFrame(() => setSettingsScroll(sec));
+          }}
+        />
+      )}
+
+      {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
 
       {confirmDel && (
         <ConfirmModal
