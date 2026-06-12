@@ -1,0 +1,120 @@
+import type { Theme } from "./types";
+
+// Derived from the Zed "Tokyo Night" dark variant (tokyonight palette):
+// surfaces from background/surface tokens, syntax from its syntax block.
+export const tokyoNight: Theme = {
+  id: "tokyo-night",
+  label: "Tokyo Night",
+  appearance: "dark",
+  cssVars: {
+    "--bg-0": "#1a1b26",
+    "--bg-1": "#16161e",
+    "--bg-2": "#1e202e",
+    "--bg-3": "#24283b",
+    "--bg-4": "#2f344d",
+
+    "--line": "#101014",
+    "--line-2": "#363b54",
+    "--line-3": "#414868",
+
+    "--tx-0": "#c0caf5",
+    "--tx-1": "#a9b1d6",
+    "--tx-2": "#787c99",
+    "--tx-3": "#414868",
+
+    "--ac": "#7aa2f7",
+    "--ac-dim": "#5d7ec9",
+    "--ac-bright": "#9ab8ff",
+    "--ac-glow": "rgba(122, 162, 247, 0.16)",
+
+    "--add": "#9ece6a",
+    "--add-bg": "rgba(158, 206, 106, 0.13)",
+    "--mod": "#e0af68",
+    "--mod-bg": "rgba(224, 175, 104, 0.13)",
+    "--del": "#f7768e",
+    "--del-bg": "rgba(247, 118, 142, 0.13)",
+    "--conflict": "#bb9af7",
+    "--conflict-bg": "rgba(187, 154, 247, 0.14)",
+
+    "--err-soft": "#f7768e",
+    "--warn-soft": "#e0af68",
+    "--chg-soft": "#9ece6a",
+    "--ok-soft": "#73daca",
+
+    "--t-event": "#73daca",
+    "--t-event-bg": "rgba(115, 218, 202, 0.1)",
+    "--t-interval": "#7aa2f7",
+    "--t-manual": "#787c99",
+    "--t-revert": "#f7768e",
+
+    "--debug-hint": "#5f6996",
+    "--debug-name": "#bb9af7",
+
+    "--glow-1": "rgba(122, 162, 247, 0.05)",
+    "--glow-2": "rgba(115, 218, 202, 0.035)",
+
+    "--ruler-80": "#232639",
+    "--ruler-120": "#2e3350",
+  },
+  monaco: {
+    base: "vs-dark",
+    rules: [
+      { token: "comment", foreground: "51597d", fontStyle: "italic" },
+      { token: "keyword", foreground: "bb9af7" },
+      { token: "string", foreground: "9ece6a" },
+      { token: "number", foreground: "ff9e64" },
+      { token: "constant", foreground: "ff9e64" },
+      { token: "type", foreground: "0db9d7" },
+      { token: "delimiter", foreground: "89ddff" },
+      { token: "operator", foreground: "89ddff" },
+      { token: "tag", foreground: "f7768e" },
+      { token: "attribute.name", foreground: "bb9af7" },
+      { token: "regexp", foreground: "9ece6a" },
+      // Identifiers the lexer can't classify get the bright lavender Zed uses
+      // for variables, instead of inheriting the muted editor foreground.
+      { token: "identifier", foreground: "c0caf5" },
+      // Semantic tokens (gopls): the lexical tokenizer can't tell functions,
+      // types and namespaces apart — these rules match the LSP legend names.
+      { token: "function", foreground: "7aa2f7" },
+      { token: "method", foreground: "7aa2f7" },
+      { token: "namespace", foreground: "c0caf5" },
+      { token: "struct", foreground: "0db9d7" },
+      { token: "interface", foreground: "0db9d7" },
+      { token: "class", foreground: "0db9d7" },
+      { token: "enum", foreground: "0db9d7" },
+      { token: "typeParameter", foreground: "0db9d7" },
+      { token: "parameter", foreground: "c0caf5" },
+      { token: "variable", foreground: "c0caf5" },
+      { token: "property", foreground: "c0caf5" },
+      { token: "enumMember", foreground: "ff9e64" },
+      { token: "variable.readonly", foreground: "ff9e64" },
+      { token: "variable.defaultLibrary", foreground: "f7768e" },
+      // Builtins like new/make read as function calls in Zed, not keywords.
+      { token: "function.defaultLibrary", foreground: "7aa2f7" },
+      { token: "keyword.defaultLibrary", foreground: "7aa2f7" },
+      { token: "decorator", foreground: "bb9af7" },
+      { token: "macro", foreground: "bb9af7" },
+      { token: "label", foreground: "c0caf5" },
+    ],
+    colors: {
+      "editor.background": "#1a1b26",
+      "editor.foreground": "#c0caf5",
+      "editorGutter.background": "#1a1b26",
+      "editorLineNumber.foreground": "#363b54",
+      "editorLineNumber.activeForeground": "#a9b1d6",
+      "editor.lineHighlightBackground": "#1e202e",
+      "editor.lineHighlightBorder": "#00000000",
+      "editor.selectionBackground": "#283457",
+      "editor.selectionHighlightBackground": "#28345799",
+      "diffEditor.insertedTextBackground": "#9ece6a22",
+      "diffEditor.removedTextBackground": "#f7768e22",
+      "diffEditor.insertedLineBackground": "#9ece6a14",
+      "diffEditor.removedLineBackground": "#f7768e14",
+      "diffEditorGutter.insertedLineBackground": "#9ece6a22",
+      "diffEditorGutter.removedLineBackground": "#f7768e22",
+      "editorOverviewRuler.border": "#00000000",
+      "scrollbarSlider.background": "#41486880",
+      "scrollbarSlider.hoverBackground": "#414868aa",
+    },
+  },
+};

@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Editor, type Monaco, type OnMount } from "@monaco-editor/react";
 import type { editor as MEditor } from "monaco-editor";
-import { defineTheme, THEME } from "./monacoTheme";
+import { defineAllThemes, monacoThemeId } from "./monacoTheme";
 import {
   attachGo,
   implementationAnnotations,
@@ -997,7 +997,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     <div className="editor-shell">
       <Editor
         className="editor-wrap"
-        theme={THEME}
+        theme={monacoThemeId(prefs.theme)}
         language={language}
         // Uncontrolled + one model per file path: keeps an isolated undo stack
         // per file and never records content swaps as undoable edits (which
@@ -1006,7 +1006,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
         path={path}
         defaultValue={content}
         keepCurrentModel={!!path}
-        beforeMount={defineTheme}
+        beforeMount={defineAllThemes}
         onMount={onMount}
         options={{
           readOnly: !!readOnly,
@@ -1015,6 +1015,9 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           // re-applied on every render, so a one-off updateOptions would be
           // silently reverted.
           glyphMargin: language === "go",
+          // Off by default in Monaco; without it gopls semantic tokens are
+          // requested but never painted.
+          "semanticHighlighting.enabled": true,
           automaticLayout: true,
           lineHeight: 19,
           minimap: { enabled: false },

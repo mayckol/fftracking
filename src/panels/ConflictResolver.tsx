@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Editor, loader } from "@monaco-editor/react";
 import { api, WORKDIR } from "../lib/ipc";
 import { basename, langOf } from "../lib/util";
-import { defineTheme, THEME } from "../components/monacoTheme";
+import { defineAllThemes, monacoThemeId } from "../components/monacoTheme";
+import { useUIPrefs } from "../lib/uiPrefs";
 
 type Segment =
   | { kind: "ctx"; text: string }
@@ -65,6 +66,7 @@ interface Props {
 }
 
 export default function ConflictResolver({ repoPath, path, toast, onResolved }: Props) {
+  const prefs = useUIPrefs();
   const [segs, setSegs] = useState<Segment[]>([]);
   const [choices, setChoices] = useState<Record<number, Choice>>({});
   const [text, setText] = useState("");
@@ -187,10 +189,10 @@ export default function ConflictResolver({ repoPath, path, toast, onResolved }: 
         <div className="resolved-editor">
           <Editor
             height="320px"
-            theme={THEME}
+            theme={monacoThemeId(prefs.theme)}
             language={langOf(path)}
             value={text}
-            beforeMount={defineTheme}
+            beforeMount={defineAllThemes}
             onChange={(v) => setText(v ?? "")}
             options={{
               fontFamily: "JetBrains Mono",

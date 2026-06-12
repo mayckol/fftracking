@@ -14,7 +14,7 @@ import ProjectTree, { type ProjectTreeHandle } from "./ProjectTree";
 import FileView, { type FileHandle } from "../components/FileView";
 import Splitter from "../components/Splitter";
 import Timeline from "./Timeline";
-import { FileIcon } from "../components/Icons";
+import { FileTypeIcon } from "../components/FileTypeIcon";
 
 interface Props {
   monitorId: number;
@@ -942,7 +942,7 @@ export default function HistoryView({
                   }}
                   onAuxClick={(e) => e.button === 1 && closeTab(t)}
                 >
-                  <FileIcon />
+                  <FileTypeIcon name={t.path} />
                   <span className="tab-name">{basename(t.path)}</span>
                   {t.kind === "diff" && (
                     <span className="tab-kind" title="Diff view">

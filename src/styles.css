@@ -15,6 +15,7 @@
   /* hairlines */
   --line: #1e2630;
   --line-2: #2b3744;
+  --line-3: #3a4756;
 
   /* text */
   --tx-0: #e6edf3;
@@ -25,6 +26,7 @@
   /* accent — indigo playhead / selection / focus */
   --ac: #7c8cff;
   --ac-dim: #5663cc;
+  --ac-bright: #93a0ff;
   --ac-glow: rgba(124, 140, 255, 0.16);
 
   /* status */
@@ -37,11 +39,28 @@
   --conflict: #ff8c42;
   --conflict-bg: rgba(255, 140, 66, 0.14);
 
+  /* softened status tints (status bar, tree row text) */
+  --err-soft: #d2786a;
+  --warn-soft: #d6b16a;
+  --chg-soft: #3e9e54;
+  --ok-soft: #5fb37a;
+
   /* trigger hues */
   --t-event: #4cc4c0;
+  --t-event-bg: rgba(76, 196, 192, 0.1);
   --t-interval: #7c8cff;
   --t-manual: #8a94a3;
   --t-revert: #f0626e;
+
+  /* debugger inline hints */
+  --debug-hint: #5e7ca0;
+  --debug-name: #c792ea;
+
+  /* body corner glows + editor column rulers */
+  --glow-1: rgba(124, 140, 255, 0.05);
+  --glow-2: rgba(76, 196, 192, 0.035);
+  --ruler-80: #1c2430;
+  --ruler-120: #283344;
 
   /* type */
   --ui: "Archivo", system-ui, sans-serif;
@@ -92,8 +111,14 @@ body {
   overflow: hidden;
   /* faint instrument grain + corner glow for atmosphere */
   background-image:
-    radial-gradient(120% 90% at 100% 0%, rgba(124, 140, 255, 0.05), transparent 55%),
-    radial-gradient(80% 70% at 0% 100%, rgba(76, 196, 192, 0.035), transparent 60%);
+    radial-gradient(120% 90% at 100% 0%, var(--glow-1), transparent 55%),
+    radial-gradient(80% 70% at 0% 100%, var(--glow-2), transparent 60%);
+}
+
+.ftype-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 
 ::-webkit-scrollbar {
@@ -107,7 +132,7 @@ body {
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a4756;
+  background: var(--line-3);
   background-clip: content-box;
 }
 
@@ -268,17 +293,17 @@ select:focus {
 }
 .tbtn:hover {
   color: var(--tx-0);
-  border-color: #3a4756;
+  border-color: var(--line-3);
   background: var(--bg-3);
 }
 .tbtn.primary {
-  color: #0a0c10;
+  color: var(--bg-0);
   background: var(--ac);
   border-color: var(--ac);
   font-weight: 600;
 }
 .tbtn.primary:hover {
-  background: #93a0ff;
+  background: var(--ac-bright);
 }
 .tbtn.on {
   color: var(--ac);
@@ -382,20 +407,20 @@ select:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--accent, #6aa0ff);
+  color: var(--ac);
 }
 .hv-filter-clear {
   flex: 0 0 auto;
   background: none;
   border: none;
-  color: var(--muted, #888);
+  color: var(--tx-2);
   cursor: pointer;
   padding: 0 2px;
   font-size: 12px;
   line-height: 1;
 }
 .hv-filter-clear:hover {
-  color: var(--fg, #ddd);
+  color: var(--tx-0);
 }
 .hv-hpane {
   display: flex;
@@ -531,7 +556,7 @@ select:focus {
   flex-direction: column;
   min-height: 0;
   border-top: 1px solid var(--line);
-  background: #0a0c10;
+  background: var(--bg-0);
 }
 .term-bar {
   display: flex;
@@ -1032,16 +1057,16 @@ button.vs-tag:hover {
   color: var(--tx-2);
 }
 .dname {
-  font-family: var(--mono);
-  font-size: var(--fs-sm);
+  font-family: var(--tree-font, var(--mono));
+  font-size: var(--tree-font-size, var(--fs-sm));
   font-weight: 600;
   color: var(--tx-1);
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .tname {
-  font-family: var(--mono);
-  font-size: var(--fs-sm);
+  font-family: var(--tree-font, var(--mono));
+  font-size: var(--tree-font-size, var(--fs-sm));
   color: var(--tx-0);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1176,11 +1201,11 @@ button.vs-tag:hover {
   font-size: 11px;
 }
 .debug-exec-line {
-  background: rgba(227, 179, 65, 0.14);
+  background: var(--mod-bg);
 }
 /* Inline `name = value` hints while paused (JetBrains-style) */
 .debug-inline-val {
-  color: #5e7ca0 !important;
+  color: var(--debug-hint) !important;
   font-style: italic;
   opacity: 0.9;
 }
@@ -1349,7 +1374,7 @@ button.vs-tag:hover {
   flex-shrink: 0;
 }
 .dbg-name {
-  color: #c792ea;
+  color: var(--debug-name);
 }
 .dbg-type {
   color: var(--tx-3);
@@ -1688,7 +1713,7 @@ button.vs-tag:hover {
 }
 .ctx-menu button:hover:not(:disabled) {
   background: var(--ac);
-  color: #0a0c10;
+  color: var(--bg-0);
 }
 
 /* ---------- diff header / main ---------- */
@@ -1766,30 +1791,30 @@ button.vs-tag:hover {
   color: var(--tx-2);
 }
 .statusbar .sb-err.on {
-  color: #d2786a;
+  color: var(--err-soft);
 }
 .statusbar .sb-warn.on {
-  color: #d6b16a;
+  color: var(--warn-soft);
 }
 /* tree rows whose file (or descendant) has an LSP error */
 .trow.file.err .tname,
 .trow.dir.err .dname {
-  color: #d2786a;
+  color: var(--err-soft);
 }
 /* changed vs the baseline (git HEAD / latest point); error tint wins —
    rows never carry both classes */
 .trow.file.chg .tname,
 .trow.dir.chg .dname {
-  color: #3e9e54;
+  color: var(--chg-soft);
 }
 .statusbar .sb-lsp.ready {
-  color: #5fb37a;
+  color: var(--ok-soft);
 }
 .statusbar .sb-lsp.starting {
   color: var(--tx-2);
 }
 .statusbar .sb-lsp.error {
-  color: #d2786a;
+  color: var(--err-soft);
 }
 
 /* Settings → Shortcuts rebinding rows */
@@ -1865,7 +1890,7 @@ button.vs-tag:hover {
   font-weight: 800;
   line-height: 1;
   /* Always high-contrast (not hover-only): solid accent chip, dark glyph. */
-  color: #0a0c10;
+  color: var(--bg-0);
   background: var(--ac);
   border: 1px solid var(--ac);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
@@ -2035,7 +2060,7 @@ button.vs-tag:hover {
 }
 .iface-pop-list button.on .iface-name,
 .iface-pop-list button.on .iface-pkg {
-  color: #0a0c10;
+  color: var(--bg-0);
 }
 .iface-name {
   font-family: var(--mono);
@@ -2360,7 +2385,7 @@ textarea:focus {
 }
 .hunk-side.theirs .lbl {
   color: var(--t-event);
-  background: rgba(76, 196, 192, 0.1);
+  background: var(--t-event-bg);
 }
 .hunk-side pre {
   font-family: var(--mono);

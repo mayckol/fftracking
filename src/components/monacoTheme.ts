@@ -1,36 +1,22 @@
 import type { Monaco } from "@monaco-editor/react";
+import { THEMES, getTheme, type Theme } from "../lib/themes";
 
-export const THEME = "fftrack-dark";
-
-export function defineTheme(monaco: Monaco) {
-  monaco.editor.defineTheme(THEME, {
-    base: "vs-dark",
+export function defineThemeFor(monaco: Monaco, theme: Theme) {
+  monaco.editor.defineTheme(theme.id, {
+    base: theme.monaco.base,
     inherit: true,
-    rules: [
-      { token: "comment", foreground: "5d6b7a", fontStyle: "italic" },
-      { token: "keyword", foreground: "7c8cff" },
-      { token: "string", foreground: "4cc4c0" },
-      { token: "number", foreground: "e3b341" },
-    ],
-    colors: {
-      "editor.background": "#0a0c10",
-      "editor.foreground": "#e6edf3",
-      "editorGutter.background": "#0a0c10",
-      "editorLineNumber.foreground": "#3d4855",
-      "editorLineNumber.activeForeground": "#9aa7b4",
-      "editor.lineHighlightBackground": "#161b22",
-      "editor.lineHighlightBorder": "#00000000",
-      "editor.selectionBackground": "#33455a",
-      "editor.selectionHighlightBackground": "#2b374466",
-      "diffEditor.insertedTextBackground": "#3fb95022",
-      "diffEditor.removedTextBackground": "#f0626e22",
-      "diffEditor.insertedLineBackground": "#3fb95014",
-      "diffEditor.removedLineBackground": "#f0626e14",
-      "diffEditorGutter.insertedLineBackground": "#3fb95022",
-      "diffEditorGutter.removedLineBackground": "#f0626e22",
-      "editorOverviewRuler.border": "#00000000",
-      "scrollbarSlider.background": "#2b374488",
-      "scrollbarSlider.hoverBackground": "#3a4756aa",
-    },
+    rules: theme.monaco.rules,
+    colors: theme.monaco.colors,
   });
+}
+
+// Registered up front so switching later is a plain setTheme (the `theme`
+// prop on the editors), which applies globally to every mounted editor.
+export function defineAllThemes(monaco: Monaco) {
+  for (const t of THEMES) defineThemeFor(monaco, t);
+}
+
+/** Monaco theme name for a (possibly unknown) app theme id. */
+export function monacoThemeId(themeId: string): string {
+  return getTheme(themeId).id;
 }
