@@ -50,6 +50,14 @@ const PUNCT_KEY: Record<string, string> = {
   "`": "Backquote",
 };
 
+// Combo arrow names (from key events) → Monaco KeyCode enum names.
+const ARROW_KEY: Record<string, string> = {
+  ArrowUp: "UpArrow",
+  ArrowDown: "DownArrow",
+  ArrowLeft: "LeftArrow",
+  ArrowRight: "RightArrow",
+};
+
 // Parse a shortcut combo ("Mod+Shift+L", "F12") into a Monaco keybinding number.
 function toKeybinding(monaco: Monaco, combo: string): number | null {
   let mods = 0;
@@ -66,6 +74,7 @@ function toKeybinding(monaco: Monaco, combo: string): number | null {
   if (/^[a-z]$/i.test(key)) code = KC["Key" + key.toUpperCase()];
   else if (/^[0-9]$/.test(key)) code = KC["Digit" + key];
   else if (key in PUNCT_KEY) code = KC[PUNCT_KEY[key]];
+  else if (key in ARROW_KEY) code = KC[ARROW_KEY[key]];
   else code = KC[key];
   return code == null ? null : mods | code;
 }
@@ -330,6 +339,8 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     bind("editor.shrinkSelection", () => run("editor.action.smartSelect.shrink"));
     bind("editor.jumpBracket", () => run("editor.action.jumpToBracket"));
     bind("editor.commentLine", () => run("editor.action.commentLine"));
+    bind("editor.gotoFileStart", () => editor.trigger("ff", "cursorTop", null));
+    bind("editor.gotoFileEnd", () => editor.trigger("ff", "cursorBottom", null));
 
     // Fold/unfold: one press acts on the block at the cursor; a quick second
     // press widens to the whole file.

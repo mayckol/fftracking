@@ -1,41 +1,24 @@
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../lib/ipc";
-import {
-  ACTIONS,
-  type ActionGroup,
-  beginCapture,
-  comboFor,
-  formatCombo,
-  resetCombo,
-  setCombo,
-  subscribe,
-} from "../lib/shortcuts";
 import type { Settings } from "../lib/types";
 import { FONT_CHOICES, type GoImportStyle, type TabOverflow, setPref, useUIPrefs } from "../lib/uiPrefs";
 
-const GROUP_ORDER: ActionGroup[] = ["Editor", "Diff", "Capture & revert", "Changed files", "Navigation", "Search"];
-
 interface Props {
   toast: (msg: string, error?: boolean) => void;
+  onOpenShortcuts: () => void;
+  // Section to scroll into view when the settings palette routes here.
+  scrollTo?: string | null;
 }
 
-export default function SettingsView({ toast }: Props) {
+export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props) {
   const [s, setS] = useState<Settings | null>(null);
   const [autostart, setAutostart] = useState(false);
-  const [capturing, setCapturing] = useState<string | null>(null);
-  const [, force] = useReducer((x) => x + 1, 0);
   const prefs = useUIPrefs();
 
-  useEffect(() => subscribe(force), []);
-
-  function rebind(id: string) {
-    setCapturing(id);
-    beginCapture((combo) => {
-      setCapturing(null);
-      if (combo === "Escape") return; // cancel
-      setCombo(id, combo);
-    });
-  }
+  useEffect(() => {
+    if (!scrollTo) return;
+    document.getElementById(`set-${scrollTo}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [scrollTo]);
 
   useEffect(() => {
     api.getSettings().then(setS);
@@ -66,7 +49,7 @@ export default function SettingsView({ toast }: Props) {
   return (
     <div className="col main">
       <div className="pane narrow">
-        <div className="section-title">Capture</div>
+        <div className="section-title" id="set-capture">Capture</div>
 
         <div className="field">
           <label>
@@ -131,7 +114,7 @@ export default function SettingsView({ toast }: Props) {
           </label>
         </div>
 
-        <div className="section-title">Retention</div>
+        <div className="section-title" id="set-retention">Retention</div>
 
         <div className="field">
           <label>
@@ -183,7 +166,7 @@ export default function SettingsView({ toast }: Props) {
           </div>
         </div>
 
-        <div className="section-title">System</div>
+        <div className="section-title" id="set-system">System</div>
 
         <div className="field">
           <label>
@@ -196,7 +179,7 @@ export default function SettingsView({ toast }: Props) {
           </label>
         </div>
 
-        <div className="section-title">Interface</div>
+        <div className="section-title" id="set-interface">Interface</div>
 
         <div className="field">
           <label>
@@ -341,33 +324,16 @@ export default function SettingsView({ toast }: Props) {
           </select>
         </div>
 
-        <div className="section-title">Shortcuts</div>
-        <p className="hint" style={{ margin: "0 0 10px" }}>
-          Click a shortcut, then press the new combination (Esc to cancel). Keys work while the
-          fftracking window is focused.
-        </p>
-        {GROUP_ORDER.map((group) => (
-          <div className="field" key={group}>
-            <label>{group}</label>
-            <div className="keys">
-              {ACTIONS.filter((a) => a.group === group).map((a) => (
-                <div className="key-row" key={a.id}>
-                  <span className="key-label">{a.label}</span>
-                  <button
-                    className={`tbtn key-combo${capturing === a.id ? " capturing" : ""}`}
-                    onClick={() => rebind(a.id)}
-                    title="Click, then press the new shortcut"
-                  >
-                    {capturing === a.id ? "Press keys…" : formatCombo(comboFor(a.id))}
-                  </button>
-                  <button className="tbtn key-reset" title="Reset to default" onClick={() => resetCombo(a.id)}>
-                    ↺
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
+        <div className="section-title" id="set-shortcuts">Shortcuts</div>
+        <div className="field">
+          <label>
+            Keyboard shortcuts
+            <span className="hint">View and rebind every shortcut. Search by name or by pressing a key.</span>
+          </label>
+          <button className="tbtn" onClick={onOpenShortcuts}>
+            Open keyboard shortcuts…
+          </button>
+        </div>
       </div>
     </div>
   );
