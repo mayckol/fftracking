@@ -16,9 +16,11 @@ interface Props {
   files: string[];
   selected: string | null;
   errorFiles?: Set<string>;
+  rootPath?: string | null;
   onSelect: (path: string) => void;
   onOpen?: (path: string) => void;
   onReveal?: (path: string) => void;
+  onCopyPath?: (text: string, label: string) => void;
   onIgnoreFile?: (path: string) => void;
   onIgnoreFolder?: (prefix: string) => void;
   onFindInFolder?: (prefix: string) => void;
@@ -33,9 +35,11 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
   files,
   selected,
   errorFiles,
+  rootPath,
   onSelect,
   onOpen,
   onReveal,
+  onCopyPath,
   onIgnoreFile,
   onIgnoreFolder,
   onFindInFolder,
@@ -98,6 +102,21 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
       return n;
     });
 
+  const absPath = (path: string) =>
+    path.startsWith("/") || !rootPath ? path : `${rootPath.replace(/\/$/, "")}/${path}`;
+
+  const copyButtons = (path: string) =>
+    onCopyPath && (
+      <>
+        <button onClick={() => { onCopyPath(absPath(path), "absolute path"); setMenu(null); }}>
+          Copy path (absolute)
+        </button>
+        <button onClick={() => { onCopyPath(path, "relative path"); setMenu(null); }}>
+          Copy path (relative)
+        </button>
+      </>
+    );
+
   const rows: JSX.Element[] = [];
   const walk = (nodes: TreeNode[], depth: number) => {
     for (const node of nodes) {
@@ -115,7 +134,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
               setScopeDir(node.path);
             }}
             onContextMenu={(e) => {
-              if (!onReveal && !onIgnoreFolder && !onFindInFolder && !onReplaceInFolder) return;
+              if (!onReveal && !onIgnoreFolder && !onFindInFolder && !onReplaceInFolder && !onCopyPath) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "dir", path: node.path });
             }}
@@ -139,7 +158,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
               onSelect(node.path);
             }}
             onContextMenu={(e) => {
-              if (!onOpen && !onReveal && !onIgnoreFile) return;
+              if (!onOpen && !onReveal && !onIgnoreFile && !onCopyPath) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "file", path: node.path });
             }}
@@ -179,6 +198,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
                 ▶ Run go test (package)
               </button>
             )}
+            {menu.kind === "file" && copyButtons(menu.path)}
             {menu.kind === "file" && onIgnoreFile && (
               <button onClick={() => { onIgnoreFile(menu.path); setMenu(null); }}>
                 Ignore history for this file
@@ -203,6 +223,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
             {menu.kind === "dir" && onReveal && (
               <button onClick={() => { onReveal(menu.path); setMenu(null); }}>Reveal in Finder</button>
             )}
+            {menu.kind === "dir" && copyButtons(menu.path)}
             {menu.kind === "dir" && onIgnoreFolder && (
               <button onClick={() => { onIgnoreFolder(menu.path); setMenu(null); }}>
                 Ignore history for this path (<code>{menu.path}/**</code>)
