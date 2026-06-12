@@ -188,7 +188,8 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     bind("editor.deleteWord", () => editor.trigger("ff", "deleteWordLeft", null));
     bind("editor.deleteLine", () => run("editor.action.deleteLines"));
     bind("editor.findNext", () => run("editor.action.nextMatchFindAction"));
-    bind("editor.selectBlock", () => run("editor.action.selectToBracket"));
+    bind("editor.expandSelection", () => run("editor.action.smartSelect.expand"));
+    bind("editor.shrinkSelection", () => run("editor.action.smartSelect.shrink"));
     bind("editor.jumpBracket", () => run("editor.action.jumpToBracket"));
     bind("editor.commentLine", () => run("editor.action.commentLine"));
 

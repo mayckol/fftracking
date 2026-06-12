@@ -707,9 +707,11 @@ export default function HistoryView({
                   files={files}
                   selected={openKind === "file" ? file : null}
                   errorFiles={errFiles}
+                  rootPath={root}
                   onSelect={openFile}
                   onOpen={(p) => api.openPath(monitorId, p).catch((e) => toast(String(e), true))}
                   onReveal={(p) => api.revealPath(monitorId, p).catch((e) => toast(String(e), true))}
+                  onCopyPath={copyToClipboard}
                   onIgnoreFile={(p) => ignorePath(p, false)}
                   onIgnoreFolder={(p) => ignorePath(p, true)}
                   onFindInFolder={onSearchInFolder && ((p) => onSearchInFolder(p, false))}
