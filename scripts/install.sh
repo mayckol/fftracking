@@ -41,6 +41,15 @@ BASE="https://github.com/$REPO/releases/download/$VERSION"
 TMP="$(mktemp -d 2>/dev/null || mktemp -d -t fftracking)"
 trap 'rm -rf "$TMP"' EXIT INT HUP TERM
 
+# Look up the real bundle filename for a tag instead of constructing it. Tauri
+# stamps bundle names from the app's config version (tauri.conf.json), which can
+# lag the git tag — so a tag-built filename 404s whenever the two drift. Match by
+# suffix regex (e.g. '_amd64\.AppImage') and let the caller fall back if empty.
+resolve_asset() {
+  $DL "https://api.github.com/repos/$REPO/releases/tags/$VERSION" 2>/dev/null \
+    | sed -n 's/.*"name":[[:space:]]*"\(fftracking[^"]*'"$1"'\)".*/\1/p' | head -n1
+}
+
 # Installs the headless `fft` CLI (+ MCP server) into ~/.local/bin. Gracefully
 # skips when a release predates the CLI and has no such asset.
 install_cli() {
@@ -66,7 +75,7 @@ install_cli() {
 case "$os_raw" in
   Darwin)
     [ "$arch_raw" = "arm64" ] || fail "macOS build is Apple Silicon (arm64) only; got $arch_raw"
-    ASSET="fftracking_${VER_NUM}_aarch64.dmg"
+    ASSET="$(resolve_asset '_aarch64\.dmg')"; [ -n "$ASSET" ] || ASSET="fftracking_${VER_NUM}_aarch64.dmg"
     log "downloading $ASSET"
     $DL "$BASE/$ASSET" > "$TMP/app.dmg" || fail "download failed: $BASE/$ASSET"
     log "mounting"
@@ -82,7 +91,7 @@ case "$os_raw" in
     ;;
   Linux)
     case "$arch_raw" in x86_64|amd64) : ;; *) fail "Linux build is x86_64 only; got $arch_raw" ;; esac
-    ASSET="fftracking_${VER_NUM}_amd64.AppImage"
+    ASSET="$(resolve_asset '_amd64\.AppImage')"; [ -n "$ASSET" ] || ASSET="fftracking_${VER_NUM}_amd64.AppImage"
     BIN_DIR="$PREFIX/bin"; mkdir -p "$BIN_DIR"
     BIN="$BIN_DIR/fftracking"
     log "downloading $ASSET"
