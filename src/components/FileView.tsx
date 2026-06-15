@@ -28,6 +28,7 @@ import {
   subscribeDebug,
   type LaunchConfig,
 } from "../lib/debug";
+import { monacoSeesMac } from "../lib/fixPlatform";
 import { comboFor, formatCombo, IS_MAC, monacoModifiers } from "../lib/shortcuts";
 import { resetZoom, useZoomLevel, zoomPercent } from "../lib/editorZoom";
 import { editorPrefOptions, getPrefs, useUIPrefs } from "../lib/uiPrefs";
@@ -78,13 +79,18 @@ function toKeybinding(monaco: Monaco, combo: string): number | null {
     mod === "Alt" ? monaco.KeyMod.Alt : mod === "WinCtrl" ? monaco.KeyMod.WinCtrl : monaco.KeyMod.CtrlCmd;
   const altFlag =
     alt === "WinCtrl" ? monaco.KeyMod.WinCtrl : alt === "CtrlCmd" ? monaco.KeyMod.CtrlCmd : monaco.KeyMod.Alt;
+  // The literal "Ctrl" token (deleteLine, gotoLineEnd, implementIface…) means
+  // the *physical* Ctrl key. That is WinCtrl only on a Mac-detecting Monaco; on
+  // Linux/Windows WinCtrl is the Meta/Super key, so use CtrlCmd there — else the
+  // binding lands on Super and physical Ctrl+D hits Monaco's own multi-cursor.
+  const ctrlFlag = monacoSeesMac ? monaco.KeyMod.WinCtrl : monaco.KeyMod.CtrlCmd;
   let mods = 0;
   let key = "";
   for (const p of combo.split("+")) {
     if (p === "Mod") mods |= modFlag;
     else if (p === "Shift") mods |= monaco.KeyMod.Shift;
     else if (p === "Alt") mods |= altFlag;
-    else if (p === "Ctrl") mods |= monaco.KeyMod.WinCtrl;
+    else if (p === "Ctrl") mods |= ctrlFlag;
     else key = p;
   }
   const KC = monaco.KeyCode as unknown as Record<string, number>;
@@ -521,23 +527,31 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     // Fold/unfold (⌘⇧±) and zoom (⌘±, ⌘0) are bound globally in App via the
     // shortcut registry — not here — so the numpad +/-/− keys work too.
 
-    // Under the mac-on-PC swap the ⌘ key is physically Alt, so Monaco's built-in
-    // editing shortcuts (still on physical Ctrl) wouldn't answer to ⌘C/⌘V/…
-    // Bind the common set onto the ⌘ key too; physical Ctrl keeps working as a
-    // documented fallback.
+    // Under the mac-on-PC swap the ⌘ key is physically Alt and physical Ctrl is
+    // ⌥. But Monaco's built-in editing commands sit on CtrlCmd, which a
+    // Linux/Windows-detecting Monaco resolves to *physical Ctrl* — so ⌘C/⌘V/…
+    // wouldn't answer on the ⌘ key, and physical Ctrl would still copy/paste/
+    // select-all (it should behave as ⌥ instead). Bind each ⌘ command onto the
+    // ⌘ key and shadow Monaco's built-in off physical Ctrl with a no-op.
     if (monacoModifiers().mod === "Alt") {
       const addCmd = (combo: string, fn: () => void) => {
         const kb = toKeybinding(monaco, combo);
         if (kb) editor.addCommand(kb, fn);
       };
-      addCmd("Mod+C", () => run("editor.action.clipboardCopyAction"));
-      addCmd("Mod+X", () => run("editor.action.clipboardCutAction"));
-      addCmd("Mod+V", () => run("editor.action.clipboardPasteAction"));
-      addCmd("Mod+Z", () => editor.trigger("ff", "undo", null));
-      addCmd("Mod+Shift+Z", () => editor.trigger("ff", "redo", null));
-      // Monaco's find sits on physical Ctrl; map it onto ⌘ too so ⌘F (⌥F here)
-      // opens the find widget. Next/prev stay on F3 / Enter inside the widget.
-      addCmd("Mod+F", () => run("actions.find"));
+      // The literal "Ctrl" token resolves to the physical Ctrl key (see
+      // toKeybinding); use it to neutralise the built-in that lives there.
+      const macCmd = (key: string, fn: () => void) => {
+        addCmd(`Mod+${key}`, fn);
+        addCmd(`Ctrl+${key}`, () => {});
+      };
+      macCmd("C", () => run("editor.action.clipboardCopyAction"));
+      macCmd("X", () => run("editor.action.clipboardCutAction"));
+      macCmd("V", () => run("editor.action.clipboardPasteAction"));
+      macCmd("A", () => run("editor.action.selectAll"));
+      macCmd("Z", () => editor.trigger("ff", "undo", null));
+      macCmd("Shift+Z", () => editor.trigger("ff", "redo", null));
+      // ⌘F opens find; next/prev stay on F3 / Enter inside the widget.
+      macCmd("F", () => run("actions.find"));
     }
 
     // JetBrains-style run-test icons on `func TestX` and table-driven
