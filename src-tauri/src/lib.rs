@@ -29,6 +29,7 @@ const DETECT_INTERVAL: Duration = Duration::from_secs(5);
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
