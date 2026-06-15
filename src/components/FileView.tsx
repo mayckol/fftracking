@@ -528,30 +528,45 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     // shortcut registry — not here — so the numpad +/-/− keys work too.
 
     // Under the mac-on-PC swap the ⌘ key is physically Alt and physical Ctrl is
-    // ⌥. But Monaco's built-in editing commands sit on CtrlCmd, which a
-    // Linux/Windows-detecting Monaco resolves to *physical Ctrl* — so ⌘C/⌘V/…
-    // wouldn't answer on the ⌘ key, and physical Ctrl would still copy/paste/
-    // select-all (it should behave as ⌥ instead). Bind each ⌘ command onto the
-    // ⌘ key and shadow Monaco's built-in off physical Ctrl with a no-op.
+    // ⌥. Monaco's addCommand bindings on KeyMod.Alt don't fire under WebKitGTK
+    // (Linux) — physical-Ctrl/CtrlCmd bindings do — so match the ⌘ chords
+    // directly off the editor keydown by physical e.code: layout-independent and
+    // independent of Monaco's keybinding resolution. Separately shadow Monaco's
+    // built-ins (which sit on physical Ctrl here) so physical Ctrl acts as ⌥
+    // rather than a second ⌘ — e.g. Ctrl+A no longer selects all.
     if (monacoModifiers().mod === "Alt") {
       const addCmd = (combo: string, fn: () => void) => {
         const kb = toKeybinding(monaco, combo);
         if (kb) editor.addCommand(kb, fn);
       };
-      // The literal "Ctrl" token resolves to the physical Ctrl key (see
-      // toKeybinding); use it to neutralise the built-in that lives there.
-      const macCmd = (key: string, fn: () => void) => {
-        addCmd(`Mod+${key}`, fn);
-        addCmd(`Ctrl+${key}`, () => {});
+      for (const k of ["C", "X", "V", "A", "Z", "F"]) addCmd(`Ctrl+${k}`, () => {});
+      addCmd("Ctrl+Shift+Z", () => {});
+
+      const macAlt: Record<string, () => void> = {
+        KeyC: () => run("editor.action.clipboardCopyAction"),
+        KeyX: () => run("editor.action.clipboardCutAction"),
+        KeyV: () => run("editor.action.clipboardPasteAction"),
+        KeyA: () => run("editor.action.selectAll"),
+        KeyF: () => run("actions.find"),
       };
-      macCmd("C", () => run("editor.action.clipboardCopyAction"));
-      macCmd("X", () => run("editor.action.clipboardCutAction"));
-      macCmd("V", () => run("editor.action.clipboardPasteAction"));
-      macCmd("A", () => run("editor.action.selectAll"));
-      macCmd("Z", () => editor.trigger("ff", "undo", null));
-      macCmd("Shift+Z", () => editor.trigger("ff", "redo", null));
-      // ⌘F opens find; next/prev stay on F3 / Enter inside the widget.
-      macCmd("F", () => run("actions.find"));
+      editor.onKeyDown((e) => {
+        const be = e.browserEvent;
+        if (!be.altKey || be.ctrlKey || be.metaKey) return;
+        // ⌘Z / ⌘⇧Z undo-redo; the rest only on a bare ⌘ chord.
+        if (be.code === "KeyZ") {
+          e.preventDefault();
+          e.stopPropagation();
+          editor.trigger("ff", be.shiftKey ? "redo" : "undo", null);
+          return;
+        }
+        if (be.shiftKey) return;
+        const fn = macAlt[be.code];
+        if (fn) {
+          e.preventDefault();
+          e.stopPropagation();
+          fn();
+        }
+      });
     }
 
     // JetBrains-style run-test icons on `func TestX` and table-driven
