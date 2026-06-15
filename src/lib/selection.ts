@@ -11,6 +11,12 @@ export function registerEditor(ed: editor.ICodeEditor) {
   ed.onDidDispose(() => editors.delete(ed));
 }
 
+/** The Monaco editor that currently holds keyboard focus, if any. */
+export function focusedEditor(): editor.ICodeEditor | null {
+  for (const ed of editors) if (ed.hasTextFocus()) return ed;
+  return null;
+}
+
 /** The selected text — from the focused Monaco editor first, then any editor
  *  with a selection, then the DOM selection. Empty string when nothing. */
 export function getSelectedText(): string {
