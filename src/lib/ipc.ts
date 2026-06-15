@@ -60,8 +60,8 @@ export const api = {
   dapStart: (root: string) => invoke<number>("dap_start", { root }),
   dapSend: (id: number, body: string) => invoke<void>("dap_send", { id, body }),
   dapStop: (id: number) => invoke<void>("dap_stop", { id }),
-  runStart: (cwd: string, program: string, args: string[]) =>
-    invoke<number>("run_start", { cwd, program, args }),
+  runStart: (cwd: string, program: string, args: string[], env: Record<string, string> = {}) =>
+    invoke<number>("run_start", { cwd, program, args, env: Object.entries(env) }),
   runStop: (id: number) => invoke<void>("run_stop", { id }),
   openPath: (monitorId: number, path: string) => invoke<void>("open_path", { monitorId, path }),
   revealPath: (monitorId: number, path: string) => invoke<void>("reveal_path", { monitorId, path }),

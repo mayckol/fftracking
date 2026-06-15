@@ -21,6 +21,7 @@ import {
   subscribeDebug,
 } from "./lib/debug";
 import ConfirmModal from "./components/ConfirmModal";
+import ExecMenu from "./components/ExecMenu";
 import KeymapStyleModal from "./components/KeymapStyleModal";
 import SearchPalette, { type PaletteMode } from "./components/SearchPalette";
 import SettingsPalette from "./components/SettingsPalette";
@@ -55,6 +56,8 @@ export default function App() {
   const [search, setSearch] = useState<PaletteMode | null>(null);
   const [settingsPalette, setSettingsPalette] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Open state of the Run / Debug recent-executions dropdowns.
+  const [execMenu, setExecMenu] = useState<"run" | "debug" | null>(null);
   // Settings section to scroll to when routed from the settings palette.
   const [settingsScroll, setSettingsScroll] = useState<string | null>(null);
   // Bumped by ⌘⇧R: tells the palette to open its replace row. Reset on close
@@ -280,20 +283,40 @@ export default function App() {
             </span>
           </div>
         )}
-        <button
-          className={`tbtn${bottom === "run" ? " on" : ""}`}
-          onClick={() => toggleBottom("run")}
-          title={`${bottom === "run" ? "Hide" : "Show"} run panel (${formatCombo(comboFor("run.toggle"))})`}
-        >
-          {runActive ? "▶ Run ●" : "▶ Run"}
-        </button>
-        <button
-          className={`tbtn${bottom === "debug" ? " on" : ""}`}
-          onClick={() => toggleBottom("debug")}
-          title={`${bottom === "debug" ? "Hide" : "Show"} debug panel (${formatCombo(comboFor("debug.panel"))})`}
-        >
-          {dbgActive ? "🐞 Debug ●" : "🐞 Debug"}
-        </button>
+        <div className="split-btn">
+          <button
+            className={`tbtn${bottom === "run" ? " on" : ""}`}
+            onClick={() => toggleBottom("run")}
+            title={`${bottom === "run" ? "Hide" : "Show"} run panel (${formatCombo(comboFor("run.toggle"))})`}
+          >
+            {runActive ? "▶ Run ●" : "▶ Run"}
+          </button>
+          <button
+            className={`tbtn split-caret${execMenu === "run" ? " on" : ""}`}
+            title="Recent runs"
+            onClick={() => setExecMenu((m) => (m === "run" ? null : "run"))}
+          >
+            ▾
+          </button>
+          {execMenu === "run" && <ExecMenu kind="run" onClose={() => setExecMenu(null)} />}
+        </div>
+        <div className="split-btn">
+          <button
+            className={`tbtn${bottom === "debug" ? " on" : ""}`}
+            onClick={() => toggleBottom("debug")}
+            title={`${bottom === "debug" ? "Hide" : "Show"} debug panel (${formatCombo(comboFor("debug.panel"))})`}
+          >
+            {dbgActive ? "🐞 Debug ●" : "🐞 Debug"}
+          </button>
+          <button
+            className={`tbtn split-caret${execMenu === "debug" ? " on" : ""}`}
+            title="Recent debug sessions"
+            onClick={() => setExecMenu((m) => (m === "debug" ? null : "debug"))}
+          >
+            ▾
+          </button>
+          {execMenu === "debug" && <ExecMenu kind="debug" onClose={() => setExecMenu(null)} />}
+        </div>
         <button
           className={`tbtn${bottom === "terminal" ? " on" : ""}`}
           onClick={() => toggleBottom("terminal")}

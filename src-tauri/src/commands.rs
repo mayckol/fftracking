@@ -492,8 +492,9 @@ pub fn run_start(
     cwd: String,
     program: String,
     args: Vec<String>,
+    env: Vec<(String, String)>,
 ) -> R<u64> {
-    run.start(&app, cwd, program, args)
+    run.start(&app, cwd, program, args, env)
 }
 
 #[tauri::command]

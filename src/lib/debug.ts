@@ -7,6 +7,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api } from "./ipc";
 import { allBreakpoints, breakpointLines, subscribeBreakpoints } from "./breakpoints";
 import { openLocation } from "./lsp";
+import { recordDebug } from "./execHistory";
 
 type Json = any;
 
@@ -46,6 +47,8 @@ export interface LaunchConfig {
   /** Absolute package dir (or main package dir) delve builds and runs. */
   program: string;
   args?: string[];
+  /** Extra environment variables for the debugged process. */
+  env?: Record<string, string>;
 }
 
 export interface DebugSnapshot {
@@ -254,6 +257,7 @@ subscribeBreakpoints((path) => {
 
 export async function startDebug(cfg: LaunchConfig) {
   if (sessionId != null) await stopDebug();
+  recordDebug(cfg);
   consoleLines = [];
   state.status = "starting";
   state.title = cfg.name;
@@ -287,6 +291,7 @@ export async function startDebug(cfg: LaunchConfig) {
       program: cfg.program,
       args: cfg.args ?? [],
       cwd: cfg.root,
+      env: cfg.env ?? {},
     })
       .then(() => {
         if (state.status === "starting") {

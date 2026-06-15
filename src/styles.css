@@ -1741,6 +1741,133 @@ button.vs-tag:hover {
   color: var(--bg-0);
 }
 
+/* Run / Debug split button + recent-executions dropdown. */
+.split-btn {
+  position: relative;
+  display: inline-flex;
+}
+.split-btn .split-caret {
+  padding-left: 6px;
+  padding-right: 6px;
+  margin-left: 2px;
+}
+.exec-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  z-index: 62;
+  width: 380px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+}
+.exec-empty {
+  padding: 10px 12px;
+  font-size: var(--fs-sm);
+  color: var(--tx-2);
+}
+.exec-row + .exec-row {
+  border-top: 1px solid var(--line-1);
+}
+.exec-main {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.exec-main > button {
+  background: none;
+  color: var(--tx-1);
+  border-radius: var(--r-sm);
+  padding: 6px 4px;
+}
+.exec-main > button:hover {
+  background: var(--bg-2);
+}
+.exec-pin {
+  width: 24px;
+  flex: none;
+}
+.exec-pin.on {
+  color: #e0af68;
+}
+.exec-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  font-size: var(--fs-sm);
+  color: var(--tx-0);
+}
+.exec-cmd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exec-tags {
+  display: inline-flex;
+  gap: 4px;
+  flex: none;
+}
+.exec-tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--bg-1);
+  color: var(--tx-2);
+}
+.exec-envdot {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+  background: var(--bg-1);
+  color: var(--ac);
+  flex: none;
+}
+.exec-edit,
+.exec-del {
+  width: 26px;
+  flex: none;
+}
+.exec-del:hover {
+  color: var(--danger, #f7768e);
+}
+.exec-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 6px 10px;
+}
+.exec-edit-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--tx-2);
+}
+.exec-edit-form input,
+.exec-edit-form textarea {
+  width: 100%;
+  font-family: var(--mono, monospace);
+  font-size: var(--fs-sm);
+  color: var(--tx-0);
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  padding: 5px 7px;
+  resize: vertical;
+}
+.exec-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 /* ---------- diff header / main ---------- */
 .diff-head {
   display: flex;
