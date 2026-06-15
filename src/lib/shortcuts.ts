@@ -11,6 +11,13 @@ export type ActionGroup = "Editor" | "Diff" | "Capture & revert" | "Changed file
  *  "Search Everywhere"). Handled by a dedicated detector, not combo matching. */
 export const DOUBLE_SHIFT = "DoubleShift";
 
+/** True when the *physical machine* is a Mac, independent of the chosen keymap
+ *  style. Style decides the scheme; this decides where the ⌘ key physically is.
+ *  navigator.platform is empty on some Linux WebKit builds, so fall back to the
+ *  user-agent — anything that isn't a Mac (Linux included) gets the Ctrl scheme. */
+const PLATFORM = (navigator.platform || navigator.userAgent || "").toUpperCase();
+export const IS_MAC = PLATFORM.includes("MAC");
+
 export interface ActionDef {
   id: string;
   label: string;
@@ -27,10 +34,11 @@ export const ACTIONS: ActionDef[] = [
   { id: "editor.format", label: "Format document", group: "Editor", default: "Mod+Shift+L" },
   { id: "editor.gotoDef", label: "Go to definition", group: "Editor", default: "F12" },
   { id: "editor.save", label: "Save file", group: "Editor", default: "Mod+S" },
-  // Duplicate is ⌥D / Alt+D everywhere; on a Mac ⌘D duplicates too (bound in
-  // FileView). Delete-line is the physical Ctrl key on every platform so Linux
-  // window managers don't swallow it the way they do Alt+letter mnemonics.
-  { id: "editor.duplicateLine", label: "Duplicate line", group: "Editor", default: "Alt+D" },
+  // Delete-line is the physical Ctrl key on every platform so Linux window
+  // managers don't swallow it the way they do Alt+letter mnemonics. Duplicate
+  // is ⌥D on a Mac (plus ⌘D, bound in FileView); on Linux Alt+letter is also
+  // unreliable, so it moves to Ctrl+Shift+D there.
+  { id: "editor.duplicateLine", label: "Duplicate line", group: "Editor", default: IS_MAC ? "Alt+D" : "Mod+Shift+D" },
   { id: "editor.deleteWord", label: "Delete word (end → start)", group: "Editor", default: "Mod+W" },
   { id: "editor.deleteLine", label: "Delete line", group: "Editor", default: "Ctrl+D" },
   { id: "editor.gotoLine", label: "Go to line…", group: "Editor", default: "Mod+G" },
@@ -78,18 +86,13 @@ export const ACTIONS: ActionDef[] = [
   { id: "debug.stepOut", label: "Step out", group: "Debug", default: "Shift+F8" },
   { id: "debug.resume", label: "Resume program", group: "Debug", default: "F9" },
   { id: "debug.stop", label: "Stop debug session", group: "Debug", default: "Mod+F2" },
-  { id: "debug.panel", label: "Toggle debug panel", group: "Debug", default: "Mod+Shift+D" },
+  // Mod+Shift+D is freed for duplicate-line on Linux; the panel toggle uses B.
+  { id: "debug.panel", label: "Toggle debug panel", group: "Debug", default: "Mod+Shift+B" },
   { id: "search.quickOpen", label: "Find files & folders", group: "Search", default: DOUBLE_SHIFT },
   { id: "search.text", label: "Find in files", group: "Search", default: "Mod+Shift+F" },
   { id: "search.replace", label: "Replace in files", group: "Search", default: "Mod+Shift+R" },
 ];
 
-/** True when the *physical machine* is a Mac, independent of the chosen keymap
- *  style. Style decides the scheme; this decides where the ⌘ key physically is.
- *  navigator.platform is empty on some Linux WebKit builds, so fall back to the
- *  user-agent — anything that isn't a Mac (Linux included) gets the Ctrl scheme. */
-const PLATFORM = (navigator.platform || navigator.userAgent || "").toUpperCase();
-export const IS_MAC = PLATFORM.includes("MAC");
 const STORE_KEY = "ff.shortcuts";
 
 /** A resolved scheme: how physical modifiers map to the logical Mod/Alt tokens,
