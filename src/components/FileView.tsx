@@ -19,7 +19,7 @@ import {
 import { buildStubs, packageNameOf } from "../lib/implement";
 import { applyImportGrouping, cachedGoImportsConfig, importPlanner } from "../lib/goimports";
 import { registerEditor } from "../lib/selection";
-import { runInTerminal } from "../lib/runner";
+import { startRun, type RunSpec } from "../lib/run";
 import { breakpointLines, subscribeBreakpoints, toggleBreakpoint } from "../lib/breakpoints";
 import {
   getDebugSnapshot,
@@ -28,7 +28,7 @@ import {
   subscribeDebug,
   type LaunchConfig,
 } from "../lib/debug";
-import { comboFor, formatCombo, monacoModifiers } from "../lib/shortcuts";
+import { comboFor, formatCombo, IS_MAC, monacoModifiers } from "../lib/shortcuts";
 import { resetZoom, useZoomLevel, zoomPercent } from "../lib/editorZoom";
 import { editorPrefOptions, getPrefs, useUIPrefs } from "../lib/uiPrefs";
 import { api } from "../lib/ipc";
@@ -41,6 +41,10 @@ export interface FileHandle {
   reveal: (line: number, col: number) => void;
   getPosition: () => { line: number; col: number } | null;
 }
+
+// A gutter run/debug menu entry: either runs in the Run panel or launches under
+// the debugger.
+type RunMenuItem = { label: string; run?: RunSpec; dbg?: LaunchConfig };
 
 // Monaco KeyCode names for punctuation keys as they appear in combo strings.
 const PUNCT_KEY: Record<string, string> = {
@@ -187,7 +191,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   const [testPick, setTestPick] = useState<{
     x: number;
     y: number;
-    items: { label: string; cmd?: string; dbg?: LaunchConfig }[];
+    items: RunMenuItem[];
   } | null>(null);
   const [diag, setDiag] = useState({ errors: 0, warnings: 0 });
   const editorRef = useRef<MEditor.IStandaloneCodeEditor | null>(null);
@@ -331,6 +335,22 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       }
     });
 
+    // Modifier + mouse wheel jumps to the top / bottom of the file: ⌘ on macOS,
+    // Alt elsewhere — ⌘/Ctrl + wheel is Monaco's zoom gesture, so the free
+    // modifier differs per platform. Capture phase + passive:false so the jump
+    // wins over the editor's normal scroll.
+    const dom = editor.getDomNode();
+    if (dom) {
+      const onWheel = (e: WheelEvent) => {
+        if (!(IS_MAC ? e.metaKey : e.altKey) || e.deltaY === 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        editor.trigger("ff", e.deltaY < 0 ? "cursorTop" : "cursorBottom", null);
+      };
+      dom.addEventListener("wheel", onWheel, { passive: false, capture: true });
+      editor.onDidDispose(() => dom.removeEventListener("wheel", onWheel, { capture: true }));
+    }
+
     const model = editor.getModel();
     const subs = [
       editor.onDidChangeCursorPosition((e) => setPos({ line: e.position.lineNumber, col: e.position.column })),
@@ -392,10 +412,18 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     bind("editor.gotoDef", () => editor.getAction("editor.action.revealDefinition")?.run());
 
     const run = (action: string) => editor.getAction(action)?.run();
-    bind("editor.duplicateLine", () => run("editor.action.copyLinesDownAction"));
+    const dupLine = () => run("editor.action.copyLinesDownAction");
+    bind("editor.duplicateLine", dupLine);
+    // On a Mac ⌘D duplicates too (the canonical Alt+D binding covers ⌥D); the
+    // physical Ctrl key is reserved for delete-line, so only add this when ⌘ is
+    // actually the Mod key (native / mac style on a real Mac).
+    if (IS_MAC && monacoModifiers().mod === "CtrlCmd") {
+      const kb = toKeybinding(monaco, "Mod+D");
+      if (kb) editor.addCommand(kb, dupLine);
+    }
     bind("editor.deleteWord", () => editor.trigger("ff", "deleteWordLeft", null));
     bind("editor.deleteLine", () => run("editor.action.deleteLines"));
-    bind("editor.findNext", () => run("editor.action.nextMatchFindAction"));
+    bind("editor.gotoLine", () => run("editor.action.gotoLine"));
     // Opens the find widget with the replace row expanded; if find is already
     // open (find-only), it widens it to show replace.
     bind("editor.replace", () => run("editor.action.startFindReplaceAction"));
@@ -496,10 +524,19 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           );
         };
 
-        const cmdTest = (name: string) => `go test -v -run '^${name}$' ${pkg}`;
-        const cmdCase = (m: TestMark) => `go test -v -run '^${m.test}$/^${caseRx(m.sub ?? "")}$' ${pkg}`;
-        const cmdFile = () => `go test -v -run '^(${allTests.join("|")})$' ${pkg}`;
-        const cmdPkg = `go test -v ${pkg}`;
+        // Tests run via the Run panel (lib/run), not the terminal — argv form
+        // so patterns need no shell quoting.
+        const goTest = (label: string, runArg?: string): RunSpec => ({
+          cwd: root,
+          label,
+          program: "go",
+          args: runArg ? ["test", "-v", "-run", runArg, pkg] : ["test", "-v", pkg],
+        });
+        const specTest = (name: string) => goTest(`go test -run ^${name}$ ${pkg}`, `^${name}$`);
+        const specCase = (m: TestMark) =>
+          goTest(`go test -run ${m.test}/${m.sub} ${pkg}`, `^${m.test}$/^${caseRx(m.sub ?? "")}$`);
+        const specFile = () => goTest(`go test (file) ${pkg}`, `^(${allTests.join("|")})$`);
+        const specPkg = goTest(`go test ${pkg}`);
 
         // Debug variants launch the same scope under delve (DAP test mode).
         const pkgAbs = path.slice(0, path.lastIndexOf("/"));
@@ -511,32 +548,31 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           args: pattern ? ["-test.run", pattern, "-test.v"] : ["-test.v"],
         });
 
-        type MenuItem = { label: string; cmd?: string; dbg?: LaunchConfig };
-        const menuFor = (m: TestMark): MenuItem[] => {
+        const menuFor = (m: TestMark): RunMenuItem[] => {
           if (m.kind === "pkg") {
-            const items: MenuItem[] = [
-              { label: `Run package tests (${pkg})`, cmd: cmdPkg },
+            const items: RunMenuItem[] = [
+              { label: `Run package tests (${pkg})`, run: specPkg },
               { label: `Debug package tests (${pkg})`, dbg: dbgTest(`Debug package tests (${pkg})`) },
             ];
-            if (allTests.length) items.push({ label: "Run file tests", cmd: cmdFile() });
+            if (allTests.length) items.push({ label: "Run file tests", run: specFile() });
             return items;
           }
-          const items: MenuItem[] =
+          const items: RunMenuItem[] =
             m.kind === "case"
               ? [
-                  { label: `Run case "${m.sub}"`, cmd: cmdCase(m) },
+                  { label: `Run case "${m.sub}"`, run: specCase(m) },
                   {
                     label: `Debug case "${m.sub}"`,
                     dbg: dbgTest(`Debug case "${m.sub}"`, `^${m.test}$/^${caseRx(m.sub ?? "")}$`),
                   },
-                  { label: `Run ${m.test}`, cmd: cmdTest(m.test) },
+                  { label: `Run ${m.test}`, run: specTest(m.test) },
                 ]
               : [
-                  { label: `Run ${m.test}`, cmd: cmdTest(m.test) },
+                  { label: `Run ${m.test}`, run: specTest(m.test) },
                   { label: `Debug ${m.test}`, dbg: dbgTest(`Debug ${m.test}`, `^${m.test}$`) },
                 ];
-          if (allTests.length > 1) items.push({ label: "Run file tests", cmd: cmdFile() });
-          items.push({ label: `Run package tests (${pkg})`, cmd: cmdPkg });
+          if (allTests.length > 1) items.push({ label: "Run file tests", run: specFile() });
+          items.push({ label: `Run package tests (${pkg})`, run: specPkg });
           return items;
         };
 
@@ -567,9 +603,9 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
             if (l > line) break;
             best = m;
           }
-          if (best?.kind === "pkg") runInTerminal(cmdPkg);
-          else if (best) runInTerminal(best.kind === "case" ? cmdCase(best) : cmdTest(best.test));
-          else if (allTests.length) runInTerminal(cmdFile());
+          if (best?.kind === "pkg") startRun(specPkg);
+          else if (best) startRun(best.kind === "case" ? specCase(best) : specTest(best.test));
+          else if (allTests.length) startRun(specFile());
         });
       }
     }
@@ -615,7 +651,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
             x: be.clientX,
             y: be.clientY,
             items: [
-              { label: `Run ${dir}`, cmd: `go run ${dir}` },
+              { label: `Run ${dir}`, run: { cwd: root, label: `go run ${dir}`, program: "go", args: ["run", dir] } },
               { label: `Debug ${dir}`, dbg: { root, name: `Debug ${dir}`, mode: "debug", program: pkgAbs } },
             ],
           });
@@ -1179,10 +1215,10 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
             {testPick.items.map((it) => (
               <button
                 key={it.label}
-                title={it.cmd ?? it.dbg?.name}
+                title={it.run?.label ?? it.dbg?.name}
                 onClick={() => {
                   setTestPick(null);
-                  if (it.cmd) runInTerminal(it.cmd);
+                  if (it.run) startRun(it.run).catch(() => {});
                   else if (it.dbg) startDebug(it.dbg).catch(() => {});
                 }}
               >

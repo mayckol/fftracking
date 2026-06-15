@@ -351,7 +351,8 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
           <label>
             Format on save
             <span className="hint">
-              Run the language formatter (gofmt for Go) before writing the file with ⌘S. Also available any time with ⌘⇧L.
+              Run the language formatter (gofmt for Go) before writing the file with {formatCombo(comboFor("editor.save"))}. Also
+              available any time with {formatCombo(comboFor("editor.format"))}.
             </span>
           </label>
           <label style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>

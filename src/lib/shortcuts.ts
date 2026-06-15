@@ -27,10 +27,13 @@ export const ACTIONS: ActionDef[] = [
   { id: "editor.format", label: "Format document", group: "Editor", default: "Mod+Shift+L" },
   { id: "editor.gotoDef", label: "Go to definition", group: "Editor", default: "F12" },
   { id: "editor.save", label: "Save file", group: "Editor", default: "Mod+S" },
-  { id: "editor.duplicateLine", label: "Duplicate line", group: "Editor", default: "Mod+D" },
+  // Duplicate is ⌥D / Alt+D everywhere; on a Mac ⌘D duplicates too (bound in
+  // FileView). Delete-line is the physical Ctrl key on every platform so Linux
+  // window managers don't swallow it the way they do Alt+letter mnemonics.
+  { id: "editor.duplicateLine", label: "Duplicate line", group: "Editor", default: "Alt+D" },
   { id: "editor.deleteWord", label: "Delete word (end → start)", group: "Editor", default: "Mod+W" },
-  { id: "editor.deleteLine", label: "Delete line", group: "Editor", default: "Alt+D" },
-  { id: "editor.findNext", label: "Find next match", group: "Editor", default: "Mod+G" },
+  { id: "editor.deleteLine", label: "Delete line", group: "Editor", default: "Ctrl+D" },
+  { id: "editor.gotoLine", label: "Go to line…", group: "Editor", default: "Mod+G" },
   { id: "editor.replace", label: "Replace in file", group: "Editor", default: "Mod+R" },
   { id: "editor.expandSelection", label: "Expand selection", group: "Editor", default: "Mod+Shift+]" },
   { id: "editor.shrinkSelection", label: "Shrink selection", group: "Editor", default: "Mod+Shift+[" },
@@ -82,8 +85,11 @@ export const ACTIONS: ActionDef[] = [
 ];
 
 /** True when the *physical machine* is a Mac, independent of the chosen keymap
- *  style. Style decides the scheme; this decides where the ⌘ key physically is. */
-export const IS_MAC = navigator.platform.toUpperCase().includes("MAC");
+ *  style. Style decides the scheme; this decides where the ⌘ key physically is.
+ *  navigator.platform is empty on some Linux WebKit builds, so fall back to the
+ *  user-agent — anything that isn't a Mac (Linux included) gets the Ctrl scheme. */
+const PLATFORM = (navigator.platform || navigator.userAgent || "").toUpperCase();
+export const IS_MAC = PLATFORM.includes("MAC");
 const STORE_KEY = "ff.shortcuts";
 
 /** A resolved scheme: how physical modifiers map to the logical Mod/Alt tokens,
@@ -95,6 +101,7 @@ interface Scheme {
   mod: string;
   alt: string;
   shift: string;
+  ctrl: string;
   sep: string;
   // Monaco KeyMod names (resolved against the monaco namespace in toKeybinding).
   // CtrlCmd is Cmd on macOS / Ctrl elsewhere; WinCtrl is always the physical
@@ -112,6 +119,7 @@ export function resolveScheme(style: KeymapStyle, hostIsMac: boolean): Scheme {
       mod: "Ctrl",
       alt: "Alt",
       shift: "Shift",
+      ctrl: "Ctrl",
       sep: "+",
       // On a Mac forced into pc style, bind editor commands to the *physical*
       // Ctrl key (WinCtrl), since Monaco's CtrlCmd would resolve to ⌘ there.
@@ -127,6 +135,7 @@ export function resolveScheme(style: KeymapStyle, hostIsMac: boolean): Scheme {
       mod: "⌘",
       alt: "⌥",
       shift: "⇧",
+      ctrl: "⌃",
       sep: " ",
       monacoMod: "CtrlCmd",
       monacoAlt: "Alt",
@@ -140,6 +149,7 @@ export function resolveScheme(style: KeymapStyle, hostIsMac: boolean): Scheme {
     mod: "⌘",
     alt: "⌥",
     shift: "⇧",
+    ctrl: "⌃",
     sep: " ",
     monacoMod: "Alt",
     monacoAlt: "WinCtrl",
@@ -242,7 +252,7 @@ const SYMBOL: Record<string, string> = {
 function render(combo: string, s: Scheme): string {
   if (!combo) return "—";
   if (combo === DOUBLE_SHIFT) return `${s.shift} ${s.shift}`;
-  const modifiers: Record<string, string> = { Mod: s.mod, Alt: s.alt, Shift: s.shift };
+  const modifiers: Record<string, string> = { Mod: s.mod, Alt: s.alt, Shift: s.shift, Ctrl: s.ctrl };
   return combo
     .split("+")
     .map((p) => modifiers[p] ?? SYMBOL[p] ?? p)

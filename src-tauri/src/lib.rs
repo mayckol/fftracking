@@ -1,6 +1,7 @@
 mod commands;
 mod dap;
 mod lsp;
+mod run;
 mod terminal;
 
 use std::collections::HashMap;
@@ -49,6 +50,7 @@ pub fn run() {
             app.manage(terminal::TerminalManager::default());
             app.manage(lsp::LspManager::default());
             app.manage(dap::DapManager::default());
+            app.manage(run::RunManager::default());
             #[cfg(target_os = "macos")]
             setup_app_menu(app.handle())?;
             setup_tray(app.handle())?;
@@ -122,6 +124,8 @@ pub fn run() {
             commands::dap_start,
             commands::dap_send,
             commands::dap_stop,
+            commands::run_start,
+            commands::run_stop,
         ])
         .build(tauri::generate_context!())
         .expect("error building fftracking")
