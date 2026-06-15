@@ -67,6 +67,17 @@ export default function HistoryView({
   // Open editor tabs (path + which view). `file`/`openKind` point at the active
   // one; max count and overflow behaviour come from UI prefs.
   const [tabs, setTabs] = useState<EditorTab[]>([]);
+  // Paths with unsaved edits → render a dot in the tab. Reported by FileView.
+  const [dirtyPaths, setDirtyPaths] = useState<Set<string>>(new Set());
+  const markDirty = useCallback((path: string, dirty: boolean) => {
+    setDirtyPaths((prev) => {
+      if (prev.has(path) === dirty) return prev;
+      const next = new Set(prev);
+      if (dirty) next.add(path);
+      else next.delete(path);
+      return next;
+    });
+  }, []);
   // Full on-disk file list for the project tree (all files, not just changes).
   const [files, setFiles] = useState<string[]>([]);
   const [fileContent, setFileContent] = useState<string | null>("");
@@ -197,6 +208,7 @@ export default function HistoryView({
     if (idx < 0) return;
     const next = tabs.filter((_, i) => i !== idx);
     setTabs(next);
+    if (!next.some((x) => x.path === t.path)) markDirty(t.path, false);
     if (file === t.path && openKind === t.kind) {
       const nb = next[Math.min(idx, next.length - 1)];
       if (nb) activate(nb);
@@ -212,6 +224,11 @@ export default function HistoryView({
     const next = tabs.filter((t) => !match(t.path));
     if (next.length === tabs.length) return;
     setTabs(next);
+    setDirtyPaths((prev) => {
+      const keep = new Set(next.map((t) => t.path));
+      const out = new Set([...prev].filter((p) => keep.has(p)));
+      return out.size === prev.size ? prev : out;
+    });
     if (file && match(file)) {
       if (next[0]) activate(next[0]);
       else setFile(null);
@@ -963,8 +980,11 @@ export default function HistoryView({
                       ⇆
                     </span>
                   )}
+                  {t.kind === "file" && dirtyPaths.has(t.path) && (
+                    <span className="tab-dot" title="Unsaved changes" aria-label="Unsaved changes" />
+                  )}
                   <button
-                    className="tab-x"
+                    className={`tab-x${t.kind === "file" && dirtyPaths.has(t.path) ? " has-dot" : ""}`}
                     title="Close (or middle-click the tab)"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1011,18 +1031,19 @@ export default function HistoryView({
                   onSave={
                     file.startsWith("/")
                       ? undefined
-                      : async (v) => {
+                      : async (v, auto) => {
                           if (!file) return;
                           try {
                             await api.writeWorkingFile(monitorId, file, v);
                             setFileContent(v);
                             await loadSnaps(snap ?? undefined);
-                            toast(`Saved ${basename(file)}`);
+                            if (!auto) toast(`Saved ${basename(file)}`);
                           } catch (e) {
                             toast(String(e), true);
                           }
                         }
                   }
+                  onDirtyChange={file && !file.startsWith("/") ? (d) => markDirty(file, d) : undefined}
                 />
               )}
             </>

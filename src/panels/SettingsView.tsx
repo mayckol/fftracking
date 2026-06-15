@@ -349,6 +349,24 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
 
         <div className="field">
           <label>
+            Auto save
+            <span className="hint">
+              Write edits to disk automatically a moment after you stop typing. Turn off to save only
+              with {formatCombo(comboFor("editor.save"))}. Unsaved files show a dot in their tab.
+            </span>
+          </label>
+          <label style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={prefs.autoSave}
+              onChange={(e) => setPref("autoSave", e.target.checked)}
+            />
+            <span className="changecount">{prefs.autoSave ? "Auto save on" : "Manual save"}</span>
+          </label>
+        </div>
+
+        <div className="field">
+          <label>
             Format on save
             <span className="hint">
               Run the language formatter (gofmt for Go) before writing the file with {formatCombo(comboFor("editor.save"))}. Also

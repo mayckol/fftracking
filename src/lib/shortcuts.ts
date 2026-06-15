@@ -42,6 +42,8 @@ export const ACTIONS: ActionDef[] = [
   { id: "editor.format", label: "Format document", group: "Editor", default: "Mod+Shift+L" },
   { id: "editor.gotoDef", label: "Go to definition", group: "Editor", default: "F12" },
   { id: "editor.save", label: "Save file", group: "Editor", default: "Mod+S" },
+  { id: "editor.selectAll", label: "Select all", group: "Editor", default: "Mod+A" },
+  { id: "editor.gotoLineEnd", label: "Go to end of line", group: "Editor", default: "Ctrl+E" },
   // Delete-line is the physical Ctrl key on every platform so Linux window
   // managers don't swallow it the way they do Alt+letter mnemonics. Duplicate
   // is ⌥D on a Mac (plus ⌘D, bound in FileView); off Mac it uses the *literal*
