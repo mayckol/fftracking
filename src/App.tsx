@@ -18,6 +18,7 @@ import {
   subscribeDebug,
 } from "./lib/debug";
 import ConfirmModal from "./components/ConfirmModal";
+import KeymapStyleModal from "./components/KeymapStyleModal";
 import SearchPalette, { type PaletteMode } from "./components/SearchPalette";
 import SettingsPalette from "./components/SettingsPalette";
 import ShortcutsModal from "./components/ShortcutsModal";
@@ -411,6 +412,10 @@ export default function App() {
       )}
 
       {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
+
+      {/* First-run keyboard-style chooser; the persisted flag gates it to a
+          single appearance on fresh installs (upgraders are pre-marked). */}
+      {!prefs.keymapStyleChosen && <KeymapStyleModal onDone={() => {}} />}
 
       {confirmDel && (
         <ConfirmModal

@@ -1,9 +1,27 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/ipc";
 import type { Settings } from "../lib/types";
-import { FONT_CHOICES, type GoImportStyle, type TabOverflow, setPref, useUIPrefs } from "../lib/uiPrefs";
+import {
+  FONT_CHOICES,
+  type GoImportStyle,
+  type KeymapStyle,
+  type TabOverflow,
+  revertToOriginal,
+  revertToPrevious,
+  setKeymapStyle,
+  setPref,
+  useUIPrefs,
+} from "../lib/uiPrefs";
+import { comboFor, formatCombo, IS_MAC } from "../lib/shortcuts";
 import { THEMES } from "../lib/themes";
 import { ICON_PACKS } from "../lib/iconPacks";
+
+// Representative shortcuts shown as a live preview under the keyboard-style picker.
+const KEYMAP_PREVIEW = [
+  { id: "editor.save", label: "Save" },
+  { id: "editor.deleteLine", label: "Delete line" },
+  { id: "search.text", label: "Find in files" },
+];
 
 interface Props {
   toast: (msg: string, error?: boolean) => void;
@@ -392,6 +410,48 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
         </div>
 
         <div className="section-title" id="set-shortcuts">Shortcuts</div>
+
+        <div className="field">
+          <label>
+            Keyboard style
+            <span className="hint">
+              {IS_MAC
+                ? "Native uses ⌘. Switch to Windows / Linux style to drive shortcuts from Ctrl instead."
+                : "Native uses Ctrl. macOS style maps the key next to the spacebar (Alt) to ⌘ and Ctrl to ⌥, so mac muscle memory works — no rebinding."}
+            </span>
+          </label>
+          <select
+            value={prefs.keymapStyle}
+            onChange={(e) => setKeymapStyle(e.target.value as KeymapStyle)}
+            style={{ width: 260 }}
+          >
+            <option value="native">Native ({IS_MAC ? "macOS" : "Windows / Linux"})</option>
+            <option value="mac">macOS style (⌘)</option>
+            <option value="pc">Windows / Linux style (Ctrl)</option>
+          </select>
+          <div className="keymap-preview" style={{ display: "flex", gap: 14, marginTop: 8, flexWrap: "wrap" }}>
+            {KEYMAP_PREVIEW.map((p) => (
+              <span key={p.id} className="changecount" style={{ display: "inline-flex", gap: 6 }}>
+                {p.label}
+                <code>{formatCombo(comboFor(p.id))}</code>
+              </span>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button className="tbtn" onClick={revertToOriginal} disabled={prefs.keymapStyle === "native"}>
+              Revert to original
+            </button>
+            <button
+              className="tbtn"
+              onClick={revertToPrevious}
+              disabled={prefs.keymapStylePrev === prefs.keymapStyle}
+              title="Undo the last keyboard-style change"
+            >
+              Revert to previous
+            </button>
+          </div>
+        </div>
+
         <div className="field">
           <label>
             Keyboard shortcuts
