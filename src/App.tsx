@@ -25,11 +25,12 @@ import type { MonitorRow, ResourceUsage } from "./lib/types";
 import GitView from "./panels/GitView";
 import HistoryView from "./panels/HistoryView";
 import SettingsView from "./panels/SettingsView";
+import PluginsView from "./panels/PluginsView";
 import Sidebar from "./panels/Sidebar";
 import TerminalPanel from "./panels/TerminalPanel";
 import DebugPanel from "./panels/DebugPanel";
 
-type Tab = "files" | "history" | "git" | "settings";
+type Tab = "files" | "history" | "git" | "plugins" | "settings";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("files");
@@ -231,7 +232,7 @@ export default function App() {
           <small>v0.5.8</small>
         </div>
         <nav className="tabs">
-          {(["files", "git", "settings"] as Tab[]).map((t) => (
+          {(["files", "git", "plugins", "settings"] as Tab[]).map((t) => (
             <button key={t} className={`tab${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
               {t}
             </button>
@@ -326,6 +327,12 @@ export default function App() {
         </div>
       )}
 
+      {tab === "plugins" && (
+        <div className="work" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
+          <PluginsView />
+        </div>
+      )}
+
       {tab === "settings" && (
         <div className="work" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
           <SettingsView toast={notify} scrollTo={settingsScroll} onOpenShortcuts={() => setShortcutsOpen(true)} />
@@ -375,6 +382,10 @@ export default function App() {
             }
             if (id === "reload") {
               window.location.reload();
+              return;
+            }
+            if (id === "plugins") {
+              setTab("plugins");
               return;
             }
             if (id === "lsp:restart") {

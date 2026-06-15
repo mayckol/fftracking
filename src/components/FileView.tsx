@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import { Editor, type Monaco, type OnMount } from "@monaco-editor/react";
 import type { editor as MEditor } from "monaco-editor";
 import { defineAllThemes, monacoThemeId } from "./monacoTheme";
+import { initPluginsForMonaco } from "../lib/plugins/registry";
 import {
   attachGo,
   implementationAnnotations,
@@ -1016,7 +1017,10 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
         path={path}
         defaultValue={content}
         keepCurrentModel={!!path}
-        beforeMount={defineAllThemes}
+        beforeMount={(m) => {
+          defineAllThemes(m);
+          initPluginsForMonaco(m);
+        }}
         onMount={onMount}
         options={{
           readOnly: !!readOnly,

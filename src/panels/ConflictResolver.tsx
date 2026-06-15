@@ -4,6 +4,7 @@ import { api, WORKDIR } from "../lib/ipc";
 import { basename, langOf } from "../lib/util";
 import { defineAllThemes, monacoThemeId } from "../components/monacoTheme";
 import { useUIPrefs } from "../lib/uiPrefs";
+import { initPluginsForMonaco, usePlugins } from "../lib/plugins/registry";
 
 type Segment =
   | { kind: "ctx"; text: string }
@@ -67,6 +68,7 @@ interface Props {
 
 export default function ConflictResolver({ repoPath, path, toast, onResolved }: Props) {
   const prefs = useUIPrefs();
+  usePlugins();
   const [segs, setSegs] = useState<Segment[]>([]);
   const [choices, setChoices] = useState<Record<number, Choice>>({});
   const [text, setText] = useState("");
@@ -192,7 +194,10 @@ export default function ConflictResolver({ repoPath, path, toast, onResolved }: 
             theme={monacoThemeId(prefs.theme)}
             language={langOf(path)}
             value={text}
-            beforeMount={defineAllThemes}
+            beforeMount={(m) => {
+              defineAllThemes(m);
+              initPluginsForMonaco(m);
+            }}
             onChange={(v) => setText(v ?? "")}
             options={{
               fontFamily: "JetBrains Mono",

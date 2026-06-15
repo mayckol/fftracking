@@ -2209,6 +2209,79 @@ button.vs-tag:hover {
   margin-top: 0;
 }
 
+/* Plugins section: catalog cards with add/remove + enable/disable */
+.plugin-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.plugin-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s3);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--bg-1);
+}
+.plugin-info {
+  min-width: 0;
+}
+.plugin-name {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--tx-1);
+}
+.plugin-ver {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--tx-3);
+  margin-left: 4px;
+}
+.plugin-desc {
+  font-size: var(--fs-xs);
+  color: var(--tx-2);
+  margin-top: 3px;
+}
+.plugin-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-shrink: 0;
+}
+.plugin-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.plugins-intro {
+  font-size: var(--fs-sm);
+  color: var(--tx-2);
+  margin: 0 0 var(--s4);
+}
+.plugin-badge {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--tx-2);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.plugin-badge.on {
+  color: var(--add);
+  border-color: var(--add);
+}
+.plugin-by {
+  font-size: var(--fs-xs);
+  color: var(--tx-3);
+  margin-top: 4px;
+}
+
 .git-bar {
   display: flex;
   align-items: center;
