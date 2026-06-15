@@ -3,6 +3,7 @@
 // localStorage. "Mod" is ⌘ on macOS and Ctrl elsewhere.
 
 import { useEffect } from "react";
+import { type KeymapStyle, getPrefs, subscribePrefs } from "./uiPrefs";
 
 export type ActionGroup = "Editor" | "Diff" | "Capture & revert" | "Changed files" | "Navigation" | "Search" | "Debug";
 
@@ -77,8 +78,77 @@ export const ACTIONS: ActionDef[] = [
   { id: "search.replace", label: "Replace in files", group: "Search", default: "Mod+Shift+R" },
 ];
 
+/** True when the *physical machine* is a Mac, independent of the chosen keymap
+ *  style. Style decides the scheme; this decides where the ⌘ key physically is. */
 export const IS_MAC = navigator.platform.toUpperCase().includes("MAC");
 const STORE_KEY = "ff.shortcuts";
+
+/** A resolved scheme: how physical modifiers map to the logical Mod/Alt tokens,
+ *  how those tokens render, and which Monaco modifier each maps to. Canonical
+ *  combo strings ("Mod+S", "Alt+D") never change — only this mapping does. */
+interface Scheme {
+  matchMod: (e: KeyboardEvent) => boolean;
+  matchAlt: (e: KeyboardEvent) => boolean;
+  mod: string;
+  alt: string;
+  shift: string;
+  sep: string;
+  // Monaco KeyMod names (resolved against the monaco namespace in toKeybinding).
+  // CtrlCmd is Cmd on macOS / Ctrl elsewhere; WinCtrl is always the physical
+  // Ctrl key; Alt is always the physical Alt key.
+  monacoMod: "CtrlCmd" | "Alt" | "WinCtrl";
+  monacoAlt: "Alt" | "WinCtrl";
+}
+
+export function resolveScheme(style: KeymapStyle, hostIsMac: boolean): Scheme {
+  const effective = style === "native" ? (hostIsMac ? "mac" : "pc") : style;
+  if (effective === "pc") {
+    return {
+      matchMod: (e) => e.metaKey || e.ctrlKey,
+      matchAlt: (e) => e.altKey,
+      mod: "Ctrl",
+      alt: "Alt",
+      shift: "Shift",
+      sep: "+",
+      // On a Mac forced into pc style, bind editor commands to the *physical*
+      // Ctrl key (WinCtrl), since Monaco's CtrlCmd would resolve to ⌘ there.
+      monacoMod: hostIsMac ? "WinCtrl" : "CtrlCmd",
+      monacoAlt: "Alt",
+    };
+  }
+  if (hostIsMac) {
+    // mac scheme on a real Mac: ⌘ and ⌥ are distinct physical keys.
+    return {
+      matchMod: (e) => e.metaKey || e.ctrlKey,
+      matchAlt: (e) => e.altKey,
+      mod: "⌘",
+      alt: "⌥",
+      shift: "⇧",
+      sep: " ",
+      monacoMod: "CtrlCmd",
+      monacoAlt: "Alt",
+    };
+  }
+  // mac scheme on a PC keyboard: the key next to space (physically Alt) becomes
+  // ⌘ (Mod); the far key (physically Ctrl) becomes ⌥ (Alt/Option).
+  return {
+    matchMod: (e) => e.metaKey || e.altKey,
+    matchAlt: (e) => e.ctrlKey,
+    mod: "⌘",
+    alt: "⌥",
+    shift: "⇧",
+    sep: " ",
+    monacoMod: "Alt",
+    monacoAlt: "WinCtrl",
+  };
+}
+
+let scheme: Scheme = resolveScheme(getPrefs().keymapStyle, IS_MAC);
+
+/** Monaco modifier names for the active scheme, consumed by toKeybinding. */
+export function monacoModifiers(): { mod: Scheme["monacoMod"]; alt: Scheme["monacoAlt"] } {
+  return { mod: scheme.monacoMod, alt: scheme.monacoAlt };
+}
 
 type KeyMap = Record<string, string>;
 
@@ -86,6 +156,17 @@ let overrides: KeyMap = load();
 const registry = new Map<string, () => void>();
 const subscribers = new Set<() => void>();
 let capturing: ((combo: string) => void) | null = null;
+
+// Recompute the active scheme when the keymap style changes and refresh every
+// subscriber so the modal and rendered combo hints follow the new scheme.
+let lastStyle: KeymapStyle = getPrefs().keymapStyle;
+subscribePrefs(() => {
+  const style = getPrefs().keymapStyle;
+  if (style === lastStyle) return;
+  lastStyle = style;
+  scheme = resolveScheme(style, IS_MAC);
+  subscribers.forEach((fn) => fn());
+});
 
 function load(): KeyMap {
   try {
@@ -133,8 +214,8 @@ const SHIFTED: Record<string, string> = {
 /** Serializes a keydown into a comparable combo string, or "" for a bare modifier. */
 export function comboFromEvent(e: KeyboardEvent): string {
   const parts: string[] = [];
-  if (e.metaKey || e.ctrlKey) parts.push("Mod");
-  if (e.altKey) parts.push("Alt");
+  if (scheme.matchMod(e)) parts.push("Mod");
+  if (scheme.matchAlt(e)) parts.push("Alt");
   if (e.shiftKey) parts.push("Shift");
   let key = e.key;
   if (["Meta", "Control", "Alt", "Shift"].includes(key)) return "";
@@ -145,10 +226,8 @@ export function comboFromEvent(e: KeyboardEvent): string {
   return parts.join("+");
 }
 
+// Style-independent display names; Mod/Alt/Shift come from the active scheme.
 const SYMBOL: Record<string, string> = {
-  Mod: IS_MAC ? "⌘" : "Ctrl",
-  Alt: IS_MAC ? "⌥" : "Alt",
-  Shift: IS_MAC ? "⇧" : "Shift",
   ArrowUp: "↑",
   ArrowDown: "↓",
   ArrowLeft: "←",
@@ -157,11 +236,24 @@ const SYMBOL: Record<string, string> = {
   PageDown: "PgDn",
 };
 
-export function formatCombo(combo: string): string {
+function render(combo: string, s: Scheme): string {
   if (!combo) return "—";
-  if (combo === DOUBLE_SHIFT) return IS_MAC ? "⇧ ⇧" : "Shift Shift";
-  const parts = combo.split("+").map((p) => SYMBOL[p] ?? p);
-  return parts.join(IS_MAC ? " " : "+");
+  if (combo === DOUBLE_SHIFT) return `${s.shift} ${s.shift}`;
+  const modifiers: Record<string, string> = { Mod: s.mod, Alt: s.alt, Shift: s.shift };
+  return combo
+    .split("+")
+    .map((p) => modifiers[p] ?? SYMBOL[p] ?? p)
+    .join(s.sep);
+}
+
+export function formatCombo(combo: string): string {
+  return render(combo, scheme);
+}
+
+/** Render a combo as a given style would show it (for style-picker previews),
+ *  without changing the active scheme. */
+export function formatComboFor(combo: string, style: KeymapStyle): string {
+  return render(combo, resolveScheme(style, IS_MAC));
 }
 
 function inTextField(): boolean {

@@ -28,7 +28,7 @@ import {
   subscribeDebug,
   type LaunchConfig,
 } from "../lib/debug";
-import { comboFor, formatCombo } from "../lib/shortcuts";
+import { comboFor, formatCombo, monacoModifiers } from "../lib/shortcuts";
 import { editorPrefOptions, getPrefs, useUIPrefs } from "../lib/uiPrefs";
 import { api } from "../lib/ipc";
 import type { HunkInfo } from "../lib/types";
@@ -63,12 +63,18 @@ const ARROW_KEY: Record<string, string> = {
 
 // Parse a shortcut combo ("Mod+Shift+L", "F12") into a Monaco keybinding number.
 function toKeybinding(monaco: Monaco, combo: string): number | null {
+  // The active keymap style decides which physical Monaco modifier the logical
+  // Mod / Alt tokens bind to (the swap maps Mod→Alt, Alt→WinCtrl on a PC).
+  const { mod, alt } = monacoModifiers();
+  const modFlag =
+    mod === "Alt" ? monaco.KeyMod.Alt : mod === "WinCtrl" ? monaco.KeyMod.WinCtrl : monaco.KeyMod.CtrlCmd;
+  const altFlag = alt === "WinCtrl" ? monaco.KeyMod.WinCtrl : monaco.KeyMod.Alt;
   let mods = 0;
   let key = "";
   for (const p of combo.split("+")) {
-    if (p === "Mod") mods |= monaco.KeyMod.CtrlCmd;
+    if (p === "Mod") mods |= modFlag;
     else if (p === "Shift") mods |= monaco.KeyMod.Shift;
-    else if (p === "Alt") mods |= monaco.KeyMod.Alt;
+    else if (p === "Alt") mods |= altFlag;
     else if (p === "Ctrl") mods |= monaco.KeyMod.WinCtrl;
     else key = p;
   }
@@ -367,6 +373,23 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       run(now - lastUnfold < 450 ? "editor.unfoldAll" : "editor.unfold");
       lastUnfold = now;
     });
+
+    // Under the mac-on-PC swap the ⌘ key is physically Alt, so Monaco's built-in
+    // editing shortcuts (still on physical Ctrl) wouldn't answer to ⌘C/⌘V/…
+    // Bind the common set onto the ⌘ key too; physical Ctrl keeps working as a
+    // documented fallback.
+    if (monacoModifiers().mod === "Alt") {
+      const addCmd = (combo: string, fn: () => void) => {
+        const kb = toKeybinding(monaco, combo);
+        if (kb) editor.addCommand(kb, fn);
+      };
+      addCmd("Mod+C", () => run("editor.action.clipboardCopyAction"));
+      addCmd("Mod+X", () => run("editor.action.clipboardCutAction"));
+      addCmd("Mod+V", () => run("editor.action.clipboardPasteAction"));
+      addCmd("Mod+A", () => run("editor.action.selectAll"));
+      addCmd("Mod+Z", () => editor.trigger("ff", "undo", null));
+      addCmd("Mod+Shift+Z", () => editor.trigger("ff", "redo", null));
+    }
 
     // JetBrains-style run-test icons on `func TestX` and table-driven
     // `t.Run("case", …)` lines. Click → scope menu; commands run in the
@@ -1007,6 +1030,10 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   return (
     <div className="editor-shell">
       <Editor
+        // Remount on keymap-style change so onMount re-binds editor commands to
+        // the new scheme's physical keys (Monaco addCommand can't be re-keyed).
+        // Models persist per path (keepCurrentModel), so undo history survives.
+        key={`km-${prefs.keymapStyle}`}
         className="editor-wrap"
         theme={monacoThemeId(prefs.theme)}
         language={language}

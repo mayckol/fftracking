@@ -11,6 +11,10 @@ export type TabOverflow = "fifo" | "block";
  *  groups, or keep one flat alphabetical block. */
 export type GoImportStyle = "golangci" | "grouped" | "flat";
 
+/** Keyboard scheme, decoupled from the host OS. `native` follows the OS (⌘ on
+ *  macOS, Ctrl elsewhere); `mac` and `pc` force their scheme on any OS. */
+export type KeymapStyle = "native" | "mac" | "pc";
+
 export interface UIPrefs {
   autohideSidebar: boolean;
   maxTabs: number;
@@ -26,6 +30,11 @@ export interface UIPrefs {
   // Font + size for folder/file names in the project tree.
   treeFont: string;
   treeFontSize: number;
+  keymapStyle: KeymapStyle;
+  // The style active before the last change — drives "revert to previous".
+  keymapStylePrev: KeymapStyle;
+  // True once the user has made (or dismissed) the first-run keymap choice.
+  keymapStyleChosen: boolean;
 }
 
 const DEFAULTS: UIPrefs = {
@@ -42,6 +51,9 @@ const DEFAULTS: UIPrefs = {
   iconPack: "material",
   treeFont: "JetBrains Mono",
   treeFontSize: 11.5,
+  keymapStyle: "native",
+  keymapStylePrev: "native",
+  keymapStyleChosen: false,
 };
 
 /** Pushes prefs that drive CSS (not Monaco) onto the document root. */
@@ -81,14 +93,37 @@ const KEY = "ff.uiPrefs";
 const subs = new Set<() => void>();
 
 function load(): UIPrefs {
+  let parsed: Partial<UIPrefs> = {};
+  let existed = false;
   try {
-    return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(KEY) || "{}") as Partial<UIPrefs>) };
+    const raw = localStorage.getItem(KEY);
+    existed = raw != null;
+    parsed = raw ? (JSON.parse(raw) as Partial<UIPrefs>) : {};
   } catch {
-    return { ...DEFAULTS };
+    parsed = {};
   }
+  const merged = { ...DEFAULTS, ...parsed };
+  // Upgraders (prefs predate this feature) keep `native` and are never prompted;
+  // the first-run chooser is reserved for genuinely fresh installs.
+  if (existed && parsed.keymapStyle === undefined && parsed.keymapStyleChosen === undefined) {
+    merged.keymapStyleChosen = true;
+  }
+  return merged;
 }
 
 let cur = load();
+
+// Persist the upgrade migration once so the flag survives restarts: a stored
+// blob that predates the keymap fields gets them written back now.
+{
+  const raw = localStorage.getItem(KEY);
+  if (raw && !raw.includes("keymapStyleChosen")) localStorage.setItem(KEY, JSON.stringify(cur));
+}
+
+function commit() {
+  localStorage.setItem(KEY, JSON.stringify(cur));
+  subs.forEach((fn) => fn());
+}
 
 export function getPrefs(): UIPrefs {
   return cur;
@@ -96,8 +131,34 @@ export function getPrefs(): UIPrefs {
 
 export function setPref<K extends keyof UIPrefs>(key: K, value: UIPrefs[K]) {
   cur = { ...cur, [key]: value };
-  localStorage.setItem(KEY, JSON.stringify(cur));
-  subs.forEach((fn) => fn());
+  commit();
+}
+
+/** Switch keymap style, remembering the outgoing value so the change is
+ *  undoable, and marking the first-run choice as made. */
+export function setKeymapStyle(next: KeymapStyle) {
+  if (next === cur.keymapStyle) {
+    if (!cur.keymapStyleChosen) setPref("keymapStyleChosen", true);
+    return;
+  }
+  cur = { ...cur, keymapStylePrev: cur.keymapStyle, keymapStyle: next, keymapStyleChosen: true };
+  commit();
+}
+
+/** Back to the OS-native default; still recorded so it too can be reverted. */
+export function revertToOriginal() {
+  setKeymapStyle("native");
+}
+
+/** Undo the last style change by swapping current ↔ previous (toggles on repeat). */
+export function revertToPrevious() {
+  cur = { ...cur, keymapStyle: cur.keymapStylePrev, keymapStylePrev: cur.keymapStyle, keymapStyleChosen: true };
+  commit();
+}
+
+/** Dismiss the first-run chooser without changing the style. */
+export function markKeymapChosen() {
+  if (!cur.keymapStyleChosen) setPref("keymapStyleChosen", true);
 }
 
 export function subscribePrefs(fn: () => void): () => void {
