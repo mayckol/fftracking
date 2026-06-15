@@ -44,9 +44,10 @@ export const ACTIONS: ActionDef[] = [
   { id: "editor.save", label: "Save file", group: "Editor", default: "Mod+S" },
   // Delete-line is the physical Ctrl key on every platform so Linux window
   // managers don't swallow it the way they do Alt+letter mnemonics. Duplicate
-  // is ⌥D on a Mac (plus ⌘D, bound in FileView); on Linux Alt+letter is also
-  // unreliable, so it moves to Ctrl+Shift+D there.
-  { id: "editor.duplicateLine", label: "Duplicate line", group: "Editor", default: IS_MAC ? "Alt+D" : "Mod+Shift+D" },
+  // is ⌥D on a Mac (plus ⌘D, bound in FileView); off Mac it uses the *literal*
+  // Ctrl key (not Mod) so it lands on physical Ctrl in both the pc and
+  // mac-on-PC schemes — Mod maps to the swallowed Alt key under mac style.
+  { id: "editor.duplicateLine", label: "Duplicate line", group: "Editor", default: IS_MAC ? "Alt+D" : "Ctrl+Shift+D" },
   { id: "editor.deleteWord", label: "Delete word (end → start)", group: "Editor", default: "Mod+W" },
   { id: "editor.deleteLine", label: "Delete line", group: "Editor", default: "Ctrl+D" },
   { id: "editor.gotoLine", label: "Go to line…", group: "Editor", default: "Mod+G" },
@@ -152,16 +153,18 @@ export function resolveScheme(style: KeymapStyle, hostIsMac: boolean): Scheme {
       monacoAlt: "Alt",
     };
   }
-  // mac scheme on a PC keyboard: the key next to space (physically Alt) becomes
-  // ⌘ (Mod); the far key (physically Ctrl) becomes ⌥ (Alt/Option).
+  // mac scheme on a PC keyboard: the key next to space (physically Alt) acts as
+  // ⌘ (Mod); the far key (physically Ctrl) acts as ⌥ (Alt/Option). There is no
+  // ⌘ key on this machine, so label modifiers by the *physical* key the user
+  // actually presses (Alt for Mod, Ctrl for ⌥) instead of mac glyphs.
   return {
     matchMod: (e) => e.metaKey || e.altKey,
     matchAlt: (e) => e.ctrlKey,
-    mod: "⌘",
-    alt: "⌥",
-    shift: "⇧",
-    ctrl: "⌃",
-    sep: " ",
+    mod: "Alt",
+    alt: "Ctrl",
+    shift: "Shift",
+    ctrl: "Ctrl",
+    sep: "+",
     monacoMod: "Alt",
     monacoAlt: "WinCtrl",
   };
