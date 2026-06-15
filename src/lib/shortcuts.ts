@@ -63,7 +63,10 @@ export const ACTIONS: ActionDef[] = [
   { id: "editor.commentLine", label: "Toggle comment (line / selection)", group: "Editor", default: "Mod+/" },
   { id: "editor.implementations", label: "Go to implementations / specifications", group: "Editor", default: "Mod+U" },
   { id: "editor.implementIface", label: "Implement interface (generate stubs)", group: "Editor", default: "Ctrl+I" },
-  { id: "test.run", label: "Run test at cursor", group: "Editor", default: "Ctrl+Shift+R" },
+  // Run-test sits on the physical Ctrl key (T for test) so Linux WMs don't
+  // swallow it; moved off Shift+R so it no longer shares a physical chord with
+  // search.replace (Mod+Shift+R) under the PC keymap, where Mod is physical Ctrl.
+  { id: "test.run", label: "Run test at cursor", group: "Editor", default: "Ctrl+Shift+T" },
   { id: "editor.fold", label: "Collapse block (press twice: all)", group: "Editor", default: "Mod+Shift+-" },
   { id: "editor.unfold", label: "Expand block (press twice: all)", group: "Editor", default: "Mod+Shift+=" },
   { id: "editor.zoomIn", label: "Zoom in", group: "Editor", default: "Mod+=" },
@@ -92,7 +95,7 @@ export const ACTIONS: ActionDef[] = [
   { id: "nav.forward", label: "Navigate forward", group: "Navigation", default: "Mod+Alt+=" },
   { id: "nav.nextPoint", label: "Next breaking point", group: "Navigation", default: "Alt+PageDown" },
   { id: "nav.prevPoint", label: "Previous breaking point", group: "Navigation", default: "Alt+PageUp" },
-  { id: "terminal.toggle", label: "Toggle terminal", group: "Navigation", default: "Mod+`" },
+  { id: "terminal.toggle", label: "Toggle terminal", group: "Navigation", default: "Mod+T" },
   { id: "run.toggle", label: "Toggle run panel", group: "Navigation", default: "Mod+Shift+P" },
   { id: "settings.palette", label: "Open settings palette", group: "Navigation", default: "Mod+," },
   // Debug bindings follow JetBrains defaults (F8/F7/⇧F8/F9).
@@ -104,12 +107,11 @@ export const ACTIONS: ActionDef[] = [
   { id: "debug.stop", label: "Stop debug session", group: "Debug", default: "Mod+F2" },
   // Mod+Shift+D is freed for duplicate-line on Linux; the panel toggle uses B.
   { id: "debug.panel", label: "Toggle debug panel", group: "Debug", default: "Mod+Shift+B" },
-  { id: "search.quickOpen", label: "Find files & folders", group: "Search", default: DOUBLE_SHIFT },
+  { id: "search.quickOpen", label: "Find files & folders", group: "Search", default: "Mod+`" },
   { id: "search.text", label: "Find in files", group: "Search", default: "Mod+Shift+F" },
-  // Replace-in-files sits on H (VSCode's chord), not R: on a PC keymap physical
-  // Ctrl maps to Mod, so "Mod+Shift+R" and the editor's "Ctrl+Shift+R" test.run
-  // collided on the same physical chord and this global handler shadowed the run.
-  { id: "search.replace", label: "Replace in files", group: "Search", default: "Mod+Shift+H" },
+  // Replace-in-files on Mod+Shift+R (⌘⇧R / ⌥⇧R). test.run moved off Ctrl+Shift+R
+  // so the two no longer collide on the same physical chord under the PC keymap.
+  { id: "search.replace", label: "Replace in files", group: "Search", default: "Mod+Shift+R" },
 ];
 
 const STORE_KEY = "ff.shortcuts";
