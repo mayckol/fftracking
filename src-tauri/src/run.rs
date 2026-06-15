@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -43,6 +43,26 @@ fn find_go() -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// PATH for a child Go tool (gopls, dlv): its own dir, then the `go` toolchain
+/// dir, then the inherited PATH. GUI-launched apps inherit a stripped PATH that
+/// omits the Go install, so a tool that shells out to `go` (gopls loading
+/// packages, dlv compiling) finds nothing and silently fails — while it works
+/// under `tauri dev`, which inherits the terminal PATH.
+pub(crate) fn go_child_path(bin: &Path) -> String {
+    let mut dirs: Vec<String> = Vec::new();
+    if let Some(p) = bin.parent() {
+        dirs.push(p.display().to_string());
+    }
+    if let Some(p) = find_go().as_deref().and_then(Path::parent) {
+        dirs.push(p.display().to_string());
+    }
+    let cur = std::env::var("PATH").unwrap_or_default();
+    if !cur.is_empty() {
+        dirs.push(cur);
+    }
+    dirs.join(":")
 }
 
 #[derive(Default)]

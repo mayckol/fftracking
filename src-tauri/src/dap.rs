@@ -74,9 +74,12 @@ impl DapManager {
                 .to_string()
         })?;
 
-        let mut child = Command::new(bin)
+        // dlv compiles the target with `go` before debugging; a GUI-launched
+        // app's stripped PATH omits the toolchain, so splice it back in.
+        let mut child = Command::new(&bin)
             .args(["dap", "--listen=127.0.0.1:0"])
             .current_dir(&root)
+            .env("PATH", crate::run::go_child_path(&bin))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

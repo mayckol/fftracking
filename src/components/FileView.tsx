@@ -76,7 +76,8 @@ function toKeybinding(monaco: Monaco, combo: string): number | null {
   const { mod, alt } = monacoModifiers();
   const modFlag =
     mod === "Alt" ? monaco.KeyMod.Alt : mod === "WinCtrl" ? monaco.KeyMod.WinCtrl : monaco.KeyMod.CtrlCmd;
-  const altFlag = alt === "WinCtrl" ? monaco.KeyMod.WinCtrl : monaco.KeyMod.Alt;
+  const altFlag =
+    alt === "WinCtrl" ? monaco.KeyMod.WinCtrl : alt === "CtrlCmd" ? monaco.KeyMod.CtrlCmd : monaco.KeyMod.Alt;
   let mods = 0;
   let key = "";
   for (const p of combo.split("+")) {

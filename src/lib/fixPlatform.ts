@@ -30,7 +30,14 @@ try {
     Object.defineProperty(navigator, "userAgent", { value: patched, configurable: true });
   }
 } catch {
-  // userAgent not redefinable on this engine: the WinCtrl editor bindings in
-  // resolveScheme (physical Ctrl, layout-independent of Monaco's OS guess) keep
-  // our own shortcuts working even if Monaco still misreads the platform.
+  // userAgent not redefinable on this engine: Monaco still misreads the host as
+  // macOS, so resolveScheme falls back to WinCtrl (physical Ctrl on a Mac-
+  // detecting Monaco) to keep our editor bindings working — see monacoSeesMac.
 }
+
+// The OS Monaco will derive from navigator.userAgent (read *after* the patch
+// above). Monaco's CtrlCmd / WinCtrl KeyMods resolve to opposite physical keys
+// on Mac vs Linux/Windows, so the keymap scheme keys its "physical Ctrl" Monaco
+// modifier off this: CtrlCmd when Monaco sees Linux/Windows, WinCtrl when the
+// patch failed and Monaco still sees a Mac (see lib/shortcuts resolveScheme).
+export const monacoSeesMac = /Macintosh|Mac OS X/i.test(navigator.userAgent || "");
