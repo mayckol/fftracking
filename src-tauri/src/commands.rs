@@ -13,6 +13,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::dap::DapManager;
 use crate::lsp::LspManager;
+use crate::run::RunManager;
 use crate::terminal::TerminalManager;
 use crate::AppState;
 
@@ -469,4 +470,20 @@ pub fn dap_send(dap: State<DapManager>, id: u64, body: String) -> R<()> {
 #[tauri::command]
 pub fn dap_stop(dap: State<DapManager>, id: u64) {
     dap.stop(id);
+}
+
+#[tauri::command]
+pub fn run_start(
+    app: tauri::AppHandle,
+    run: State<RunManager>,
+    cwd: String,
+    program: String,
+    args: Vec<String>,
+) -> R<u64> {
+    run.start(&app, cwd, program, args)
+}
+
+#[tauri::command]
+pub fn run_stop(run: State<RunManager>, id: u64) {
+    run.stop(id);
 }

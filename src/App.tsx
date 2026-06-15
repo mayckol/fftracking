@@ -7,6 +7,7 @@ import { getSelectedText } from "./lib/selection";
 import { foldAtCursor, resetZoom, unfoldAtCursor, zoomIn, zoomOut } from "./lib/editorActions";
 import { getScopeDir } from "./lib/searchScope";
 import { setTerminalOpener } from "./lib/runner";
+import { getRunSnapshot, setRunOpener, subscribeRun } from "./lib/run";
 import { restartLsp } from "./lib/lsp";
 import {
   dbgResume,
@@ -31,6 +32,7 @@ import PluginsView from "./panels/PluginsView";
 import Sidebar from "./panels/Sidebar";
 import TerminalPanel from "./panels/TerminalPanel";
 import DebugPanel from "./panels/DebugPanel";
+import RunPanel from "./panels/RunPanel";
 
 type Tab = "files" | "history" | "git" | "plugins" | "settings";
 
@@ -46,6 +48,9 @@ export default function App() {
   const [showDebug, setShowDebug] = useState(false);
   const [debugH, setDebugH] = useState(300);
   const [dbgStatus, setDbgStatus] = useState(getDebugSnapshot().status);
+  const [showRun, setShowRun] = useState(false);
+  const [runH, setRunH] = useState(300);
+  const [runStatus, setRunStatus] = useState(getRunSnapshot().status);
   const [search, setSearch] = useState<PaletteMode | null>(null);
   const [settingsPalette, setSettingsPalette] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -176,6 +181,13 @@ export default function App() {
   }, []);
   useEffect(() => subscribeDebug(() => setDbgStatus(getDebugSnapshot().status)), []);
   const dbgActive = dbgStatus === "starting" || dbgStatus === "running" || dbgStatus === "paused";
+  // Running a test / program (gutter "Run …" or ^⇧R) reveals the run panel.
+  useEffect(() => {
+    setRunOpener(() => setShowRun(true));
+    return () => setRunOpener(null);
+  }, []);
+  useEffect(() => subscribeRun(() => setRunStatus(getRunSnapshot().status)), []);
+  const runActive = runStatus === "running";
   useShortcut("debug.panel", () => setShowDebug((v) => !v));
   useShortcut("debug.stepOver", dbgStepOver, dbgStatus === "paused");
   useShortcut("debug.stepInto", dbgStepInto, dbgStatus === "paused");
@@ -260,6 +272,13 @@ export default function App() {
             </span>
           </div>
         )}
+        <button
+          className={`tbtn${showRun ? " on" : ""}`}
+          onClick={() => setShowRun((v) => !v)}
+          title={`${showRun ? "Hide" : "Show"} run panel`}
+        >
+          {runActive ? "▶ Run ●" : "▶ Run"}
+        </button>
         <button
           className={`tbtn${showDebug ? " on" : ""}`}
           onClick={() => setShowDebug((v) => !v)}
@@ -346,6 +365,14 @@ export default function App() {
         <div className="work" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
           <SettingsView toast={notify} scrollTo={settingsScroll} onOpenShortcuts={() => setShortcutsOpen(true)} />
         </div>
+      )}
+
+      {showRun && (
+        <RunPanel
+          height={runH}
+          onResize={(d) => setRunH((h) => Math.max(160, Math.min(window.innerHeight - 140, h - d)))}
+          onClose={() => setShowRun(false)}
+        />
       )}
 
       {showDebug && (
