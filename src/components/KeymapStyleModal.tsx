@@ -28,7 +28,7 @@ const ALT: { style: KeymapStyle; title: string; blurb: string } = IS_MAC
   : {
       style: "mac",
       title: "macOS style",
-      blurb: "Map the key next to the spacebar (Alt) to ⌘ and Ctrl to ⌥, so your Mac muscle memory works — no rebinding.",
+      blurb: "Map the key next to the spacebar (Alt) to ⌘ and Ctrl to ⌥ for Mac muscle memory. On Linux the window manager reserves many Alt shortcuts, so Native is more reliable.",
     };
 
 const OPTIONS = [NATIVE, ALT];

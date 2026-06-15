@@ -436,7 +436,7 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
             <span className="hint">
               {IS_MAC
                 ? "Native uses ⌘. Switch to Windows / Linux style to drive shortcuts from Ctrl instead."
-                : "Native uses Ctrl. macOS style maps the key next to the spacebar (Alt) to ⌘ and Ctrl to ⌥, so mac muscle memory works — no rebinding."}
+                : "Native uses Ctrl (recommended on Linux). macOS style maps the key next to the spacebar (Alt) to ⌘ and Ctrl to ⌥ for mac muscle memory — but on Linux the window manager reserves many Alt shortcuts, so some won't reach the app."}
             </span>
           </label>
           <select
