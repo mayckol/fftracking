@@ -71,6 +71,7 @@ impl RunManager {
         cwd: String,
         program: String,
         args: Vec<String>,
+        env: Vec<(String, String)>,
     ) -> Result<u64, String> {
         let bin = if program == "go" {
             find_go().ok_or_else(|| {
@@ -91,6 +92,8 @@ impl RunManager {
             let cur = std::env::var("PATH").unwrap_or_default();
             cmd.env("PATH", format!("{}:{}", parent.display(), cur));
         }
+        // User-supplied env vars from the run config (override inherited ones).
+        cmd.envs(env);
 
         let mut child = cmd.spawn().map_err(e2s)?;
         let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;

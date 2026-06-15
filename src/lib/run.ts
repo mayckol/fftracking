@@ -6,6 +6,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./ipc";
 import type { AnsiSpan } from "./ansi";
+import { recordRun } from "./execHistory";
 
 export type RunStatus = "idle" | "running" | "exited";
 
@@ -22,6 +23,8 @@ export interface RunSpec {
   label: string;
   program: string;
   args: string[];
+  /** Extra environment variables for the spawned process. */
+  env?: Record<string, string>;
 }
 
 interface RunSnapshot {
@@ -92,6 +95,7 @@ async function ensureListener() {
 
 export async function startRun(spec: RunSpec) {
   await stopRun();
+  recordRun(spec);
   lines = [];
   state.status = "running";
   state.title = spec.label;
@@ -101,7 +105,7 @@ export async function startRun(spec: RunSpec) {
   try {
     await ensureListener();
     log("info", `${spec.label}\n\n`);
-    sessionId = await api.runStart(spec.cwd, spec.program, spec.args);
+    sessionId = await api.runStart(spec.cwd, spec.program, spec.args, spec.env);
   } catch (e) {
     log("err", `${e}\n`);
     state.status = "exited";
