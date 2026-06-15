@@ -54,6 +54,62 @@ export function setNavHandler(fn: (path: string, line: number, col: number) => v
   };
 }
 
+// Coarse gopls lifecycle phase, broadcast on (re)start so status surfaces can
+// reflect a restart triggered from anywhere (footbar click, command palette).
+type LspPhase = "starting" | "ready" | "error";
+const lspStateSubs = new Set<(root: string, phase: LspPhase) => void>();
+export function subscribeLspState(cb: (root: string, phase: LspPhase) => void): () => void {
+  lspStateSubs.add(cb);
+  return () => lspStateSubs.delete(cb);
+}
+function emitLspState(root: string, phase: LspPhase) {
+  for (const cb of lspStateSubs) cb(root, phase);
+}
+
+// Resolves once the dying process for `root` reports `lsp://exit`, so a restart
+// can drain it before respawning — otherwise that late exit (which deletes the
+// connection by root) would wipe the freshly created one.
+function waitForExit(root: string, timeoutMs = 1500): Promise<void> {
+  return new Promise((resolve) => {
+    let un: (() => void) | null = null;
+    const finish = () => {
+      un?.();
+      resolve();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    listen<string>("lsp://exit", (e) => {
+      if (e.payload !== root) return;
+      clearTimeout(timer);
+      finish();
+    }).then((u) => {
+      un = u;
+    });
+  });
+}
+
+/** Kill gopls for `root` and bring it back up, re-opening every doc already
+ *  open under that root. Surfaces show "starting" → "ready"/"error" via
+ *  subscribeLspState. The existing didChange subscriptions keep working: they
+ *  route by root string, which the respawned server reuses. */
+export async function restartLsp(root: string): Promise<void> {
+  emitLspState(root, "starting");
+  const reopen = [...docs.values()].filter((d) => d.root === root);
+  conns.delete(root);
+  await api.lspStop(root).catch(() => {});
+  await waitForExit(root);
+  try {
+    const c = await ensureConn(root);
+    for (const d of reopen) {
+      notify(c, "textDocument/didOpen", {
+        textDocument: { uri: d.uri, languageId: "go", version: 1, text: d.model.getValue() },
+      });
+    }
+    emitLspState(root, "ready");
+  } catch {
+    emitLspState(root, "error");
+  }
+}
+
 function fileUri(path: string): string {
   return "file://" + path.split("/").map(encodeURIComponent).join("/");
 }
@@ -201,6 +257,12 @@ async function ensureConn(root: string): Promise<Conn> {
       processId: null,
       rootUri: fileUri(root),
       workspaceFolders: [{ uri: fileUri(root), name: root.split("/").pop() || root }],
+      // Also pass settings here, not just via workspace/configuration: gopls
+      // decides whether to advertise the semanticTokensProvider at initialize
+      // time from these options. Without semanticTokens here it defaults to off,
+      // never advertises the provider, and registerSemanticTokens (gated on the
+      // legend) never runs — so no token is ever colored by gopls.
+      initializationOptions: GOPLS_SETTINGS,
       capabilities: {
         textDocument: {
           synchronization: { didSave: true, dynamicRegistration: false },
@@ -279,10 +341,72 @@ async function ensureConn(root: string): Promise<Conn> {
 // Registered lazily: Monaco needs the token legend, and that only arrives in
 // gopls's initialize result. One registration covers every workspace.
 let semanticRegistered = false;
+let fireSemanticChange: (() => void) | null = null;
+
+// Ask Monaco to re-request semantic tokens for every open Go model. Used right
+// after a doc opens on a freshly-ready connection.
+function refreshSemanticTokens() {
+  fireSemanticChange?.();
+}
+
+// gopls tags BOTH a called package func (fx.Provide) and one passed by name
+// (fxproviders.ProvideConfig) as the same "function" token, so semantic tokens
+// can't tell a call from a reference — that split is purely syntactic and is
+// handled by the Monarch "function.call" rule. Drop function/method *uses* here
+// so they don't repaint the Monarch colors (an unmapped semantic token does NOT
+// fall through to the Monarch color in standalone Monaco — it overpaints with
+// the editor's default foreground). Keep *declarations* (definition/declaration
+// modifier): a func/method name sits before "(" too, so Monarch would color it
+// like a call; keeping the token lets it fall to the neutral editor foreground.
+// Re-bases the relative (deltaLine, deltaStart) encoding via absolute positions.
+function dropFunctionUses(
+  data: number[],
+  fnIdx: number,
+  mIdx: number,
+  declMask: number,
+): Uint32Array {
+  const out: number[] = [];
+  let line = 0;
+  let char = 0;
+  let prevLine = 0;
+  let prevChar = 0;
+  for (let i = 0; i + 4 < data.length; i += 5) {
+    const dLine = data[i];
+    if (dLine === 0) char += data[i + 1];
+    else {
+      line += dLine;
+      char = data[i + 1];
+    }
+    const type = data[i + 3];
+    const mods = data[i + 4];
+    if ((type === fnIdx || type === mIdx) && (mods & declMask) === 0) continue;
+    const outLine = line - prevLine;
+    out.push(outLine, outLine === 0 ? char - prevChar : char, data[i + 2], type, mods);
+    prevLine = line;
+    prevChar = char;
+  }
+  return new Uint32Array(out);
+}
+
 function registerSemanticTokens(legend: { tokenTypes: string[]; tokenModifiers: string[] }) {
   if (semanticRegistered || !M) return;
   semanticRegistered = true;
+
+  const fnIdx = legend.tokenTypes.indexOf("function");
+  const mIdx = legend.tokenTypes.indexOf("method");
+  const defBit = legend.tokenModifiers.indexOf("definition");
+  const declBit = legend.tokenModifiers.indexOf("declaration");
+  const declMask = (defBit >= 0 ? 1 << defBit : 0) | (declBit >= 0 ? 1 << declBit : 0);
+  const filterFns = fnIdx >= 0 || mIdx >= 0;
+
+  const listeners = new Set<() => void>();
+  fireSemanticChange = () => listeners.forEach((l) => l());
+
   M.languages.registerDocumentSemanticTokensProvider("go", {
+    onDidChange: ((cb: () => void) => {
+      listeners.add(cb);
+      return { dispose: () => listeners.delete(cb) };
+    }) as Json,
     getLegend: () => legend,
     async provideDocumentSemanticTokens(model) {
       const d = docForModel(model);
@@ -291,7 +415,10 @@ function registerSemanticTokens(legend: { tokenTypes: string[]; tokenModifiers: 
         textDocument: { uri: d.uri },
       });
       if (!r?.data) return null;
-      return { data: new Uint32Array(r.data), resultId: r.resultId };
+      const data = filterFns
+        ? dropFunctionUses(r.data, fnIdx, mIdx, declMask)
+        : new Uint32Array(r.data);
+      return { data, resultId: r.resultId };
     },
     releaseDocumentSemanticTokens() {},
   });
@@ -402,6 +529,87 @@ function symbolSuggestions(args: {
 function registerProviders(monaco: typeof Monaco) {
   if (registered) return;
   registered = true;
+
+  // Go's built-in Monarch grammar tags every identifier the same ("identifier"),
+  // so a function call and a bare reference are indistinguishable — and gopls
+  // can't separate them either (both are the "function" semantic token). Re-
+  // register the grammar with one change: an identifier immediately before "("
+  // becomes "function.call" (themed blue); everything else stays "identifier"
+  // (themed neutral). Faithful copy of monaco-editor 0.52 basic-languages/go
+  // with only that first root rule split in two.
+  monaco.languages.setMonarchTokensProvider("go", {
+    defaultToken: "",
+    tokenPostfix: ".go",
+    keywords: [
+      "break", "case", "chan", "const", "continue", "default", "defer", "else",
+      "fallthrough", "for", "func", "go", "goto", "if", "import", "interface",
+      "map", "package", "range", "return", "select", "struct", "switch", "type",
+      "var", "bool", "true", "false", "uint8", "uint16", "uint32", "uint64",
+      "int8", "int16", "int32", "int64", "float32", "float64", "complex64",
+      "complex128", "byte", "rune", "uint", "int", "uintptr", "string", "nil",
+    ],
+    operators: [
+      "+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", "&^", "+=", "-=", "*=",
+      "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "&^=", "&&", "||", "<-", "++",
+      "--", "==", "<", ">", "=", "!", "!=", "<=", ">=", ":=", "...", "(", ")",
+      "[", "]", "{", "}", ",", ";", ".", ":",
+    ],
+    symbols: /[=><!~?:&|+\-*\/\^%]+/,
+    escapes: /\\(?:[abfnrtv\\"']|x[0-9A-Fa-f]{1,4}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})/,
+    tokenizer: {
+      root: [
+        [/[a-zA-Z_]\w*(?=\s*\()/, { cases: { "@keywords": { token: "keyword.$0" }, "@default": "function.call" } }],
+        [/[a-zA-Z_]\w*/, { cases: { "@keywords": { token: "keyword.$0" }, "@default": "identifier" } }],
+        { include: "@whitespace" },
+        [/\[\[.*\]\]/, "annotation"],
+        [/^\s*#\w+/, "keyword"],
+        [/[{}()\[\]]/, "@brackets"],
+        [/[<>](?!@symbols)/, "@brackets"],
+        [/@symbols/, { cases: { "@operators": "delimiter", "@default": "" } }],
+        [/\d*\d+[eE]([\-+]?\d+)?/, "number.float"],
+        [/\d*\.\d+([eE][\-+]?\d+)?/, "number.float"],
+        [/0[xX][0-9a-fA-F']*[0-9a-fA-F]/, "number.hex"],
+        [/0[0-7']*[0-7]/, "number.octal"],
+        [/0[bB][0-1']*[0-1]/, "number.binary"],
+        [/\d[\d']*/, "number"],
+        [/\d/, "number"],
+        [/[;,.]/, "delimiter"],
+        [/"([^"\\]|\\.)*$/, "string.invalid"],
+        [/"/, "string", "@string"],
+        [/`/, "string", "@rawstring"],
+        [/'[^\\']'/, "string"],
+        [/(')(@escapes)(')/, ["string", "string.escape", "string"]],
+        [/'/, "string.invalid"],
+      ],
+      whitespace: [
+        [/[ \t\r\n]+/, ""],
+        [/\/\*\*(?!\/)/, "comment.doc", "@doccomment"],
+        [/\/\*/, "comment", "@comment"],
+        [/\/\/.*$/, "comment"],
+      ],
+      comment: [
+        [/[^/*]+/, "comment"],
+        [/\*\//, "comment", "@pop"],
+        [/[/*]/, "comment"],
+      ],
+      doccomment: [
+        [/[^/*]+/, "comment.doc"],
+        [/\/\*/, "comment.doc.invalid"],
+        [/\*\//, "comment.doc", "@pop"],
+        [/[/*]/, "comment.doc"],
+      ],
+      string: [
+        [/[^\\"]+/, "string"],
+        [/@escapes/, "string.escape"],
+        [/\\./, "string.escape.invalid"],
+        [/"/, "string", "@pop"],
+      ],
+      rawstring: [
+        [/[^`]/, "string"],
+        [/`/, "string", "@pop"],
+      ],
+    },
+  } as Monaco.languages.IMonarchLanguage);
 
   // Cross-file ⌘-click: Monaco asks to open another resource — hand it to the
   // host (which loads that file into the editor) instead of failing silently.
@@ -862,13 +1070,21 @@ export async function attachGo({ monaco, model, root, path }: AttachArgs) {
   // Warm the .golangci.yml/go.mod config cache so completion (sync hot path)
   // can read it.
   loadGoImportsConfig(root).catch(() => {});
-  const c = await ensureConn(root);
   const uri = fileUri(path);
+  // Register the doc BEFORE ensureConn. The semantic-tokens provider is created
+  // inside ensureConn (once gopls returns its legend) and Monaco asks it for
+  // tokens immediately. If this model isn't in `docs` yet, docForModel() returns
+  // null, the provider returns null, and Monaco caches that empty result with no
+  // content change to ever retrigger it — the whole file renders uncolored.
   docs.set(path, { model, root, uri });
+  const c = await ensureConn(root);
 
   notify(c, "textDocument/didOpen", {
     textDocument: { uri, languageId: "go", version: 1, text: model.getValue() },
   });
+  // The connection is ready now; nudge Monaco to re-fetch in case its first
+  // semantic-tokens request raced ahead of it and came back empty.
+  refreshSemanticTokens();
 
   let version = 1;
   const sub = model.onDidChangeContent((e) => {

@@ -6,6 +6,7 @@ import { isConfirmSuppressed } from "./lib/confirmPrefs";
 import { getSelectedText } from "./lib/selection";
 import { getScopeDir } from "./lib/searchScope";
 import { setTerminalOpener } from "./lib/runner";
+import { restartLsp } from "./lib/lsp";
 import {
   dbgResume,
   dbgStepInto,
@@ -374,6 +375,18 @@ export default function App() {
             }
             if (id === "reload") {
               window.location.reload();
+              return;
+            }
+            if (id === "lsp:restart") {
+              const root = selectedMonitor?.root_path;
+              if (!root) {
+                notify("No workspace selected", true);
+                return;
+              }
+              notify("Restarting language server…");
+              restartLsp(root)
+                .then(() => notify("Language server restarted"))
+                .catch(() => notify("Failed to restart language server", true));
               return;
             }
             // "sec:<name>" → open the Settings tab and scroll to that section.

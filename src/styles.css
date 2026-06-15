@@ -1807,6 +1807,23 @@ button.vs-tag:hover {
 .trow.dir.chg .dname {
   color: var(--chg-soft);
 }
+.statusbar .sb-lsp {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--tx-1);
+  cursor: pointer;
+}
+.statusbar .sb-lsp:hover:not(:disabled) {
+  filter: brightness(1.25);
+}
+.statusbar .sb-lsp:disabled {
+  cursor: default;
+}
 .statusbar .sb-lsp.ready {
   color: var(--ok-soft);
 }
