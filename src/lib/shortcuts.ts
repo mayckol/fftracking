@@ -92,6 +92,7 @@ export const ACTIONS: ActionDef[] = [
   { id: "nav.nextPoint", label: "Next breaking point", group: "Navigation", default: "Alt+PageDown" },
   { id: "nav.prevPoint", label: "Previous breaking point", group: "Navigation", default: "Alt+PageUp" },
   { id: "terminal.toggle", label: "Toggle terminal", group: "Navigation", default: "Mod+`" },
+  { id: "run.toggle", label: "Toggle run panel", group: "Navigation", default: "Mod+Shift+P" },
   { id: "settings.palette", label: "Open settings palette", group: "Navigation", default: "Mod+," },
   // Debug bindings follow JetBrains defaults (F8/F7/⇧F8/F9).
   { id: "debug.toggleBreakpoint", label: "Toggle breakpoint at cursor", group: "Debug", default: "Mod+F8" },

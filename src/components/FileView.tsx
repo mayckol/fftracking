@@ -118,6 +118,9 @@ interface Props {
   // stripe opens a JetBrains-style popup with the old block + rollback/copy.
   // undefined = feature off (still loading, external file).
   diffBase?: string | null;
+  // Copy helper (writes to clipboard + toasts) for the editor context-menu
+  // "Copy path:line" actions.
+  onCopyText?: (text: string, what: string) => void;
 }
 
 const LANG_LABEL: Record<string, string> = {
@@ -168,7 +171,7 @@ function MdIcon({ kind }: { kind: "raw" | "both" | "read" }) {
 }
 
 const FileView = forwardRef<FileHandle, Props>(function FileView(
-  { content, language, onSave, onDirtyChange, path, root, gotoPos, readOnly, onCursorClick, diffBase },
+  { content, language, onSave, onDirtyChange, path, root, gotoPos, readOnly, onCursorClick, diffBase, onCopyText },
   ref,
 ) {
   const prefs = useUIPrefs();
@@ -207,6 +210,8 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   onSaveRef.current = onSave;
   const onDirtyRef = useRef(onDirtyChange);
   onDirtyRef.current = onDirtyChange;
+  const onCopyTextRef = useRef(onCopyText);
+  onCopyTextRef.current = onCopyText;
 
   // VCS-style gutter change stripes vs `diffBase`. Hunk sides: old_* indexes
   // the editor content, new_* the baseline (text_hunks swaps its args).
@@ -486,6 +491,31 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     bind("editor.commentLine", () => run("editor.action.commentLine"));
     bind("editor.gotoFileStart", () => editor.trigger("ff", "cursorTop", null));
     bind("editor.gotoFileEnd", () => editor.trigger("ff", "cursorBottom", null));
+
+    // Right-click → copy the cursor's location as "path:line" (e.g.
+    // cmd/main.go:50), relative to the workspace root or absolute.
+    if (path) {
+      const rel = root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+      const copy = (text: string) => {
+        if (onCopyTextRef.current) onCopyTextRef.current(text, text);
+        else void navigator.clipboard.writeText(text);
+      };
+      const at = (base: string) => `${base}:${editor.getPosition()?.lineNumber ?? 1}`;
+      editor.addAction({
+        id: "ff.copyPathLineRel",
+        label: "Copy path:line (relative)",
+        contextMenuGroupId: "9_cutcopypaste",
+        contextMenuOrder: 3,
+        run: () => copy(at(rel)),
+      });
+      editor.addAction({
+        id: "ff.copyPathLineAbs",
+        label: "Copy path:line (absolute)",
+        contextMenuGroupId: "9_cutcopypaste",
+        contextMenuOrder: 4,
+        run: () => copy(at(path)),
+      });
+    }
 
     // Fold/unfold (⌘⇧±) and zoom (⌘±, ⌘0) are bound globally in App via the
     // shortcut registry — not here — so the numpad +/-/− keys work too.

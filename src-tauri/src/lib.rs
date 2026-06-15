@@ -79,6 +79,7 @@ pub fn run() {
             commands::replace_all,
             commands::open_path,
             commands::reveal_path,
+            commands::delete_path,
             commands::base_file,
             commands::snapshot_summaries,
             commands::snapshot_summaries_under,

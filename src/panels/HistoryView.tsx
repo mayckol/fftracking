@@ -254,6 +254,7 @@ export default function HistoryView({
   const [dialog, setDialog] = useState<
     | { kind: "label"; id: number; value: string }
     | { kind: "folder"; prefix: string; remove: boolean }
+    | { kind: "delete"; path: string; isDir: boolean }
     | null
   >(null);
 
@@ -709,6 +710,19 @@ export default function HistoryView({
     else setDialog({ kind: "folder", prefix, remove: false });
   }
 
+  async function runDelete(path: string, isDir: boolean) {
+    setDialog(null);
+    try {
+      await api.deletePath(monitorId, path);
+      // Close the open file if it (or its parent folder) was deleted.
+      if (file && (file === path || (isDir && file.startsWith(`${path}/`)))) setFile(null);
+      setReload((n) => n + 1);
+      toast(`Moved ${isDir ? "folder" : "file"} to trash`);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
   async function ignorePath(path: string, isDir: boolean) {
     const glob = isDir ? `${path}/**` : path;
     try {
@@ -949,6 +963,7 @@ export default function HistoryView({
                   onIgnoreFolder={(p) => ignorePath(p, true)}
                   onFindInFolder={onSearchInFolder && ((p) => onSearchInFolder(p, false))}
                   onReplaceInFolder={onSearchInFolder && ((p) => onSearchInFolder(p, true))}
+                  onDelete={(p, isDir) => setDialog({ kind: "delete", path: p, isDir })}
                 />
               </div>
             )}
@@ -1026,6 +1041,7 @@ export default function HistoryView({
                   path={file.startsWith("/") ? file : root && file ? `${root}/${file}` : undefined}
                   root={root ?? undefined}
                   readOnly={file.startsWith("/")}
+                  onCopyText={copyToClipboard}
                   diffBase={!file.startsWith("/") && baseFor === file ? fileBase : undefined}
                   gotoPos={pendingGoto && pendingGoto.path === file ? { line: pendingGoto.line, col: pendingGoto.col } : undefined}
                   onSave={
@@ -1203,6 +1219,23 @@ export default function HistoryView({
             setDialog(null);
             runFolder(prefix, remove);
           }}
+          onCancel={() => setDialog(null)}
+        />
+      )}
+
+      {dialog?.kind === "delete" && (
+        <ConfirmModal
+          title={`Delete ${dialog.isDir ? "folder" : "file"}`}
+          danger
+          message={
+            <>
+              Move <b>{dialog.path}</b>
+              {dialog.isDir ? " and everything inside it" : ""} to the trash? You can restore it from
+              your system trash.
+            </>
+          }
+          confirmLabel="Move to trash"
+          onConfirm={() => runDelete(dialog.path, dialog.isDir)}
           onCancel={() => setDialog(null)}
         />
       )}

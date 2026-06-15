@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Splitter from "../components/Splitter";
+import { parseAnsi } from "../lib/ansi";
 import { clearRun, getRunLines, getRunSnapshot, stopRun, subscribeRun } from "../lib/run";
 
 interface Props {
@@ -59,11 +60,30 @@ export default function RunPanel({ height, onResize, onClose }: Props) {
       </div>
       <div className="dbg-console">
         <div className="dbg-scroll dbg-log" ref={scrollRef}>
-          {lines.map((l, i) => (
-            <span key={i} className={`dbg-line ${l.kind}`}>
-              {l.text}
-            </span>
-          ))}
+          {lines.map((l, i) => {
+            const spans = (l.spans ??= parseAnsi(l.text));
+            return (
+              <span key={i} className={`dbg-line ${l.kind}`}>
+                {spans.map((sp, j) =>
+                  sp.color || sp.bold || sp.dim || sp.underline ? (
+                    <span
+                      key={j}
+                      style={{
+                        color: sp.color,
+                        fontWeight: sp.bold ? 600 : undefined,
+                        opacity: sp.dim ? 0.65 : undefined,
+                        textDecoration: sp.underline ? "underline" : undefined,
+                      }}
+                    >
+                      {sp.text}
+                    </span>
+                  ) : (
+                    sp.text
+                  ),
+                )}
+              </span>
+            );
+          })}
         </div>
       </div>
     </div>

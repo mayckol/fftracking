@@ -5,12 +5,15 @@
 
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./ipc";
+import type { AnsiSpan } from "./ansi";
 
 export type RunStatus = "idle" | "running" | "exited";
 
 export interface RunLine {
   kind: "out" | "err" | "info";
   text: string;
+  /** Lazily-parsed ANSI spans, cached by the panel on first render. */
+  spans?: AnsiSpan[];
 }
 
 export interface RunSpec {

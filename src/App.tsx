@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { api } from "./lib/ipc";
 import { comboFor, formatCombo, installShortcuts, useShortcut } from "./lib/shortcuts";
 import { useUIPrefs } from "./lib/uiPrefs";
@@ -75,6 +76,12 @@ export default function App() {
   const [sideOpen, setSideOpen] = useState(false);
   const toastTimer = useRef<number>();
   const prefs = useUIPrefs();
+  // Shown in the titlebar — read from tauri.conf.json (the version of record,
+  // which CI keeps in sync with the release tag) instead of a hardcoded string.
+  const [appVersion, setAppVersion] = useState("");
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => {});
+  }, []);
 
   // Suppress the webview's native right-click menu (the "Reload" popup);
   // our own context menus call preventDefault themselves where needed.
@@ -200,6 +207,7 @@ export default function App() {
   const inWorkspace = tab === "files" || tab === "history";
   useShortcut("capture.snapshot", snapshotNow, inWorkspace && selected != null);
   useShortcut("terminal.toggle", () => toggleBottom("terminal"));
+  useShortcut("run.toggle", () => toggleBottom("run"));
   useShortcut("settings.palette", () => setSettingsPalette((v) => !v));
   // Fold/zoom run on the focused editor. Registered globally (not via Monaco
   // keybindings) so number-row and numpad +/-/− both fire.
@@ -250,7 +258,7 @@ export default function App() {
         <div className="brand">
           <span className="dot" />
           fftracking
-          <small>v0.5.8</small>
+          {appVersion && <small>v{appVersion}</small>}
         </div>
         <nav className="tabs">
           {(["files", "git", "plugins", "settings"] as Tab[]).map((t) => (
@@ -275,7 +283,7 @@ export default function App() {
         <button
           className={`tbtn${bottom === "run" ? " on" : ""}`}
           onClick={() => toggleBottom("run")}
-          title={`${bottom === "run" ? "Hide" : "Show"} run panel`}
+          title={`${bottom === "run" ? "Hide" : "Show"} run panel (${formatCombo(comboFor("run.toggle"))})`}
         >
           {runActive ? "▶ Run ●" : "▶ Run"}
         </button>
