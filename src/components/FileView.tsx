@@ -29,6 +29,7 @@ import {
   type LaunchConfig,
 } from "../lib/debug";
 import { comboFor, formatCombo, monacoModifiers } from "../lib/shortcuts";
+import { resetZoom, useZoomLevel, zoomPercent } from "../lib/editorZoom";
 import { editorPrefOptions, getPrefs, useUIPrefs } from "../lib/uiPrefs";
 import { api } from "../lib/ipc";
 import type { HunkInfo } from "../lib/types";
@@ -137,6 +138,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   ref,
 ) {
   const prefs = useUIPrefs();
+  const zoomLevel = useZoomLevel();
   const [pos, setPos] = useState({ line: 1, col: 1 });
   const [lsp, setLsp] = useState<LspState>("off");
 
@@ -359,20 +361,8 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     bind("editor.gotoFileStart", () => editor.trigger("ff", "cursorTop", null));
     bind("editor.gotoFileEnd", () => editor.trigger("ff", "cursorBottom", null));
 
-    // Fold/unfold: one press acts on the block at the cursor; a quick second
-    // press widens to the whole file.
-    let lastFold = 0;
-    let lastUnfold = 0;
-    bind("editor.fold", () => {
-      const now = performance.now();
-      run(now - lastFold < 450 ? "editor.foldAll" : "editor.fold");
-      lastFold = now;
-    });
-    bind("editor.unfold", () => {
-      const now = performance.now();
-      run(now - lastUnfold < 450 ? "editor.unfoldAll" : "editor.unfold");
-      lastUnfold = now;
-    });
+    // Fold/unfold (⌘⇧±) and zoom (⌘±, ⌘0) are bound globally in App via the
+    // shortcut registry — not here — so the numpad +/-/− keys work too.
 
     // Under the mac-on-PC swap the ⌘ key is physically Alt, so Monaco's built-in
     // editing shortcuts (still on physical Ctrl) wouldn't answer to ⌘C/⌘V/…
@@ -1317,6 +1307,16 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           </button>
         )}
         <span className="sb-spacer" />
+        {zoomLevel !== 0 && (
+          <button
+            type="button"
+            className="sb-zoom"
+            title={`Editor zoom ${zoomPercent(zoomLevel)}% — click to reset to 100% (${formatCombo(comboFor("editor.zoomReset"))})`}
+            onClick={() => resetZoom()}
+          >
+            🔍 {zoomPercent(zoomLevel)}% ⟲
+          </button>
+        )}
         <span className="sb-pos">
           Ln {pos.line}, Col {pos.col}
         </span>
