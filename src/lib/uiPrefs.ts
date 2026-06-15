@@ -19,6 +19,7 @@ export interface UIPrefs {
   autohideSidebar: boolean;
   maxTabs: number;
   tabOverflow: TabOverflow;
+  autoSave: boolean;
   formatOnSave: boolean;
   goImportStyle: GoImportStyle;
   goImportsOnSave: boolean;
@@ -41,6 +42,7 @@ const DEFAULTS: UIPrefs = {
   autohideSidebar: false,
   maxTabs: 8,
   tabOverflow: "fifo",
+  autoSave: true,
   formatOnSave: false,
   goImportStyle: "grouped",
   goImportsOnSave: false,

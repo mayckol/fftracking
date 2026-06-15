@@ -478,6 +478,14 @@ select:focus {
   color: var(--ac);
   opacity: 0.8;
 }
+.tab-item .tab-dot {
+  width: 8px;
+  height: 8px;
+  margin-left: 2px;
+  border-radius: 50%;
+  background: var(--ac);
+  flex: 0 0 auto;
+}
 .tab-x {
   margin-left: 2px;
   width: 16px;
@@ -494,6 +502,16 @@ select:focus {
 .tab-x:hover {
   color: var(--tx-0);
   background: var(--bg-4);
+}
+/* Unsaved tabs show the dot; the close button takes over on hover. */
+.tab-x.has-dot {
+  display: none;
+}
+.tab-item:hover .tab-dot {
+  display: none;
+}
+.tab-item:hover .tab-x.has-dot {
+  display: inline-block;
 }
 .splitter {
   flex: 0 0 auto;

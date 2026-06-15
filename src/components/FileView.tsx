@@ -99,7 +99,11 @@ function toKeybinding(monaco: Monaco, combo: string): number | null {
 interface Props {
   content: string;
   language: string;
-  onSave?: (value: string) => void;
+  // `auto` is true for debounced auto-saves so the host can skip the toast.
+  onSave?: (value: string, auto: boolean) => void | Promise<void>;
+  // Reports whether the editor content differs from what's on disk, so the host
+  // can show an unsaved-changes dot in the tab.
+  onDirtyChange?: (dirty: boolean) => void;
   // Absolute on-disk path + workspace root: enable the Go language server.
   path?: string;
   root?: string;
@@ -164,7 +168,7 @@ function MdIcon({ kind }: { kind: "raw" | "both" | "read" }) {
 }
 
 const FileView = forwardRef<FileHandle, Props>(function FileView(
-  { content, language, onSave, path, root, gotoPos, readOnly, onCursorClick, diffBase },
+  { content, language, onSave, onDirtyChange, path, root, gotoPos, readOnly, onCursorClick, diffBase },
   ref,
 ) {
   const prefs = useUIPrefs();
@@ -195,6 +199,14 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   } | null>(null);
   const [diag, setDiag] = useState({ errors: 0, warnings: 0 });
   const editorRef = useRef<MEditor.IStandaloneCodeEditor | null>(null);
+  // Last text known to be on disk; dirty = editor value differs from this.
+  const savedValueRef = useRef(content);
+  // Props change identity across renders; onMount captures them once, so read
+  // the live versions through refs (auto-save fires long after mount).
+  const onSaveRef = useRef(onSave);
+  onSaveRef.current = onSave;
+  const onDirtyRef = useRef(onDirtyChange);
+  onDirtyRef.current = onDirtyChange;
 
   // VCS-style gutter change stripes vs `diffBase`. Hunk sides: old_* indexes
   // the editor content, new_* the baseline (text_hunks swaps its args).
@@ -301,6 +313,9 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     }
     const m = editorRef.current?.getModel();
     if (m && m.getValue() !== content) m.setValue(content);
+    // The new content is now the on-disk baseline (save succeeded, or a reload).
+    savedValueRef.current = content;
+    onDirtyRef.current?.(false);
   }, [content]);
 
   // Showing the editor again after Read mode hid it (display:none) can leave
@@ -403,11 +418,20 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       const kb = toKeybinding(monaco, comboFor(id));
       if (kb) editor.addCommand(kb, fn);
     };
-    bind("editor.save", async () => {
-      if (getPrefs().formatOnSave) await format();
-      else await groupImports();
-      onSave?.(editor.getValue());
-    });
+    // Manual save formats / regroups imports per prefs; auto-save just writes
+    // the current text so it never reformats mid-thought. Either way the saved
+    // baseline advances and the tab's dirty dot clears.
+    const doSave = async (auto: boolean) => {
+      if (!auto) {
+        if (getPrefs().formatOnSave) await format();
+        else await groupImports();
+      }
+      const v = editor.getValue();
+      await onSaveRef.current?.(v, auto);
+      savedValueRef.current = v;
+      onDirtyRef.current?.(false);
+    };
+    bind("editor.save", () => void doSave(false));
     bind("editor.format", () => format());
     bind("editor.gotoDef", () => editor.getAction("editor.action.revealDefinition")?.run());
 
@@ -424,6 +448,35 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     bind("editor.deleteWord", () => editor.trigger("ff", "deleteWordLeft", null));
     bind("editor.deleteLine", () => run("editor.action.deleteLines"));
     bind("editor.gotoLine", () => run("editor.action.gotoLine"));
+    bind("editor.selectAll", () => run("editor.action.selectAll"));
+    bind("editor.gotoLineEnd", () => editor.trigger("ff", "cursorEnd", null));
+
+    // Unsaved-changes dot + intelligent auto-save (editable files only). Dirty
+    // is recomputed shortly after edits stop; auto-save writes ~1s after the
+    // last keystroke when enabled. A kept model may reopen carrying edits, so
+    // sync once on mount too.
+    const dmodel = editor.getModel();
+    if (dmodel && !readOnly) {
+      const syncDirty = () => onDirtyRef.current?.(dmodel.getValue() !== savedValueRef.current);
+      syncDirty();
+      let dirtyTimer = 0;
+      let autoTimer = 0;
+      const sub = dmodel.onDidChangeContent(() => {
+        window.clearTimeout(dirtyTimer);
+        dirtyTimer = window.setTimeout(syncDirty, 200);
+        if (getPrefs().autoSave) {
+          window.clearTimeout(autoTimer);
+          autoTimer = window.setTimeout(() => {
+            if (dmodel.getValue() !== savedValueRef.current) void doSave(true);
+          }, 1000);
+        }
+      });
+      editor.onDidDispose(() => {
+        sub.dispose();
+        window.clearTimeout(dirtyTimer);
+        window.clearTimeout(autoTimer);
+      });
+    }
     // Opens the find widget with the replace row expanded; if find is already
     // open (find-only), it widens it to show replace.
     bind("editor.replace", () => run("editor.action.startFindReplaceAction"));
@@ -449,7 +502,6 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       addCmd("Mod+C", () => run("editor.action.clipboardCopyAction"));
       addCmd("Mod+X", () => run("editor.action.clipboardCutAction"));
       addCmd("Mod+V", () => run("editor.action.clipboardPasteAction"));
-      addCmd("Mod+A", () => run("editor.action.selectAll"));
       addCmd("Mod+Z", () => editor.trigger("ff", "undo", null));
       addCmd("Mod+Shift+Z", () => editor.trigger("ff", "redo", null));
       // Monaco's find sits on physical Ctrl; map it onto ⌘ too so ⌘F (⌥F here)
@@ -1069,7 +1121,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           editor.executeEdits("ff-rollback", [{ range, text: repl, forceMoveMarkers: true }]);
           setGutPop(null);
           editor.focus();
-          onSave?.(editor.getValue());
+          onSave?.(editor.getValue(), false);
         },
         // Checkout the whole file from the baseline — every change reverts at
         // once, still as a single undoable edit.
@@ -1079,7 +1131,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           editor.executeEdits("ff-checkout", [{ range: gmodel.getFullModelRange(), text: base, forceMoveMarkers: true }]);
           setGutPop(null);
           editor.focus();
-          onSave?.(editor.getValue());
+          onSave?.(editor.getValue(), false);
         },
       };
     }
