@@ -65,6 +65,7 @@ export const api = {
   runStop: (id: number) => invoke<void>("run_stop", { id }),
   openPath: (monitorId: number, path: string) => invoke<void>("open_path", { monitorId, path }),
   revealPath: (monitorId: number, path: string) => invoke<void>("reveal_path", { monitorId, path }),
+  deletePath: (monitorId: number, path: string) => invoke<void>("delete_path", { monitorId, path }),
   baseFile: (monitorId: number, snapshotId: number, path: string) =>
     invoke<string | null>("base_file", { monitorId, snapshotId, path }),
   snapshotSummaries: (monitorId: number) =>

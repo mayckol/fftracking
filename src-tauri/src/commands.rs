@@ -180,6 +180,19 @@ pub fn reveal_path(state: State<AppState>, monitor_id: i64, path: String) -> R<(
     Ok(())
 }
 
+/// Moves a working-tree file or directory to the OS trash (recoverable). Refuses
+/// to act outside the monitor root, or on the root itself.
+#[tauri::command]
+pub fn delete_path(state: State<AppState>, monitor_id: i64, path: String) -> R<()> {
+    let root = PathBuf::from(err(state.engine.monitor_root_path(monitor_id))?);
+    let canon_root = root.canonicalize().map_err(|e| e.to_string())?;
+    let canon_target = root.join(&path).canonicalize().map_err(|e| e.to_string())?;
+    if canon_target == canon_root || !canon_target.starts_with(&canon_root) {
+        return Err("refusing to delete outside the tracked folder".into());
+    }
+    trash::delete(&canon_target).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn base_file(state: State<AppState>, monitor_id: i64, snapshot_id: i64, path: String) -> R<Option<String>> {
     Ok(err(state.engine.base_file(monitor_id, snapshot_id, &path))?

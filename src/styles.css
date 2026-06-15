@@ -1733,6 +1733,13 @@ button.vs-tag:hover {
   background: var(--ac);
   color: var(--bg-0);
 }
+.ctx-menu button.danger {
+  color: var(--danger, #f7768e);
+}
+.ctx-menu button.danger:hover:not(:disabled) {
+  background: var(--danger, #f7768e);
+  color: var(--bg-0);
+}
 
 /* ---------- diff header / main ---------- */
 .diff-head {

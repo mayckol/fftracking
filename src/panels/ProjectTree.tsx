@@ -29,6 +29,7 @@ interface Props {
   onIgnoreFolder?: (prefix: string) => void;
   onFindInFolder?: (prefix: string) => void;
   onReplaceInFolder?: (prefix: string) => void;
+  onDelete?: (path: string, isDir: boolean) => void;
 }
 
 export interface ProjectTreeHandle {
@@ -51,6 +52,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
   onIgnoreFolder,
   onFindInFolder,
   onReplaceInFolder,
+  onDelete,
 }: Props, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const pendingScrollRef = useRef<string | null>(null);
@@ -187,7 +189,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
               setScopeDir(node.path);
             }}
             onContextMenu={(e) => {
-              if (!onReveal && !onIgnoreFolder && !onFindInFolder && !onReplaceInFolder && !onCopyPath && !onShowHistory) return;
+              if (!onReveal && !onIgnoreFolder && !onFindInFolder && !onReplaceInFolder && !onCopyPath && !onShowHistory && !onDelete) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "dir", path: node.path });
             }}
@@ -213,7 +215,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
               onSelect(node.path);
             }}
             onContextMenu={(e) => {
-              if (!onOpen && !onReveal && !onIgnoreFile && !onCopyPath && !onShowHistory) return;
+              if (!onOpen && !onReveal && !onIgnoreFile && !onCopyPath && !onShowHistory && !onDelete) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "file", path: node.path });
             }}
@@ -262,6 +264,11 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
                 Ignore history for this file
               </button>
             )}
+            {menu.kind === "file" && onDelete && (
+              <button className="danger" onClick={() => { onDelete(menu.path, false); setMenu(null); }}>
+                Delete file…
+              </button>
+            )}
             {menu.kind === "dir" && (
               <button
                 onClick={() => {
@@ -288,6 +295,11 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
             {menu.kind === "dir" && onIgnoreFolder && (
               <button onClick={() => { onIgnoreFolder(menu.path); setMenu(null); }}>
                 Ignore history for this path (<code>{menu.path}/**</code>)
+              </button>
+            )}
+            {menu.kind === "dir" && onDelete && (
+              <button className="danger" onClick={() => { onDelete(menu.path, true); setMenu(null); }}>
+                Delete folder…
               </button>
             )}
           </div>
