@@ -32,6 +32,9 @@ import { comboFor, formatCombo, monacoModifiers } from "../lib/shortcuts";
 import { resetZoom, useZoomLevel, zoomPercent } from "../lib/editorZoom";
 import { editorPrefOptions, getPrefs, useUIPrefs } from "../lib/uiPrefs";
 import { api } from "../lib/ipc";
+import MarkdownPreview from "./MarkdownPreview";
+import Splitter from "./Splitter";
+import { getMdSplit, useMdSplit, useMdViewMode } from "../lib/mdViewMode";
 import type { HunkInfo } from "../lib/types";
 
 export interface FileHandle {
@@ -133,6 +136,29 @@ function langLabel(id: string): string {
 
 type LspState = "off" | "starting" | "ready" | "error";
 
+function MdIcon({ kind }: { kind: "raw" | "both" | "read" }) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+      {kind === "raw" && (
+        <>
+          <path d="M6 5 3 8l3 3M10 5l3 3-3 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      )}
+      {kind === "both" && (
+        <>
+          <rect x="2" y="3" width="12" height="10" rx="1" stroke="currentColor" strokeWidth="1.2" />
+          <path d="M8 3v10" stroke="currentColor" strokeWidth="1.2" />
+        </>
+      )}
+      {kind === "read" && (
+        <>
+          <path d="M2.5 4h11M2.5 7h11M2.5 10h7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 const FileView = forwardRef<FileHandle, Props>(function FileView(
   { content, language, onSave, path, root, gotoPos, readOnly, onCursorClick, diffBase },
   ref,
@@ -141,6 +167,11 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   const zoomLevel = useZoomLevel();
   const [pos, setPos] = useState({ line: 1, col: 1 });
   const [lsp, setLsp] = useState<LspState>("off");
+  const isMarkdown = language === "markdown";
+  const [mdMode, setMdMode] = useMdViewMode();
+  const [mdSplit, setMdSplit] = useMdSplit();
+  const [mdSource, setMdSource] = useState(content);
+  const mdBodyRef = useRef<HTMLDivElement>(null);
 
   // Reflect restarts triggered elsewhere (command palette) for this root.
   useEffect(() => {
@@ -268,6 +299,12 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     if (m && m.getValue() !== content) m.setValue(content);
   }, [content]);
 
+  // Showing the editor again after Read mode hid it (display:none) can leave
+  // Monaco with stale dimensions until the next resize — force a relayout.
+  useEffect(() => {
+    if (isMarkdown && mdMode !== "read") editorRef.current?.layout();
+  }, [mdMode, isMarkdown, mdSplit]);
+
   useImperativeHandle(ref, () => ({
     reveal(line, col) {
       const ed = editorRef.current;
@@ -298,6 +335,14 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     const subs = [
       editor.onDidChangeCursorPosition((e) => setPos({ line: e.position.lineNumber, col: e.position.column })),
     ];
+
+    // Feed live source into the Markdown preview (the model is uncontrolled, so
+    // `content` only reflects the initial value).
+    if (isMarkdown && model) {
+      setMdSource(model.getValue());
+      const sub = model.onDidChangeContent(() => setMdSource(model.getValue()));
+      editor.onDidDispose(() => sub.dispose());
+    }
 
     if (model) {
       const recount = () => {
@@ -1019,13 +1064,33 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
 
   return (
     <div className="editor-shell">
-      <Editor
-        // Remount on keymap-style change so onMount re-binds editor commands to
-        // the new scheme's physical keys (Monaco addCommand can't be re-keyed).
-        // Models persist per path (keepCurrentModel), so undo history survives.
-        key={`km-${prefs.keymapStyle}`}
-        className="editor-wrap"
-        theme={monacoThemeId(prefs.theme)}
+      <div ref={mdBodyRef} className={isMarkdown ? `md-body mode-${mdMode}` : "md-body"}>
+        {isMarkdown && (
+          <div className="md-toolbar" role="group" aria-label="Markdown view mode">
+            {(["raw", "both", "read"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={mdMode === m ? "on" : ""}
+                title={m === "raw" ? "Source" : m === "both" ? "Editor and preview" : "Preview"}
+                onClick={() => setMdMode(m)}
+              >
+                <MdIcon kind={m} />
+              </button>
+            ))}
+          </div>
+        )}
+        <div
+          className="editor-wrap"
+          style={isMarkdown && mdMode === "both" ? { flex: `0 0 ${mdSplit * 100}%` } : undefined}
+        >
+          <Editor
+            // Remount on keymap-style change so onMount re-binds editor commands
+            // to the new scheme's physical keys (Monaco addCommand can't be
+            // re-keyed). Models persist per path (keepCurrentModel), so undo
+            // history survives.
+            key={`km-${prefs.keymapStyle}`}
+            theme={monacoThemeId(prefs.theme)}
         language={language}
         // Uncontrolled + one model per file path: keeps an isolated undo stack
         // per file and never records content swaps as undoable edits (which
@@ -1058,7 +1123,23 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           renderLineHighlight: "all",
           ...editorPrefOptions(prefs),
         }}
-      />
+          />
+        </div>
+        {isMarkdown && mdMode === "both" && (
+          <Splitter
+            dir="x"
+            onDelta={(d) => {
+              const w = mdBodyRef.current?.clientWidth ?? 1;
+              setMdSplit(getMdSplit() + d / w);
+            }}
+          />
+        )}
+        {isMarkdown && mdMode !== "raw" && (
+          <div className="md-preview-pane">
+            <MarkdownPreview source={mdSource} />
+          </div>
+        )}
+      </div>
       {implPick && (
         <>
           <div
