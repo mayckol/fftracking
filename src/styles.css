@@ -1833,6 +1833,22 @@ button.vs-tag:hover {
 .statusbar .sb-lsp.error {
   color: var(--err-soft);
 }
+.statusbar .sb-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 12px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--tx-1);
+  cursor: pointer;
+}
+.statusbar .sb-zoom:hover {
+  filter: brightness(1.25);
+}
 
 /* Settings → Shortcuts rebinding rows */
 .keys {

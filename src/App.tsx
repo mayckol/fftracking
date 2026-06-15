@@ -4,6 +4,7 @@ import { comboFor, formatCombo, installShortcuts, useShortcut } from "./lib/shor
 import { useUIPrefs } from "./lib/uiPrefs";
 import { isConfirmSuppressed } from "./lib/confirmPrefs";
 import { getSelectedText } from "./lib/selection";
+import { foldAtCursor, resetZoom, unfoldAtCursor, zoomIn, zoomOut } from "./lib/editorActions";
 import { getScopeDir } from "./lib/searchScope";
 import { setTerminalOpener } from "./lib/runner";
 import { restartLsp } from "./lib/lsp";
@@ -187,6 +188,13 @@ export default function App() {
   useShortcut("capture.snapshot", snapshotNow, inWorkspace && selected != null);
   useShortcut("terminal.toggle", () => setShowTerm((v) => !v));
   useShortcut("settings.palette", () => setSettingsPalette((v) => !v));
+  // Fold/zoom run on the focused editor. Registered globally (not via Monaco
+  // keybindings) so number-row and numpad +/-/− both fire.
+  useShortcut("editor.fold", foldAtCursor);
+  useShortcut("editor.unfold", unfoldAtCursor);
+  useShortcut("editor.zoomIn", zoomIn);
+  useShortcut("editor.zoomOut", zoomOut);
+  useShortcut("editor.zoomReset", resetZoom);
   // Seeds for the palette, captured at the moment the shortcut fires — query
   // from the editor selection (first line, like VSCode's ⌘⇧F), scope from the
   // last folder clicked in the project tree.
