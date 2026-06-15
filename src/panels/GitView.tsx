@@ -8,6 +8,7 @@ import type { GitFileChange, HunkInfo, RefList, WorkingStatus } from "../lib/typ
 import { basename, langOf } from "../lib/util";
 import ChangedTree from "./ChangedTree";
 import ConflictResolver from "./ConflictResolver";
+import { usePlugins } from "../lib/plugins/registry";
 
 type GitMode = "commit" | "compare";
 
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export default function GitView({ initialRepo, toast }: Props) {
+  usePlugins();
   const [repo, setRepo] = useState<string | null>(initialRepo);
   const [mode, setMode] = useState<GitMode>("commit");
   const [refs, setRefs] = useState<RefList | null>(null);

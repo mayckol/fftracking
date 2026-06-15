@@ -15,6 +15,7 @@ import FileView, { type FileHandle } from "../components/FileView";
 import Splitter from "../components/Splitter";
 import Timeline from "./Timeline";
 import { FileTypeIcon } from "../components/FileTypeIcon";
+import { usePlugins } from "../lib/plugins/registry";
 
 interface Props {
   monitorId: number;
@@ -44,6 +45,9 @@ export default function HistoryView({
   onSearchInFolder,
   toast,
 }: Props) {
+  // Re-render when a plugin toggles so langOf re-derives the editor language
+  // and open files switch tokenizer live (e.g. .env on dotenv enable/disable).
+  usePlugins();
   const [snaps, setSnaps] = useState<SnapshotRow[]>([]);
   const [snap, setSnap] = useState<number | null>(null);
   const [summaries, setSummaries] = useState<Record<number, ChangeSummary>>({});

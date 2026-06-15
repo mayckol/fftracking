@@ -1,3 +1,5 @@
+import { languageForPath } from "./plugins/registry";
+
 export function basename(path: string): string {
   const p = path.replace(/\/+$/, "");
   const i = p.lastIndexOf("/");
@@ -44,5 +46,8 @@ const LANG: Record<string, string> = {
 
 export function langOf(path: string): string {
   const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  return LANG[ext] ?? "plaintext";
+  const builtin = LANG[ext];
+  if (builtin) return builtin;
+  // Unknown extension: an enabled plugin may claim it (e.g. dotenv for .env).
+  return languageForPath(path) ?? "plaintext";
 }
