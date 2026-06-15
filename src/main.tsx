@@ -1,3 +1,6 @@
+// Must run before monaco-editor is imported (Monaco reads navigator.userAgent at
+// module-eval to pick its OS, and WebKitGTK on Linux lies that it is a Mac).
+import "./lib/fixPlatform";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import * as monaco from "monaco-editor";

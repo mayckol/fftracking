@@ -5,6 +5,7 @@ import type { HunkInfo } from "../lib/types";
 import { defineAllThemes, monacoThemeId } from "./monacoTheme";
 import { initPluginsForMonaco } from "../lib/plugins/registry";
 import { registerEditor } from "../lib/selection";
+import { monacoModifiers } from "../lib/shortcuts";
 import { editorPrefOptions, useUIPrefs } from "../lib/uiPrefs";
 
 export interface DiffHandle {
@@ -171,7 +172,13 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
     applyDecorations();
 
     const me = diff.getModifiedEditor();
-    me.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyR, () =>
+    // Replace lives on the active scheme's Mod key (⌘/Ctrl, or physical Alt under
+    // the mac-on-PC swap) — not a hardcoded Ctrl — so it doesn't land on the same
+    // physical key as diff.revertBlock and get shadowed by the global handler.
+    const { mod } = monacoModifiers();
+    const modFlag =
+      mod === "Alt" ? monaco.KeyMod.Alt : mod === "WinCtrl" ? monaco.KeyMod.WinCtrl : monaco.KeyMod.CtrlCmd;
+    me.addCommand(modFlag | monaco.KeyCode.KeyR, () =>
       me.getAction("editor.action.startFindReplaceAction")?.run(),
     );
     me.onMouseDown((e) => {

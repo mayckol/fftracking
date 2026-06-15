@@ -84,8 +84,11 @@ export const ACTIONS: ActionDef[] = [
   { id: "nav.history", label: "Go to History tab", group: "Navigation", default: "Mod+1" },
   { id: "nav.git", label: "Go to Git tab", group: "Navigation", default: "Mod+2" },
   { id: "nav.settings", label: "Go to Settings tab", group: "Navigation", default: "Mod+3" },
-  { id: "nav.back", label: "Navigate back", group: "Navigation", default: "Mod+Alt+ArrowLeft" },
-  { id: "nav.forward", label: "Navigate forward", group: "Navigation", default: "Mod+Alt+ArrowRight" },
+  // Back/forward avoid Mod+Alt+Arrow: that lands on physical Ctrl+Alt+Arrow,
+  // which GNOME/KDE/XFCE reserve for workspace switching so it never reaches the
+  // app. Minus/Equal (back/forward) are free and layout-stable.
+  { id: "nav.back", label: "Navigate back", group: "Navigation", default: "Mod+Alt+-" },
+  { id: "nav.forward", label: "Navigate forward", group: "Navigation", default: "Mod+Alt+=" },
   { id: "nav.nextPoint", label: "Next breaking point", group: "Navigation", default: "Alt+PageDown" },
   { id: "nav.prevPoint", label: "Previous breaking point", group: "Navigation", default: "Alt+PageUp" },
   { id: "terminal.toggle", label: "Toggle terminal", group: "Navigation", default: "Mod+`" },
@@ -101,7 +104,10 @@ export const ACTIONS: ActionDef[] = [
   { id: "debug.panel", label: "Toggle debug panel", group: "Debug", default: "Mod+Shift+B" },
   { id: "search.quickOpen", label: "Find files & folders", group: "Search", default: DOUBLE_SHIFT },
   { id: "search.text", label: "Find in files", group: "Search", default: "Mod+Shift+F" },
-  { id: "search.replace", label: "Replace in files", group: "Search", default: "Mod+Shift+R" },
+  // Replace-in-files sits on H (VSCode's chord), not R: on a PC keymap physical
+  // Ctrl maps to Mod, so "Mod+Shift+R" and the editor's "Ctrl+Shift+R" test.run
+  // collided on the same physical chord and this global handler shadowed the run.
+  { id: "search.replace", label: "Replace in files", group: "Search", default: "Mod+Shift+H" },
 ];
 
 const STORE_KEY = "ff.shortcuts";
@@ -135,9 +141,11 @@ export function resolveScheme(style: KeymapStyle, hostIsMac: boolean): Scheme {
       shift: "Shift",
       ctrl: "Ctrl",
       sep: "+",
-      // On a Mac forced into pc style, bind editor commands to the *physical*
-      // Ctrl key (WinCtrl), since Monaco's CtrlCmd would resolve to ⌘ there.
-      monacoMod: hostIsMac ? "WinCtrl" : "CtrlCmd",
+      // Bind editor commands to the *physical* Ctrl key (WinCtrl), never
+      // CtrlCmd. CtrlCmd resolves to ⌘ on a Mac forced into pc style — and to
+      // Meta on Linux, where WebKitGTK's Mac-masquerading userAgent fools Monaco
+      // into thinking it is macOS (see lib/fixPlatform). WinCtrl is always Ctrl.
+      monacoMod: "WinCtrl",
       monacoAlt: "Alt",
     };
   }
@@ -231,8 +239,8 @@ export function subscribe(fn: () => void): () => void {
   return () => subscribers.delete(fn);
 }
 
-// Shift produces a different character on US layouts ("{", "_", "+", …);
-// store the unshifted key so combos stay canonical ("Mod+Shift+[").
+// Shift produces a different character on US layouts ("{", "_", "+", …); used
+// only as a fallback when an event carries no usable e.code (rare / synthetic).
 const SHIFTED: Record<string, string> = {
   "{": "[", "}": "]", "_": "-", "+": "=", "?": "/", ":": ";", '"': "'",
   "<": ",", ">": ".", "|": "\\", "~": "`",
@@ -240,18 +248,43 @@ const SHIFTED: Record<string, string> = {
   "&": "7", "*": "8", "(": "9",
 };
 
+// Physical-position (e.code) → canonical combo key, labelled with US keycaps.
+// Combos are matched by *position* like Monaco's keybindings (which key off
+// KeyCode), so they stay identical across keyboard layouts: e.g. "Mod+/" fires
+// on whatever key sits where US "/" is, even when that glyph needs Shift/AltGr
+// on the active layout. Numpad +/−/= alias to "="/"-" so they zoom too.
+const CODE_KEY: Record<string, string> = {
+  Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]",
+  Backslash: "\\", Semicolon: ";", Quote: "'", Backquote: "`",
+  Comma: ",", Period: ".", Slash: "/", Space: "Space",
+  NumpadAdd: "=", NumpadSubtract: "-", NumpadDecimal: ".",
+  NumpadDivide: "/", NumpadMultiply: "*", NumpadEqual: "=",
+};
+
+// The character key for a combo, derived from the physical e.code so it is
+// layout-independent. Falls back to the logical e.key (with US-shift fixup) for
+// named keys (arrows, F-keys, Page…) and events lacking a code.
+function keyFromCode(e: KeyboardEvent): string {
+  const code = e.code;
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  if (/^Numpad[0-9]$/.test(code)) return code.slice(6);
+  if (code in CODE_KEY) return CODE_KEY[code];
+  let key = e.key;
+  if (key === " ") key = "Space";
+  if (key in SHIFTED) key = SHIFTED[key];
+  if (key.length === 1) key = key.toUpperCase();
+  return key;
+}
+
 /** Serializes a keydown into a comparable combo string, or "" for a bare modifier. */
 export function comboFromEvent(e: KeyboardEvent): string {
+  if (["Meta", "Control", "Alt", "Shift"].includes(e.key)) return "";
   const parts: string[] = [];
   if (scheme.matchMod(e)) parts.push("Mod");
   if (scheme.matchAlt(e)) parts.push("Alt");
   if (e.shiftKey) parts.push("Shift");
-  let key = e.key;
-  if (["Meta", "Control", "Alt", "Shift"].includes(key)) return "";
-  if (key === " ") key = "Space";
-  if (key in SHIFTED) key = SHIFTED[key];
-  if (key.length === 1) key = key.toUpperCase();
-  parts.push(key);
+  parts.push(keyFromCode(e));
   return parts.join("+");
 }
 
