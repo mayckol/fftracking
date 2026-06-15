@@ -3,6 +3,7 @@
 // localStorage. "Mod" is ⌘ on macOS and Ctrl elsewhere.
 
 import { useEffect } from "react";
+import { platform } from "@tauri-apps/plugin-os";
 import { type KeymapStyle, getPrefs, subscribePrefs } from "./uiPrefs";
 
 export type ActionGroup = "Editor" | "Diff" | "Capture & revert" | "Changed files" | "Navigation" | "Search" | "Debug";
@@ -13,10 +14,17 @@ export const DOUBLE_SHIFT = "DoubleShift";
 
 /** True when the *physical machine* is a Mac, independent of the chosen keymap
  *  style. Style decides the scheme; this decides where the ⌘ key physically is.
- *  navigator.platform is empty on some Linux WebKit builds, so fall back to the
- *  user-agent — anything that isn't a Mac (Linux included) gets the Ctrl scheme. */
-const PLATFORM = (navigator.platform || navigator.userAgent || "").toUpperCase();
-export const IS_MAC = PLATFORM.includes("MAC");
+ *  WebKitGTK on Linux masquerades as "MacIntel" in navigator.platform/userAgent,
+ *  so we ask the OS plugin (the real OS from Rust) and only fall back to the
+ *  unreliable navigator sniff outside a Tauri webview (tests). */
+function detectMac(): boolean {
+  try {
+    return platform() === "macos";
+  } catch {
+    return /mac/i.test(navigator.platform || navigator.userAgent || "");
+  }
+}
+export const IS_MAC = detectMac();
 
 export interface ActionDef {
   id: string;
