@@ -8,6 +8,8 @@ import {
   implementationLocations,
   openLocation,
   organizeImports,
+  restartLsp,
+  subscribeLspState,
   workspaceInterfaces,
   type IfaceSymbol,
   type ImplAnnotation,
@@ -130,6 +132,14 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   const prefs = useUIPrefs();
   const [pos, setPos] = useState({ line: 1, col: 1 });
   const [lsp, setLsp] = useState<LspState>("off");
+
+  // Reflect restarts triggered elsewhere (command palette) for this root.
+  useEffect(() => {
+    if (language !== "go" || !root) return;
+    return subscribeLspState((r, phase) => {
+      if (r === root) setLsp(phase);
+    });
+  }, [language, root]);
   // Implementation-target picker (several results → JetBrains-style popup).
   const [implPick, setImplPick] = useState<{ x: number; y: number; locs: ImplLocation[] } | null>(null);
   const jumpToRef = useRef<(loc: ImplLocation) => void>(() => {});
@@ -1264,7 +1274,17 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           <span className={`sb-err${diag.errors > 0 ? " on" : ""}`}>⊘ {diag.errors}</span>
           <span className={`sb-warn${diag.warnings > 0 ? " on" : ""}`}>△ {diag.warnings}</span>
         </span>
-        {lsp !== "off" && <span className={`sb-lsp ${lsp}`}>● {lspLabel[lsp]}</span>}
+        {lsp !== "off" && (
+          <button
+            type="button"
+            className={`sb-lsp ${lsp}`}
+            title="Click to restart gopls"
+            disabled={lsp === "starting" || !root}
+            onClick={() => root && restartLsp(root)}
+          >
+            ● {lspLabel[lsp]}
+          </button>
+        )}
         <span className="sb-spacer" />
         <span className="sb-pos">
           Ln {pos.line}, Col {pos.col}

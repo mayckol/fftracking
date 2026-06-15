@@ -464,6 +464,11 @@ export default function HistoryView({
     let alive = true;
     (async () => {
       let base: string | null = null;
+      // git mode: a file with no HEAD blob is unversioned (gitignored or
+      // untracked). Git has no baseline for it, so show no VCS gutter stripes
+      // (JetBrains-style) instead of diffing the whole file against "" and
+      // painting every line as an addition.
+      let unversioned = false;
       try {
         if (baseInfo?.kind === "git" && baseInfo.repo_root && root) {
           // The monitor root may be a subfolder of the repo — git paths are
@@ -471,6 +476,7 @@ export default function HistoryView({
           const prefix = baseInfo.repo_root.endsWith("/") ? baseInfo.repo_root : `${baseInfo.repo_root}/`;
           const sub = root === baseInfo.repo_root ? "" : root.startsWith(prefix) ? `${root.slice(prefix.length)}/` : "";
           base = await api.gitFile(baseInfo.repo_root, "HEAD", `${sub}${file}`);
+          unversioned = base == null;
         } else if (latestSnap != null) {
           base = await api.fileAt(latestSnap, file);
         }
@@ -478,6 +484,10 @@ export default function HistoryView({
         base = null;
       }
       if (!alive) return;
+      if (unversioned) {
+        setBaseFor(null);
+        return;
+      }
       setFileBase(base ?? "");
       setBaseFor(file);
     })();

@@ -73,10 +73,11 @@ export const tokyoNight: Theme = {
       // Identifiers the lexer can't classify get the bright lavender Zed uses
       // for variables, instead of inheriting the muted editor foreground.
       { token: "identifier", foreground: "c0caf5" },
-      // Semantic tokens (gopls): the lexical tokenizer can't tell functions,
-      // types and namespaces apart — these rules match the LSP legend names.
-      { token: "function", foreground: "7aa2f7" },
-      { token: "method", foreground: "7aa2f7" },
+      // Function CALLS (Monarch: an identifier right before "(") → Zed blue.
+      // gopls function/method *uses* are filtered out in lsp.ts so they can't
+      // repaint this; *declaration* names are kept and fall to the editor
+      // foreground (neutral). Type/namespace semantic rules below still apply.
+      { token: "function.call", foreground: "7aa2f7" },
       { token: "namespace", foreground: "c0caf5" },
       { token: "struct", foreground: "0db9d7" },
       { token: "interface", foreground: "0db9d7" },
@@ -89,9 +90,6 @@ export const tokyoNight: Theme = {
       { token: "enumMember", foreground: "ff9e64" },
       { token: "variable.readonly", foreground: "ff9e64" },
       { token: "variable.defaultLibrary", foreground: "f7768e" },
-      // Builtins like new/make read as function calls in Zed, not keywords.
-      { token: "function.defaultLibrary", foreground: "7aa2f7" },
-      { token: "keyword.defaultLibrary", foreground: "7aa2f7" },
       { token: "decorator", foreground: "bb9af7" },
       { token: "macro", foreground: "bb9af7" },
       { token: "label", foreground: "c0caf5" },

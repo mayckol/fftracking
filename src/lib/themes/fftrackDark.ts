@@ -63,9 +63,12 @@ export const fftrackDark: Theme = {
       { token: "keyword", foreground: "7c8cff" },
       { token: "string", foreground: "4cc4c0" },
       { token: "number", foreground: "e3b341" },
-      // Semantic tokens (gopls), kept inside the original palette.
-      { token: "function", foreground: "93a0ff" },
-      { token: "method", foreground: "93a0ff" },
+      // Function CALLS (Monarch: an identifier right before "(") → blue.
+      // References and declaration names stay neutral white: gopls function/
+      // method *uses* are filtered in lsp.ts, *declarations* fall to the editor
+      // foreground. Type/namespace semantic rules below still apply.
+      { token: "function.call", foreground: "93a0ff" },
+      { token: "identifier", foreground: "e6edf3" },
       { token: "namespace", foreground: "e6edf3" },
       { token: "type", foreground: "4cc4c0" },
       { token: "struct", foreground: "4cc4c0" },
