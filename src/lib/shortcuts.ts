@@ -4,6 +4,7 @@
 
 import { useEffect } from "react";
 import { platform } from "@tauri-apps/plugin-os";
+import { monacoSeesMac } from "./fixPlatform";
 import { type KeymapStyle, getPrefs, subscribePrefs } from "./uiPrefs";
 
 export type ActionGroup = "Editor" | "Diff" | "Capture & revert" | "Changed files" | "Navigation" | "Search" | "Debug";
@@ -125,10 +126,14 @@ interface Scheme {
   ctrl: string;
   sep: string;
   // Monaco KeyMod names (resolved against the monaco namespace in toKeybinding).
-  // CtrlCmd is Cmd on macOS / Ctrl elsewhere; WinCtrl is always the physical
-  // Ctrl key; Alt is always the physical Alt key.
+  // Monaco maps these to physical keys by the OS it detects (see
+  // platform.js / keybindings.js): on a Mac-detecting Monaco CtrlCmd→⌘ and
+  // WinCtrl→physical Ctrl; on Linux/Windows CtrlCmd→physical Ctrl and
+  // WinCtrl→the Meta/Super key. So "physical Ctrl" is CtrlCmd or WinCtrl
+  // depending on what Monaco sees — keyed off monacoSeesMac below. Alt is the
+  // physical Alt key on every OS.
   monacoMod: "CtrlCmd" | "Alt" | "WinCtrl";
-  monacoAlt: "Alt" | "WinCtrl";
+  monacoAlt: "Alt" | "WinCtrl" | "CtrlCmd";
 }
 
 export function resolveScheme(style: KeymapStyle, hostIsMac: boolean): Scheme {
@@ -142,11 +147,13 @@ export function resolveScheme(style: KeymapStyle, hostIsMac: boolean): Scheme {
       shift: "Shift",
       ctrl: "Ctrl",
       sep: "+",
-      // Bind editor commands to the *physical* Ctrl key (WinCtrl), never
-      // CtrlCmd. CtrlCmd resolves to ⌘ on a Mac forced into pc style — and to
-      // Meta on Linux, where WebKitGTK's Mac-masquerading userAgent fools Monaco
-      // into thinking it is macOS (see lib/fixPlatform). WinCtrl is always Ctrl.
-      monacoMod: "WinCtrl",
+      // Bind editor commands to whichever Monaco KeyMod resolves to the
+      // *physical* Ctrl key for the OS Monaco actually detected: CtrlCmd when it
+      // sees Linux/Windows (the normal case — fixPlatform strips the Mac token
+      // from WebKitGTK's masquerading userAgent), WinCtrl only when that patch
+      // failed and Monaco still thinks it is macOS. Picking the wrong one lands
+      // every editor shortcut (save, format, …) on the unused Meta/Super key.
+      monacoMod: monacoSeesMac ? "WinCtrl" : "CtrlCmd",
       monacoAlt: "Alt",
     };
   }
@@ -177,7 +184,9 @@ export function resolveScheme(style: KeymapStyle, hostIsMac: boolean): Scheme {
     ctrl: "Ctrl",
     sep: "+",
     monacoMod: "Alt",
-    monacoAlt: "WinCtrl",
+    // The far key (physically Ctrl) acts as ⌥; bind it to the Monaco KeyMod
+    // that resolves to physical Ctrl for the detected OS (see the pc branch).
+    monacoAlt: monacoSeesMac ? "WinCtrl" : "CtrlCmd",
   };
 }
 

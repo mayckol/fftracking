@@ -77,8 +77,13 @@ impl LspManager {
             "gopls not found. Install it with `go install golang.org/x/tools/gopls@latest`.".to_string()
         })?;
 
-        let mut child = Command::new(bin)
+        // gopls shells out to the `go` toolchain (go env, packages.Load) for
+        // everything — diagnostics, formatting, imports. A GUI-launched app has
+        // a stripped PATH without it, so splice the toolchain back in or gopls
+        // loads no package and formatting/organize-imports return empty.
+        let mut child = Command::new(&bin)
             .current_dir(&root)
+            .env("PATH", crate::run::go_child_path(&bin))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
