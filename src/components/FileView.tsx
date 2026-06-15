@@ -452,6 +452,9 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       addCmd("Mod+A", () => run("editor.action.selectAll"));
       addCmd("Mod+Z", () => editor.trigger("ff", "undo", null));
       addCmd("Mod+Shift+Z", () => editor.trigger("ff", "redo", null));
+      // Monaco's find sits on physical Ctrl; map it onto ⌘ too so ⌘F (⌥F here)
+      // opens the find widget. Next/prev stay on F3 / Enter inside the widget.
+      addCmd("Mod+F", () => run("actions.find"));
     }
 
     // JetBrains-style run-test icons on `func TestX` and table-driven

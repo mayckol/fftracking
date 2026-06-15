@@ -44,11 +44,11 @@ export default function App() {
   const [res, setRes] = useState<ResourceUsage | null>(null);
   const [confirmDel, setConfirmDel] = useState<MonitorRow | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [showTerm, setShowTerm] = useState(false);
-  const [showDebug, setShowDebug] = useState(false);
+  // Run / Terminal / Debug share the bottom slot — only one shows at a time.
+  const [bottom, setBottom] = useState<"run" | "terminal" | "debug" | null>(null);
+  const toggleBottom = (b: "run" | "terminal" | "debug") => setBottom((cur) => (cur === b ? null : b));
   const [debugH, setDebugH] = useState(300);
   const [dbgStatus, setDbgStatus] = useState(getDebugSnapshot().status);
-  const [showRun, setShowRun] = useState(false);
   const [runH, setRunH] = useState(300);
   const [runStatus, setRunStatus] = useState(getRunSnapshot().status);
   const [search, setSearch] = useState<PaletteMode | null>(null);
@@ -171,24 +171,24 @@ export default function App() {
   useEffect(installShortcuts, []);
   // Test-runner clicks need the terminal panel visible before they can type.
   useEffect(() => {
-    setTerminalOpener(() => setShowTerm(true));
+    setTerminalOpener(() => setBottom("terminal"));
     return () => setTerminalOpener(null);
   }, []);
   // Starting a debug session (gutter "Debug …") reveals the debug panel.
   useEffect(() => {
-    setDebugOpener(() => setShowDebug(true));
+    setDebugOpener(() => setBottom("debug"));
     return () => setDebugOpener(null);
   }, []);
   useEffect(() => subscribeDebug(() => setDbgStatus(getDebugSnapshot().status)), []);
   const dbgActive = dbgStatus === "starting" || dbgStatus === "running" || dbgStatus === "paused";
   // Running a test / program (gutter "Run …" or ^⇧R) reveals the run panel.
   useEffect(() => {
-    setRunOpener(() => setShowRun(true));
+    setRunOpener(() => setBottom("run"));
     return () => setRunOpener(null);
   }, []);
   useEffect(() => subscribeRun(() => setRunStatus(getRunSnapshot().status)), []);
   const runActive = runStatus === "running";
-  useShortcut("debug.panel", () => setShowDebug((v) => !v));
+  useShortcut("debug.panel", () => toggleBottom("debug"));
   useShortcut("debug.stepOver", dbgStepOver, dbgStatus === "paused");
   useShortcut("debug.stepInto", dbgStepInto, dbgStatus === "paused");
   useShortcut("debug.stepOut", dbgStepOut, dbgStatus === "paused");
@@ -199,7 +199,7 @@ export default function App() {
   useShortcut("nav.settings", () => setTab("settings"));
   const inWorkspace = tab === "files" || tab === "history";
   useShortcut("capture.snapshot", snapshotNow, inWorkspace && selected != null);
-  useShortcut("terminal.toggle", () => setShowTerm((v) => !v));
+  useShortcut("terminal.toggle", () => toggleBottom("terminal"));
   useShortcut("settings.palette", () => setSettingsPalette((v) => !v));
   // Fold/zoom run on the focused editor. Registered globally (not via Monaco
   // keybindings) so number-row and numpad +/-/− both fire.
@@ -273,23 +273,23 @@ export default function App() {
           </div>
         )}
         <button
-          className={`tbtn${showRun ? " on" : ""}`}
-          onClick={() => setShowRun((v) => !v)}
-          title={`${showRun ? "Hide" : "Show"} run panel`}
+          className={`tbtn${bottom === "run" ? " on" : ""}`}
+          onClick={() => toggleBottom("run")}
+          title={`${bottom === "run" ? "Hide" : "Show"} run panel`}
         >
           {runActive ? "▶ Run ●" : "▶ Run"}
         </button>
         <button
-          className={`tbtn${showDebug ? " on" : ""}`}
-          onClick={() => setShowDebug((v) => !v)}
-          title={`${showDebug ? "Hide" : "Show"} debug panel (${formatCombo(comboFor("debug.panel"))})`}
+          className={`tbtn${bottom === "debug" ? " on" : ""}`}
+          onClick={() => toggleBottom("debug")}
+          title={`${bottom === "debug" ? "Hide" : "Show"} debug panel (${formatCombo(comboFor("debug.panel"))})`}
         >
           {dbgActive ? "🐞 Debug ●" : "🐞 Debug"}
         </button>
         <button
-          className={`tbtn${showTerm ? " on" : ""}`}
-          onClick={() => setShowTerm((v) => !v)}
-          title={`${showTerm ? "Hide" : "Show"} terminal (${formatCombo(comboFor("terminal.toggle"))})`}
+          className={`tbtn${bottom === "terminal" ? " on" : ""}`}
+          onClick={() => toggleBottom("terminal")}
+          title={`${bottom === "terminal" ? "Hide" : "Show"} terminal (${formatCombo(comboFor("terminal.toggle"))})`}
         >
           {">_ Terminal"}
         </button>
@@ -367,29 +367,29 @@ export default function App() {
         </div>
       )}
 
-      {showRun && (
+      {bottom === "run" && (
         <RunPanel
           height={runH}
           onResize={(d) => setRunH((h) => Math.max(160, Math.min(window.innerHeight - 140, h - d)))}
-          onClose={() => setShowRun(false)}
+          onClose={() => setBottom(null)}
         />
       )}
 
-      {showDebug && (
+      {bottom === "debug" && (
         <DebugPanel
           root={selectedMonitor?.root_path ?? null}
           height={debugH}
           onResize={(d) => setDebugH((h) => Math.max(160, Math.min(window.innerHeight - 140, h - d)))}
-          onClose={() => setShowDebug(false)}
+          onClose={() => setBottom(null)}
         />
       )}
 
-      {showTerm && (
+      {bottom === "terminal" && (
         <TerminalPanel
           cwd={selectedMonitor?.root_path ?? null}
           height={termH}
           onResize={(d) => setTermH((h) => Math.max(120, Math.min(window.innerHeight - 140, h - d)))}
-          onClose={() => setShowTerm(false)}
+          onClose={() => setBottom(null)}
         />
       )}
 
