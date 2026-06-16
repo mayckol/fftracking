@@ -1,7 +1,7 @@
 import { useMemo, useState, useRef, useImperativeHandle, forwardRef, useEffect } from "react";
 import { buildFileTree, type TreeNode } from "../lib/filetree";
 import { setScopeDir } from "../lib/searchScope";
-import { runInTerminal } from "../lib/runner";
+import { startRun } from "../lib/run";
 import { dirname } from "../lib/util";
 import { FileTypeIcon, FolderTypeIcon } from "../components/FileTypeIcon";
 
@@ -11,6 +11,10 @@ interface Menu {
   kind: "file" | "dir";
   path: string;
 }
+
+// Expanded folders survive unmount (switching the sidebar tab to git/plugins/
+// settings tears the tree down) — restored per project on remount.
+const expandedCache = new Map<string, Set<string>>();
 
 interface Props {
   files: string[];
@@ -56,9 +60,14 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
 }: Props, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const pendingScrollRef = useRef<string | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const cacheKey = rootPath ?? "";
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(expandedCache.get(cacheKey)));
   const [hlDir, setHlDir] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
+
+  useEffect(() => {
+    expandedCache.set(cacheKey, expanded);
+  }, [cacheKey, expanded]);
 
   const tree = useMemo(() => buildFileTree(files.map((path) => ({ path }))), [files]);
 
@@ -247,11 +256,12 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
             {menu.kind === "file" && onReveal && (
               <button onClick={() => { onReveal(menu.path); setMenu(null); }}>Reveal in Finder</button>
             )}
-            {menu.kind === "file" && menu.path.endsWith("_test.go") && (
+            {menu.kind === "file" && menu.path.endsWith("_test.go") && rootPath && (
               <button
                 onClick={() => {
                   const d = dirname(menu.path).replace(/\/$/, "");
-                  runInTerminal(`go test -v ${d ? `./${d}` : "."}`);
+                  const target = d ? `./${d}` : ".";
+                  startRun({ cwd: rootPath, label: `go test ${target}`, program: "go", args: ["test", "-v", target] });
                   setMenu(null);
                 }}
               >
@@ -269,10 +279,11 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
                 Delete file…
               </button>
             )}
-            {menu.kind === "dir" && (
+            {menu.kind === "dir" && rootPath && (
               <button
                 onClick={() => {
-                  runInTerminal(`go test -v ./${menu.path}/...`);
+                  const target = `./${menu.path}/...`;
+                  startRun({ cwd: rootPath, label: `go test ${target}`, program: "go", args: ["test", "-v", target] });
                   setMenu(null);
                 }}
               >

@@ -573,8 +573,13 @@ select:focus {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Nested at the foot of the editor column (.col.main flex), the panel must
+     keep its set height while the editor above absorbs the rest. */
+  flex: 0 0 auto;
   border-top: 1px solid var(--line);
-  background: var(--bg-0);
+  /* Match the xterm theme background (Terminal.tsx) so the bar, padding and
+     content read as one seamless terminal surface. */
+  background: #0a0c10;
 }
 .term-bar {
   display: flex;
@@ -582,8 +587,7 @@ select:focus {
   justify-content: space-between;
   height: 30px;
   padding: 0 6px 0 4px;
-  border-bottom: 1px solid var(--line);
-  background: var(--bg-1);
+  background: #0a0c10;
   flex: 0 0 auto;
 }
 .term-tabs {
@@ -650,7 +654,9 @@ select:focus {
 .term-host {
   width: 100%;
   height: 100%;
-  padding: 4px 6px;
+  /* top | right | bottom | left — trimmed left so content sits closer to edge */
+  padding: 10px 14px 10px 8px;
+  background: #0a0c10;
 }
 .term-panel .splitter.y {
   margin: 0;
@@ -1808,6 +1814,13 @@ button.vs-tag:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.exec-badge {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1;
 }
 .exec-tags {
   display: inline-flex;

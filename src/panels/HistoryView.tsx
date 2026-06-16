@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
 import { api } from "../lib/ipc";
 import type { BaseInfo, ChangeSummary, FileChange, HunkInfo, SnapshotRow } from "../lib/types";
@@ -27,6 +27,8 @@ interface Props {
   openReq?: { monitorId: number; path: string; line?: number; col?: number; kind?: "file" | "dir"; n: number } | null;
   /** Tree context menu → open the search palette scoped to a folder. */
   onSearchInFolder?: (prefix: string, replace: boolean) => void;
+  /** Run / Terminal / Debug dock, docked under the editor (keeps sidebars tall). */
+  bottom?: ReactNode;
   toast: (msg: string, error?: boolean) => void;
 }
 
@@ -43,6 +45,7 @@ export default function HistoryView({
   onModeChange,
   openReq,
   onSearchInFolder,
+  bottom,
   toast,
 }: Props) {
   // Re-render when a plugin toggles so langOf re-derives the editor language
@@ -1164,6 +1167,7 @@ export default function HistoryView({
             <p>Pick a breaking point, then a changed file to see the diff.</p>
           </div>
         )}
+        {bottom}
       </div>
       </div>
 

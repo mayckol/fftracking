@@ -159,7 +159,7 @@ export const ACTIONS: ActionDef[] = [
   { id: "debug.stop", label: "Stop debug session", group: "Debug", default: "Mod+F2" },
   // Mod+Shift+D is freed for duplicate-line on Linux; the panel toggle uses B.
   { id: "debug.panel", label: "Toggle debug panel", group: "Debug", default: "Mod+Shift+B" },
-  { id: "search.quickOpen", label: "Find files & folders", group: "Search", default: "Mod+`" },
+  { id: "search.quickOpen", label: "Find files & folders", group: "Search", default: DOUBLE_SHIFT },
   { id: "search.text", label: "Find in files", group: "Search", default: "Mod+Shift+F" },
   // Replace-in-files on Mod+Shift+R (⌘⇧R / ⌥⇧R). test.run moved off Ctrl+Shift+R
   // so the two no longer collide on the same physical chord under the PC keymap.

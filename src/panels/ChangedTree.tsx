@@ -16,6 +16,7 @@ interface Props {
   changes: FileChange[];
   selected: string | null;
   onSelect: (path: string) => void;
+  onOpenFile?: (path: string) => void;
   onRevertFile?: (path: string) => void;
   onRevertFolder?: (prefix: string) => void;
   gitBranch?: string | null;
@@ -29,6 +30,7 @@ export default function ChangedTree({
   changes,
   selected,
   onSelect,
+  onOpenFile,
   onRevertFile,
   onRevertFolder,
   gitBranch,
@@ -88,6 +90,7 @@ export default function ChangedTree({
             className={`trow file${selected === node.path ? " on" : ""}`}
             style={pad}
             onClick={() => onSelect(node.path)}
+            onDoubleClick={() => onOpenFile?.(node.path)}
             onContextMenu={(e) => {
               if (!onRevertFile && !onResetFile && !onIgnoreFile) return;
               e.preventDefault();

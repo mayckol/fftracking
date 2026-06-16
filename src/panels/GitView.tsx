@@ -17,9 +17,11 @@ const GLYPH = { added: "A", modified: "M", deleted: "D" } as const;
 interface Props {
   initialRepo: string | null;
   toast: (msg: string, error?: boolean) => void;
+  /** Open the file in the editor (Files tab). Path is repo-relative. */
+  onOpenFile?: (path: string) => void;
 }
 
-export default function GitView({ initialRepo, toast }: Props) {
+export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
   usePlugins();
   const [repo, setRepo] = useState<string | null>(initialRepo);
   const [mode, setMode] = useState<GitMode>("commit");
@@ -286,6 +288,7 @@ export default function GitView({ initialRepo, toast }: Props) {
       key={(staged ? "s:" : "u:") + f.path}
       className={`frow${file === f.path ? " on" : ""}`}
       onClick={() => openWorkingFile(f.path)}
+      onDoubleClick={() => onOpenFile?.(f.path)}
       onContextMenu={(e) => {
         e.preventDefault();
         setMenu({ x: e.clientX, y: e.clientY, path: f.path });
@@ -444,6 +447,7 @@ export default function GitView({ initialRepo, toast }: Props) {
                   setFile(p);
                   setConflictFile(null);
                 }}
+                onOpenFile={onOpenFile}
               />
             </div>
           </>
@@ -521,9 +525,19 @@ export default function GitView({ initialRepo, toast }: Props) {
                 )}
               </div>
             )}
+            {onOpenFile && (
+              <button
+                className="tbtn"
+                style={{ marginLeft: mode === "commit" ? undefined : "auto" }}
+                onClick={() => onOpenFile(file)}
+                title="Open this file in the editor (Files tab)"
+              >
+                ↗ file
+              </button>
+            )}
             <button
               className="tbtn"
-              style={{ marginLeft: mode === "commit" ? undefined : "auto" }}
+              style={{ marginLeft: onOpenFile ? undefined : mode === "commit" ? undefined : "auto" }}
               onClick={() => setInline(!inline)}
               title="Diff layout: side-by-side or inline"
             >

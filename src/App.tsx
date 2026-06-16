@@ -255,6 +255,35 @@ export default function App() {
     setOpenReq((r) => ({ monitorId: selected, path, kind: "dir" as const, n: (r?.n ?? 0) + 1 }));
   }
 
+  // The Run / Terminal / Debug dock. In the Files view it's rendered inside the
+  // editor column so both sidebars (monitors + project tree) keep full height
+  // and the dock only spans the editor. Elsewhere it sits full-width at the foot.
+  const bottomPanel =
+    bottom === "run" ? (
+      <RunPanel
+        height={runH}
+        onResize={(d) => setRunH((h) => Math.max(160, Math.min(window.innerHeight - 140, h - d)))}
+        onClose={() => setBottom(null)}
+      />
+    ) : bottom === "debug" ? (
+      <DebugPanel
+        root={selectedMonitor?.root_path ?? null}
+        height={debugH}
+        onResize={(d) => setDebugH((h) => Math.max(160, Math.min(window.innerHeight - 140, h - d)))}
+        onClose={() => setBottom(null)}
+      />
+    ) : bottom === "terminal" ? (
+      <TerminalPanel
+        cwd={selectedMonitor?.root_path ?? null}
+        height={termH}
+        onResize={(d) => setTermH((h) => Math.max(120, Math.min(window.innerHeight - 140, h - d)))}
+        onClose={() => setBottom(null)}
+      />
+    ) : null;
+  // True while the editor column owns the dock (Files/History view with a folder
+  // selected). Otherwise the dock falls back to the full-width foot slot.
+  const dockInWorkspace = inWorkspace && selected != null;
+
   return (
     <div className="app">
       <header className="titlebar">
@@ -367,6 +396,7 @@ export default function App() {
               onModeChange={(history) => setTab(history ? "history" : "files")}
               openReq={openReq}
               onSearchInFolder={(prefix, replace) => openTextSearch(replace, prefix)}
+              bottom={bottomPanel}
               toast={notify}
             />
           ) : (
@@ -382,7 +412,11 @@ export default function App() {
 
       {tab === "git" && (
         <div className="work" style={{ gridTemplateColumns: "340px minmax(0, 1fr)" }}>
-          <GitView initialRepo={selectedMonitor?.root_path ?? null} toast={notify} />
+          <GitView
+            initialRepo={selectedMonitor?.root_path ?? null}
+            toast={notify}
+            onOpenFile={(p) => openFromSearch(p)}
+          />
         </div>
       )}
 
@@ -398,31 +432,7 @@ export default function App() {
         </div>
       )}
 
-      {bottom === "run" && (
-        <RunPanel
-          height={runH}
-          onResize={(d) => setRunH((h) => Math.max(160, Math.min(window.innerHeight - 140, h - d)))}
-          onClose={() => setBottom(null)}
-        />
-      )}
-
-      {bottom === "debug" && (
-        <DebugPanel
-          root={selectedMonitor?.root_path ?? null}
-          height={debugH}
-          onResize={(d) => setDebugH((h) => Math.max(160, Math.min(window.innerHeight - 140, h - d)))}
-          onClose={() => setBottom(null)}
-        />
-      )}
-
-      {bottom === "terminal" && (
-        <TerminalPanel
-          cwd={selectedMonitor?.root_path ?? null}
-          height={termH}
-          onResize={(d) => setTermH((h) => Math.max(120, Math.min(window.innerHeight - 140, h - d)))}
-          onClose={() => setBottom(null)}
-        />
-      )}
+      {!dockInWorkspace && bottomPanel}
 
       {search && selected != null && (
         <SearchPalette

@@ -31,7 +31,18 @@ function load(): PluginState {
   if (raw == null) return seed();
   try {
     const p = JSON.parse(raw) as Partial<PluginState>;
-    return { installed: p.installed ?? [], enabled: p.enabled ?? {} };
+    const st: PluginState = { installed: p.installed ?? [], enabled: p.enabled ?? {} };
+    // Auto-install bundled defaults missing from saved state, so new built-in
+    // plugins (e.g. go.mod highlight) light up on upgrade rather than only on
+    // a fresh install.
+    for (const pl of CATALOG) {
+      const id = pl.manifest.id;
+      if (pl.manifest.defaultInstalled && !st.installed.includes(id)) {
+        st.installed.push(id);
+        if (st.enabled[id] === undefined) st.enabled[id] = true;
+      }
+    }
+    return st;
   } catch {
     return seed();
   }

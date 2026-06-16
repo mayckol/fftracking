@@ -32,6 +32,21 @@ const envToText = (env: Record<string, string>) =>
     .map(([k, v]) => `${k}=${v}`)
     .join("\n");
 
+// Classify an execution for its row badge. Debug entries carry an explicit
+// test/debug mode; run entries are inferred from the subcommand (go/cargo test,
+// build, …).
+function badgeFor(e: ExecEntry): { glyph: string; title: string; cls: string } {
+  if (e.kind === "debug") {
+    return e.mode === "test"
+      ? { glyph: "🧪", title: "Test (debug)", cls: "test" }
+      : { glyph: "🐞", title: "Debug", cls: "debug" };
+  }
+  const sub = e.args[0];
+  if (sub === "test") return { glyph: "🧪", title: "Test", cls: "test" };
+  if (sub === "build" || sub === "install" || sub === "vet") return { glyph: "🔨", title: "Build", cls: "build" };
+  return { glyph: "▶", title: "Run", cls: "run" };
+}
+
 interface Props {
   kind: ExecKind;
   onClose: () => void;
@@ -67,6 +82,14 @@ export default function ExecMenu({ kind, onClose }: Props) {
                   {e.pinned ? "★" : "☆"}
                 </button>
                 <button className="exec-label" title={`Run: ${e.program} ${e.args.join(" ")}`} onClick={() => run(e)}>
+                  {(() => {
+                    const b = badgeFor(e);
+                    return (
+                      <span className={`exec-badge ${b.cls}`} title={b.title} aria-label={b.title}>
+                        {b.glyph}
+                      </span>
+                    );
+                  })()}
                   <span className="exec-cmd">{e.label}</span>
                   {e.tags.length > 0 && (
                     <span className="exec-tags">
