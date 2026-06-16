@@ -33,31 +33,39 @@ const GRAMMAR: languages.IMonarchLanguage = {
       [/^(\s*)([A-Za-z_][\w.-]*)(\s*)(=)/, ["white", "type", "white", { token: "operator", next: "@value" }]],
       [/.*$/, ""],
     ],
+    // Values are single-line. A `[/$/, @pop]` rule looks right but is dead: the
+    // greedy content rule consumes to end-of-line, so Monarch's per-line loop
+    // exits before `$` is ever tested and the state leaks into the next line —
+    // making the following comment/key tokenize as a string. Pop at the *start*
+    // of the next line instead (`^` always fires there) via @rematch, so the
+    // line is re-tokenized from `root`.
     value: [
+      [/^/, { token: "@rematch", next: "@pop" }],
       [/\$\{/, { token: "constant", next: "@interp" }],
       [/\$[A-Za-z_]\w*/, "constant"],
       [/"/, { token: "string", next: "@dquote" }],
       [/'/, { token: "string", next: "@squote" }],
       [/[^"'$]+/, "string"],
-      [/$/, { token: "", next: "@pop" }],
+      [/./, "string"],
     ],
     interp: [
+      [/^/, { token: "@rematch", next: "@pop" }],
       [/\}/, { token: "constant", next: "@pop" }],
       [/[^}]+/, "constant"],
     ],
     dquote: [
+      [/^/, { token: "@rematch", next: "@pop" }],
       [/\$\{/, { token: "constant", next: "@interp" }],
       [/\$[A-Za-z_]\w*/, "constant"],
       [/\\./, "string.escape"],
       [/[^"\\$]+/, "string"],
       [/"/, { token: "string", next: "@pop" }],
-      [/$/, { token: "string", next: "@pop" }],
     ],
     // Single quotes are literal in dotenv — no interpolation.
     squote: [
+      [/^/, { token: "@rematch", next: "@pop" }],
       [/[^']+/, "string"],
       [/'/, { token: "string", next: "@pop" }],
-      [/$/, { token: "string", next: "@pop" }],
     ],
   },
 };

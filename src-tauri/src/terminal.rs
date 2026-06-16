@@ -46,6 +46,15 @@ impl TerminalManager {
             .map_err(e2s)?;
 
         let mut cmd = CommandBuilder::new(default_shell());
+        // Start a *login* shell so it sources the user's profile (zprofile /
+        // bash_profile / fish login config). A GUI-launched app inherits a
+        // stripped PATH; the login shell re-runs macOS path_helper and the
+        // user's PATH setup, so tools like docker/docker-compose resolve here
+        // exactly as they do in Warp/Terminal (which also open login shells).
+        // bash, zsh, fish and dash all accept -l; Windows COMSPEC does not.
+        if !cfg!(windows) {
+            cmd.arg("-l");
+        }
         if let Some(dir) = cwd.filter(|d| !d.is_empty()) {
             cmd.cwd(dir);
         }
