@@ -394,8 +394,16 @@ export default function HistoryView({
       return;
     }
     recordNav({ path, line: line ?? 1, col: col ?? 1 });
-    openTab(path, "file");
-    if (line != null) setPendingGoto({ path, line, col: col ?? 1 });
+    // When the target is the file already open, the editor doesn't remount, so
+    // gotoPos never re-fires its mount-time reveal — jump imperatively instead
+    // (same path the cross-file ⌘-click takes). Otherwise open/switch the tab
+    // and let the mount-time reveal handle it.
+    if (line != null && path === fileRef.current && openKindRef.current === "file") {
+      fileViewRef.current?.reveal(line, col ?? 1);
+    } else {
+      openTab(path, "file");
+      if (line != null) setPendingGoto({ path, line, col: col ?? 1 });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openReq, monitorId]);
 
@@ -1154,7 +1162,6 @@ export default function HistoryView({
                   language={langOf(file)}
                   path={file.startsWith("/") ? file : root && file ? `${root}/${file}` : undefined}
                   root={root ?? undefined}
-                  readOnly={file.startsWith("/")}
                   onCopyText={copyToClipboard}
                   onCompareBranch={repoRoot && !file.startsWith("/") ? () => openBranchCompare(file) : undefined}
                   diffBase={!file.startsWith("/") && baseFor === file ? fileBase : undefined}

@@ -116,8 +116,6 @@ interface Props {
   root?: string;
   // Jump to this 1-based position once mounted (cross-file go-to-definition).
   gotoPos?: { line: number; col: number };
-  // External package files (stdlib / module cache) open read-only.
-  readOnly?: boolean;
   // Fired on a plain left-click (not ⌘-click) so the host can log a nav point.
   onCursorClick?: (line: number, col: number) => void;
   // Baseline text for the VCS-style gutter (git HEAD or the latest breaking
@@ -159,7 +157,7 @@ function MdIcon({ kind }: { kind: "raw" | "both" | "read" }) {
 }
 
 const FileView = forwardRef<FileHandle, Props>(function FileView(
-  { content, language, onSave, onDirtyChange, path, root, gotoPos, readOnly, onCursorClick, diffBase, onCopyText, onCompareBranch },
+  { content, language, onSave, onDirtyChange, path, root, gotoPos, onCursorClick, diffBase, onCopyText, onCompareBranch },
   ref,
 ) {
   const prefs = useUIPrefs();
@@ -465,7 +463,10 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     bind("editor.deleteWord", () => editor.trigger("ff", "deleteWordLeft", null));
     bind("editor.deleteLine", () => run("editor.action.deleteLines"));
     bind("editor.gotoLine", () => run("editor.action.gotoLine"));
-    bind("editor.selectAll", () => run("editor.action.selectAll"));
+    // Select-all is a *core* command, not a registered action — getAction()
+    // returns null for it, so run() would silently no-op (and shadow Monaco's
+    // native ⌘A). Dispatch it through trigger, which reaches core commands.
+    bind("editor.selectAll", () => editor.trigger("ff", "editor.action.selectAll", null));
     bind("editor.gotoLineEnd", () => editor.trigger("ff", "cursorEnd", null));
 
     // Unsaved-changes dot + intelligent auto-save (editable files only). Dirty
@@ -473,7 +474,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     // last keystroke when enabled. A kept model may reopen carrying edits, so
     // sync once on mount too.
     const dmodel = editor.getModel();
-    if (dmodel && !readOnly) {
+    if (dmodel) {
       const syncDirty = () => onDirtyRef.current?.(dmodel.getValue() !== savedValueRef.current);
       syncDirty();
       let dirtyTimer = 0;
@@ -600,7 +601,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     // on a Mac ⌃ neither copies, selects-all, nor undoes. (C/X/V handled above.)
     if (monacoModifiers().mod === "Alt") {
       for (const key of ["C", "X", "V", "A", "Z"]) addCmd(`Ctrl+${key}`, () => {});
-      addCmd("Mod+A", () => run("editor.action.selectAll"));
+      addCmd("Mod+A", () => editor.trigger("ff", "editor.action.selectAll", null));
       addCmd("Mod+Z", () => editor.trigger("ff", "undo", null));
       addCmd("Mod+Shift+Z", () => editor.trigger("ff", "redo", null));
       // ⌘F opens find; next/prev stay on F3 / Enter inside the widget.
@@ -764,7 +765,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     }
 
     // JetBrains-style run/debug icon on `func main()` lines.
-    if (language === "go" && path && root && !readOnly && !path.endsWith("_test.go")) {
+    if (language === "go" && path && root && !path.endsWith("_test.go")) {
       const mmodel = editor.getModel();
       if (mmodel) {
         const rel = path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
@@ -814,7 +815,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
 
     // Breakpoints: click the line-number gutter (or empty glyph margin) to
     // toggle; while paused, the current execution line is highlighted.
-    if (language === "go" && path && root && !readOnly) {
+    if (language === "go" && path && root) {
       const bmodel = editor.getModel();
       if (bmodel) {
         let bpDecos: string[] = [];
@@ -1005,7 +1006,6 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
         // sits on a `type X …` declaration the stubs target that type;
         // otherwise a new type is created.
         bind("editor.implementIface", () => {
-          if (readOnly) return;
           const p = editor.getPosition();
           if (!p) return;
           const vis = editor.getScrolledVisiblePosition(p);
@@ -1287,7 +1287,6 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
         }}
         onMount={onMount}
         options={{
-          readOnly: !!readOnly,
           // Go files own the glyph margin: implementation markers (LSP) and
           // test-run icons live there. Kept in this options object — it is
           // re-applied on every render, so a one-off updateOptions would be
@@ -1301,7 +1300,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           minimap: { enabled: false },
           overviewRulerLanes: 0,
           scrollBeyondLastLine: false,
-          smoothScrolling: true,
+          smoothScrolling: false,
           renderLineHighlight: "all",
           ...editorPrefOptions(prefs),
         }}
