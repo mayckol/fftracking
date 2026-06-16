@@ -596,9 +596,10 @@ function onKeyDown(e: KeyboardEvent) {
     dbg("skip", action.id, "— terminal focused");
     return;
   }
-  // Diff-scoped bindings (undo/redo) only act when the diff editor is focused,
-  // so they don't steal ⌘Z from the commit box or other inputs.
-  if (action.scope === "diff" && !el?.closest(".editor-wrap")) {
+  // Diff-scoped bindings (undo/redo) only act when the *diff* editor is focused,
+  // so they don't steal ⌘Z / Ctrl+Z from the plain file editor (which shares the
+  // editor-wrap class) or the commit box. The diff editor alone carries diff-wrap.
+  if (action.scope === "diff" && !el?.closest(".diff-wrap")) {
     dbg("skip", action.id, "— diff-scoped but diff editor not focused");
     return;
   }

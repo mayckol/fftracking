@@ -204,7 +204,10 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
   return (
     <MonacoDiff
       key={`${inline ? "inline" : "split"}-${editable ? "rw" : "ro"}`}
-      className="editor-wrap"
+      // diff-wrap marks this as the *diff* editor so diff-scoped shortcuts
+      // (undo/redo on Mod+Z) only fire here, not in the plain file editor — which
+      // also carries editor-wrap and would otherwise have its Ctrl/⌘+Z stolen.
+      className="editor-wrap diff-wrap"
       theme={monacoThemeId(prefs.theme)}
       language={language}
       original={original}
