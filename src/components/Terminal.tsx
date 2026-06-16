@@ -5,6 +5,8 @@ import { listen } from "@tauri-apps/api/event";
 import "@xterm/xterm/css/xterm.css";
 import { api } from "../lib/ipc";
 import { setTerminalSink } from "../lib/runner";
+import { getTheme } from "../lib/themes";
+import { getPrefs, subscribePrefs } from "../lib/uiPrefs";
 
 interface Props {
   cwd: string | null;
@@ -13,6 +15,18 @@ interface Props {
 }
 
 const b64ToBytes = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+// xterm colours from the active app theme so the terminal matches the editor
+// surface (background === editor.background) instead of a fixed palette.
+function xtermTheme() {
+  const v = getTheme(getPrefs().theme).cssVars;
+  return {
+    background: v["--bg-0"],
+    foreground: v["--tx-0"],
+    cursor: v["--ac"],
+    selectionBackground: v["--bg-4"],
+  };
+}
 
 export default function Terminal({ cwd, active, onExit }: Props) {
   const host = useRef<HTMLDivElement>(null);
@@ -28,12 +42,7 @@ export default function Terminal({ cwd, active, onExit }: Props) {
       fontSize: 12.5,
       cursorBlink: true,
       allowProposedApi: true,
-      theme: {
-        background: "#0a0c10",
-        foreground: "#e6edf3",
-        cursor: "#7c8cff",
-        selectionBackground: "#33455a",
-      },
+      theme: xtermTheme(),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -92,6 +101,11 @@ export default function Terminal({ cwd, active, onExit }: Props) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Follow live theme switches (re-applies xterm colours from the new palette).
+  useEffect(() => subscribePrefs(() => {
+    if (termRef.current) termRef.current.options.theme = xtermTheme();
+  }), []);
 
   // The visible terminal accepts injected commands (test runner). Returns
   // false until the PTY is open so the runner keeps the command queued.

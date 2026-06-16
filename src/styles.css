@@ -183,7 +183,8 @@ select:focus {
 /* ---------- shell ---------- */
 .app {
   display: grid;
-  grid-template-rows: 40px 1fr;
+  /* titlebar · workspace · (bottom dock) · full-width status bar */
+  grid-template-rows: 40px 1fr auto;
   height: 100%;
 }
 
@@ -284,6 +285,7 @@ select:focus {
   gap: 6px;
   font-size: var(--fs-sm);
   font-weight: 500;
+  white-space: nowrap;
   color: var(--tx-1);
   background: var(--bg-2);
   border: 1px solid var(--line-2);
@@ -577,9 +579,10 @@ select:focus {
      keep its set height while the editor above absorbs the rest. */
   flex: 0 0 auto;
   border-top: 1px solid var(--line);
-  /* Match the xterm theme background (Terminal.tsx) so the bar, padding and
-     content read as one seamless terminal surface. */
-  background: #0a0c10;
+  /* Match the editor/theme background so the bar, padding and content read as
+     one seamless surface that follows the active theme (Terminal.tsx mirrors
+     this into the xterm theme). */
+  background: var(--bg-0);
 }
 .term-bar {
   display: flex;
@@ -587,7 +590,7 @@ select:focus {
   justify-content: space-between;
   height: 30px;
   padding: 0 6px 0 4px;
-  background: #0a0c10;
+  background: var(--bg-0);
   flex: 0 0 auto;
 }
 .term-tabs {
@@ -656,7 +659,7 @@ select:focus {
   height: 100%;
   /* top | right | bottom | left — trimmed left so content sits closer to edge */
   padding: 10px 14px 10px 8px;
-  background: #0a0c10;
+  background: var(--bg-0);
 }
 .term-panel .splitter.y {
   margin: 0;
@@ -1782,6 +1785,22 @@ button.vs-tag:hover {
   padding-right: 6px;
   margin-left: 2px;
 }
+
+/* Header action buttons (Run / Debug / Terminal): elevation via shadow rather
+   than an outline. */
+.titlebar .tbtn {
+  border-color: transparent;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+.titlebar .tbtn:hover {
+  border-color: transparent;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.titlebar .tbtn.on {
+  border-color: transparent;
+  color: var(--ac);
+  box-shadow: 0 0 0 1px var(--ac), 0 2px 6px rgba(0, 0, 0, 0.5);
+}
 .exec-menu {
   position: absolute;
   top: calc(100% + 5px);
@@ -2171,6 +2190,31 @@ button.vs-tag:hover {
 }
 .statusbar .sb-spacer {
   flex: 1;
+}
+.statusbar .sb-icon,
+.statusbar .sb-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  height: 18px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--tx-2);
+  font: inherit;
+  cursor: pointer;
+}
+.statusbar .sb-icon:hover,
+.statusbar .sb-toggle:hover {
+  color: var(--tx-0);
+  background: var(--bg-3);
+}
+.statusbar .sb-icon.on {
+  color: var(--tx-0);
+}
+.statusbar .sb-toggle.on {
+  color: var(--ac);
 }
 .statusbar .sb-pos {
   font-variant-numeric: tabular-nums;

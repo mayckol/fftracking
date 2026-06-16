@@ -32,6 +32,7 @@ import HistoryView from "./panels/HistoryView";
 import SettingsView from "./panels/SettingsView";
 import PluginsView from "./panels/PluginsView";
 import Sidebar from "./panels/Sidebar";
+import StatusBar from "./components/StatusBar";
 import TerminalPanel from "./panels/TerminalPanel";
 import DebugPanel from "./panels/DebugPanel";
 import RunPanel from "./panels/RunPanel";
@@ -77,6 +78,8 @@ export default function App() {
   } | null>(null);
   const [termH, setTermH] = useState(280);
   const [sideOpen, setSideOpen] = useState(false);
+  // Manual show/hide of the project file tree, toggled from the bottom status bar.
+  const [treeHidden, setTreeHidden] = useState(false);
   const toastTimer = useRef<number>();
   const prefs = useUIPrefs();
   // Shown in the titlebar — read from tauri.conf.json (the version of record,
@@ -397,6 +400,7 @@ export default function App() {
               openReq={openReq}
               onSearchInFolder={(prefix, replace) => openTextSearch(replace, prefix)}
               bottom={bottomPanel}
+              treeHidden={treeHidden}
               toast={notify}
             />
           ) : (
@@ -433,6 +437,11 @@ export default function App() {
       )}
 
       {!dockInWorkspace && bottomPanel}
+
+      <StatusBar
+        sidebar={inWorkspace ? { hidden: treeHidden, onToggle: () => setTreeHidden((v) => !v) } : null}
+        workspace={inWorkspace ? { historyOn: tab === "history", onToggle: () => setTab(tab === "history" ? "files" : "history") } : null}
+      />
 
       {search && selected != null && (
         <SearchPalette

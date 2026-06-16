@@ -9,7 +9,6 @@ import {
   implementationLocations,
   openLocation,
   organizeImports,
-  restartLsp,
   subscribeLspState,
   workspaceInterfaces,
   type IfaceSymbol,
@@ -31,9 +30,9 @@ import {
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { monacoSeesMac } from "../lib/fixPlatform";
 import { comboFor, formatCombo, IS_LINUX, IS_MAC, monacoModifiers, shortcutsDebugEnabled } from "../lib/shortcuts";
-import { resetZoom, useZoomLevel, zoomPercent } from "../lib/editorZoom";
 import { editorPrefOptions, getPrefs, useUIPrefs } from "../lib/uiPrefs";
 import { api } from "../lib/ipc";
+import { setEditorStatus } from "../lib/editorStatus";
 import MarkdownPreview from "./MarkdownPreview";
 import Splitter from "./Splitter";
 import { getMdSplit, useMdSplit, useMdViewMode } from "../lib/mdViewMode";
@@ -134,28 +133,6 @@ interface Props {
   onCompareBranch?: () => void;
 }
 
-const LANG_LABEL: Record<string, string> = {
-  go: "Go",
-  rust: "Rust",
-  typescript: "TypeScript",
-  javascript: "JavaScript",
-  python: "Python",
-  ruby: "Ruby",
-  java: "Java",
-  kotlin: "Kotlin",
-  json: "JSON",
-  yaml: "YAML",
-  markdown: "Markdown",
-  html: "HTML",
-  css: "CSS",
-  shell: "Shell",
-  sql: "SQL",
-  toml: "TOML",
-};
-function langLabel(id: string): string {
-  return LANG_LABEL[id] ?? (id ? id[0].toUpperCase() + id.slice(1) : "Plain Text");
-}
-
 type LspState = "off" | "starting" | "ready" | "error";
 
 function MdIcon({ kind }: { kind: "raw" | "both" | "read" }) {
@@ -186,7 +163,6 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   ref,
 ) {
   const prefs = useUIPrefs();
-  const zoomLevel = useZoomLevel();
   const [pos, setPos] = useState({ line: 1, col: 1 });
   const [lsp, setLsp] = useState<LspState>("off");
   const isMarkdown = language === "markdown";
@@ -212,6 +188,19 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     items: RunMenuItem[];
   } | null>(null);
   const [diag, setDiag] = useState({ errors: 0, warnings: 0 });
+  // Feed the app-wide bottom status bar; clear it when this editor unmounts.
+  useEffect(() => {
+    setEditorStatus({
+      language,
+      line: pos.line,
+      col: pos.col,
+      errors: diag.errors,
+      warnings: diag.warnings,
+      lsp,
+      root: root ?? null,
+    });
+  }, [language, pos.line, pos.col, diag.errors, diag.warnings, lsp, root]);
+  useEffect(() => () => setEditorStatus(null), []);
   const editorRef = useRef<MEditor.IStandaloneCodeEditor | null>(null);
   // Last text known to be on disk; dirty = editor value differs from this.
   const savedValueRef = useRef(content);
@@ -1255,13 +1244,6 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     }
   };
 
-  const lspLabel: Record<LspState, string> = {
-    off: "",
-    starting: "gopls starting…",
-    ready: "gopls ready",
-    error: "gopls unavailable",
-  };
-
   return (
     <div className="editor-shell">
       <div ref={mdBodyRef} className={isMarkdown ? `md-body mode-${mdMode}` : "md-body"}>
@@ -1570,38 +1552,6 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           </div>
         </>
       )}
-      <div className="statusbar">
-        <span className="sb-lang">{langLabel(language)}</span>
-        <span className="sb-diag" title={`${diag.errors} errors, ${diag.warnings} warnings`}>
-          <span className={`sb-err${diag.errors > 0 ? " on" : ""}`}>⊘ {diag.errors}</span>
-          <span className={`sb-warn${diag.warnings > 0 ? " on" : ""}`}>△ {diag.warnings}</span>
-        </span>
-        {lsp !== "off" && (
-          <button
-            type="button"
-            className={`sb-lsp ${lsp}`}
-            title="Click to restart gopls"
-            disabled={lsp === "starting" || !root}
-            onClick={() => root && restartLsp(root)}
-          >
-            ● {lspLabel[lsp]}
-          </button>
-        )}
-        <span className="sb-spacer" />
-        {zoomLevel !== 0 && (
-          <button
-            type="button"
-            className="sb-zoom"
-            title={`Editor zoom ${zoomPercent(zoomLevel)}% — click to reset to 100% (${formatCombo(comboFor("editor.zoomReset"))})`}
-            onClick={() => resetZoom()}
-          >
-            🔍 {zoomPercent(zoomLevel)}% ⟲
-          </button>
-        )}
-        <span className="sb-pos">
-          Ln {pos.line}, Col {pos.col}
-        </span>
-      </div>
     </div>
   );
 });

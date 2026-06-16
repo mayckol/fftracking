@@ -29,6 +29,8 @@ interface Props {
   onSearchInFolder?: (prefix: string, replace: boolean) => void;
   /** Run / Terminal / Debug dock, docked under the editor (keeps sidebars tall). */
   bottom?: ReactNode;
+  /** Hide the project file tree (toggled from the bottom status bar). */
+  treeHidden?: boolean;
   toast: (msg: string, error?: boolean) => void;
 }
 
@@ -46,6 +48,7 @@ export default function HistoryView({
   openReq,
   onSearchInFolder,
   bottom,
+  treeHidden,
   toast,
 }: Props) {
   // Re-render when a plugin toggles so langOf re-derives the editor language
@@ -929,24 +932,9 @@ export default function HistoryView({
   return (
     <>
       <div className="hv">
+        {!treeHidden && (
+        <>
         <div className="hv-side" style={{ width: sideW }}>
-          <div className="col-head">
-            <h2>{showHistory ? "History" : "Files"}</h2>
-            {!showHistory && <span className="changecount">{files.length}</span>}
-            <button
-              className={`vs-tag${showHistory ? " on" : ""}`}
-              style={{ marginLeft: "auto" }}
-              title={showHistory ? "Show the project files tree" : "Show history (timeline & changed files)"}
-              onClick={() => {
-                const next = !showHistory;
-                setShowHistory(next);
-                onModeChange?.(next);
-              }}
-            >
-              {showHistory ? "files" : "history"}
-            </button>
-          </div>
-
           <div className="hv-side-body">
             {showHistory ? (
               <div className="hv-history">
@@ -1051,6 +1039,8 @@ export default function HistoryView({
         </div>
 
         <Splitter dir="x" onDelta={(d) => setSideW((w) => Math.max(220, Math.min(760, w + d)))} />
+        </>
+        )}
 
       <div className="col main">
         {tabs.length > 0 && (
