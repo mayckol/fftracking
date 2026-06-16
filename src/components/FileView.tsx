@@ -129,6 +129,9 @@ interface Props {
   // Copy helper (writes to clipboard + toasts) for the editor context-menu
   // "Copy path:line" actions.
   onCopyText?: (text: string, what: string) => void;
+  // Editor context-menu "Compare with branch…": host picks a branch and opens
+  // the diff (this file vs the branch's version).
+  onCompareBranch?: () => void;
 }
 
 const LANG_LABEL: Record<string, string> = {
@@ -179,7 +182,7 @@ function MdIcon({ kind }: { kind: "raw" | "both" | "read" }) {
 }
 
 const FileView = forwardRef<FileHandle, Props>(function FileView(
-  { content, language, onSave, onDirtyChange, path, root, gotoPos, readOnly, onCursorClick, diffBase, onCopyText },
+  { content, language, onSave, onDirtyChange, path, root, gotoPos, readOnly, onCursorClick, diffBase, onCopyText, onCompareBranch },
   ref,
 ) {
   const prefs = useUIPrefs();
@@ -220,6 +223,8 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   onDirtyRef.current = onDirtyChange;
   const onCopyTextRef = useRef(onCopyText);
   onCopyTextRef.current = onCopyText;
+  const onCompareBranchRef = useRef(onCompareBranch);
+  onCompareBranchRef.current = onCompareBranch;
 
   // VCS-style gutter change stripes vs `diffBase`. Hunk sides: old_* indexes
   // the editor content, new_* the baseline (text_hunks swaps its args).
@@ -532,6 +537,13 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
         contextMenuGroupId: "9_cutcopypaste",
         contextMenuOrder: 4,
         run: () => copy(at(path)),
+      });
+      editor.addAction({
+        id: "ff.compareWithBranch",
+        label: "Compare with branch…",
+        contextMenuGroupId: "navigation",
+        contextMenuOrder: 5,
+        run: () => onCompareBranchRef.current?.(),
       });
     }
 

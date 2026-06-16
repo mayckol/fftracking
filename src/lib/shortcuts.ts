@@ -126,6 +126,10 @@ export const ACTIONS: ActionDef[] = [
   { id: "editor.zoomReset", label: "Reset zoom (100%)", group: "Editor", default: "Mod+0" },
   { id: "diff.next", label: "Next change", group: "Diff", default: "Alt+ArrowDown" },
   { id: "diff.prev", label: "Previous change", group: "Diff", default: "Alt+ArrowUp" },
+  // Scheme-independent alternates: ⌥↓/⌥↑ map to the Super key under the Linux
+  // macOS-style keymap, so function keys give reliable change navigation there.
+  { id: "diff.nextChange", label: "Next change (function key)", group: "Diff", default: "F3" },
+  { id: "diff.prevChange", label: "Previous change (function key)", group: "Diff", default: "Shift+F3" },
   { id: "diff.revertBlock", label: "Revert current block", group: "Diff", default: "Alt+R" },
   { id: "diff.undo", label: "Undo", group: "Diff", default: "Mod+Z", scope: "diff" },
   { id: "diff.redo", label: "Redo", group: "Diff", default: "Mod+Shift+Z", scope: "diff" },

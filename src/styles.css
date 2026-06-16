@@ -1155,6 +1155,31 @@ button.vs-tag:hover {
   margin-top: var(--s4);
 }
 
+/* Branch picker (Compare with branch) */
+.branch-pick {
+  min-width: 360px;
+}
+.branch-pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.branch-pick-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--tx-0);
+}
+.branch-pick-item:hover {
+  background: var(--bg-2);
+}
+
 /* JetBrains-style implementation gutter markers */
 .impl-glyph {
   display: flex;

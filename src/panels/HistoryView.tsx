@@ -101,6 +101,23 @@ export default function HistoryView({
   const [errFiles, setErrFiles] = useState<Set<string>>(new Set());
   // Pending cross-file go-to-definition jump (relative path + 1-based pos).
   const [pendingGoto, setPendingGoto] = useState<{ path: string; line: number; col: number } | null>(null);
+  // Compare a working file against a branch's version (right-click → Compare with
+  // branch). Own panes, independent of the snapshot diff.
+  const [branchPickFor, setBranchPickFor] = useState<string | null>(null);
+  const [branchList, setBranchList] = useState<string[]>([]);
+  const [branchDiff, setBranchDiff] = useState<{ path: string; branch: string } | null>(null);
+  const [branchLeft, setBranchLeft] = useState("");
+  const [branchRight, setBranchRight] = useState("");
+  const [branchHunks, setBranchHunks] = useState<HunkInfo[]>([]);
+  const branchDiffApi = useRef<DiffHandle>(null);
+  const repoRoot = baseInfo?.kind === "git" ? baseInfo.repo_root : null;
+  // Monitor-relative path → repo-relative (the monitor may be a subfolder).
+  const toRepoRel = (p: string) => {
+    if (!repoRoot || !root) return p;
+    const prefix = repoRoot.endsWith("/") ? repoRoot : `${repoRoot}/`;
+    const sub = root === repoRoot ? "" : root.startsWith(prefix) ? `${root.slice(prefix.length)}/` : "";
+    return `${sub}${p}`;
+  };
 
   // Back/Forward navigation history (JetBrains-style; mouse buttons 4/5). Refs,
   // not state — it drives setFile/setPendingGoto rather than rendering itself.
@@ -608,6 +625,39 @@ export default function HistoryView({
     loadDiff();
   }, [loadDiff]);
 
+  // Branch comparison panes: the branch's version of the file (left) vs the live
+  // working file (right).
+  useEffect(() => {
+    if (!branchDiff || !repoRoot) return;
+    let alive = true;
+    (async () => {
+      try {
+        const rel = toRepoRel(branchDiff.path);
+        const l = (await api.gitFile(repoRoot, branchDiff.branch, rel)) ?? "";
+        const r = branchDiff.path.startsWith("/")
+          ? (await api.readTextFile(branchDiff.path)) ?? ""
+          : (await api.workingFile(monitorId, branchDiff.path)) ?? "";
+        const hk = await api.textHunks(l, r);
+        if (alive) {
+          setBranchLeft(l);
+          setBranchRight(r);
+          setBranchHunks(hk);
+        }
+      } catch (e) {
+        if (alive) toast(String(e), true);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchDiff, repoRoot, monitorId]);
+
+  // Opening any file/diff dismisses an active branch comparison.
+  useEffect(() => {
+    setBranchDiff(null);
+  }, [file, openKind]);
+
   // When a breaking point / file loads, jump the diff to its first change so the
   // user lands on what actually changed instead of the top of the file.
   useEffect(() => {
@@ -765,6 +815,10 @@ export default function HistoryView({
   // ↑/↓ walk changes within the file; at the first/last change they spill over
   // into the previous/next changed file (landing on its last/first change).
   function navDiff(dir: "next" | "prev") {
+    if (branchDiff) {
+      branchDiffApi.current?.navigate(dir);
+      return;
+    }
     if (diffApi.current?.navigate(dir) !== "boundary") return;
     const i = changes.findIndex((c) => c.path === file);
     const j = dir === "next" ? i + 1 : i - 1;
@@ -789,13 +843,35 @@ export default function HistoryView({
     }
   }
 
+  async function openBranchCompare(path: string) {
+    if (!repoRoot) return toast("Not inside a git repository", true);
+    try {
+      const refs = await api.gitListRefs(repoRoot);
+      if (!refs.branches.length) return toast("No branches in this repository", true);
+      setBranchList(refs.branches);
+      setBranchPickFor(path);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  function chooseBranch(branch: string) {
+    const path = branchPickFor;
+    setBranchPickFor(null);
+    if (path) setBranchDiff({ path, branch });
+  }
+
   // Diff-only bindings: gate to the diff view so they don't steal ⌘Z (undo) and
   // friends from the plain editable file view (which shares the .editor-wrap
   // class the diff scope-check targets).
   const inDiff = openKind === "diff" && !!file;
-  useShortcut("diff.next", () => navDiff("next"), inDiff);
-  useShortcut("diff.prev", () => navDiff("prev"), inDiff);
-  useShortcut("diff.layout", () => setInline((v) => !v), inDiff);
+  // Branch comparison is a diff too — share next/prev-change and layout bindings.
+  const inAnyDiff = inDiff || !!branchDiff;
+  useShortcut("diff.next", () => navDiff("next"), inAnyDiff);
+  useShortcut("diff.prev", () => navDiff("prev"), inAnyDiff);
+  useShortcut("diff.nextChange", () => navDiff("next"), inAnyDiff);
+  useShortcut("diff.prevChange", () => navDiff("prev"), inAnyDiff);
+  useShortcut("diff.layout", () => setInline((v) => !v), inAnyDiff);
   useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), inDiff);
   useShortcut("diff.undo", () => diffApi.current?.undo(), inDiff);
   useShortcut("diff.redo", () => diffApi.current?.redo(), inDiff);
@@ -961,6 +1037,7 @@ export default function HistoryView({
                     setShowHistory(true);
                     onModeChange?.(true);
                   }}
+                  onCompareBranch={repoRoot ? openBranchCompare : undefined}
                   onCopyPath={copyToClipboard}
                   onIgnoreFile={(p) => ignorePath(p, false)}
                   onIgnoreFolder={(p) => ignorePath(p, true)}
@@ -1016,7 +1093,46 @@ export default function HistoryView({
             })}
           </div>
         )}
-        {openKind === "file" ? (
+        {branchDiff ? (
+          <>
+            <div className="diff-head">
+              <span className="file" title={branchDiff.path}>
+                {branchDiff.path}
+              </span>
+              <button className="tbtn" title="Previous change" onClick={() => navDiff("prev")}>
+                ↑
+              </button>
+              <button className="tbtn" title="Next change" onClick={() => navDiff("next")}>
+                ↓
+              </button>
+              <span className="vs">{branchDiff.branch} → working tree</span>
+              {branchHunks.length > 0 && (
+                <span className="changecount">
+                  {branchHunks.length} change{branchHunks.length === 1 ? "" : "s"}
+                </span>
+              )}
+              <button
+                className="tbtn"
+                style={{ marginLeft: "auto" }}
+                onClick={() => setInline((v) => !v)}
+                title="Diff layout: side-by-side or inline"
+              >
+                {inline ? "≣ inline" : "⇆ split"}
+              </button>
+              <button className="tbtn" onClick={() => setBranchDiff(null)} title="Close branch comparison">
+                ✕
+              </button>
+            </div>
+            <DiffEditor
+              original={branchLeft}
+              modified={branchRight}
+              language={langOf(branchDiff.path)}
+              inline={inline}
+              hunks={branchHunks}
+              ref={branchDiffApi}
+            />
+          </>
+        ) : openKind === "file" ? (
           file ? (
             <>
               <div className="diff-head">
@@ -1045,6 +1161,7 @@ export default function HistoryView({
                   root={root ?? undefined}
                   readOnly={file.startsWith("/")}
                   onCopyText={copyToClipboard}
+                  onCompareBranch={repoRoot && !file.startsWith("/") ? () => openBranchCompare(file) : undefined}
                   diffBase={!file.startsWith("/") && baseFor === file ? fileBase : undefined}
                   gotoPos={pendingGoto && pendingGoto.path === file ? { line: pendingGoto.line, col: pendingGoto.col } : undefined}
                   onSave={
@@ -1264,6 +1381,29 @@ export default function HistoryView({
           }}
           onCancel={() => setRevertAllId(null)}
         />
+      )}
+
+      {branchPickFor && (
+        <div className="modal-overlay" onClick={() => setBranchPickFor(null)}>
+          <div className="modal branch-pick" onClick={(e) => e.stopPropagation()}>
+            <h3>Compare with branch</h3>
+            <p className="hint" style={{ margin: "0 0 8px" }}>
+              {basename(branchPickFor)} ↔ working tree
+            </p>
+            <div className="branch-pick-list">
+              {branchList.map((b) => (
+                <button key={b} className="branch-pick-item" onClick={() => chooseBranch(b)} title={`Compare against ${b}`}>
+                  ⎇ {b}
+                </button>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="tbtn" onClick={() => setBranchPickFor(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

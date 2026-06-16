@@ -251,6 +251,8 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
   const editable = to === WORKDIR;
   useShortcut("diff.next", () => navDiff("next"), !!file);
   useShortcut("diff.prev", () => navDiff("prev"), !!file);
+  useShortcut("diff.nextChange", () => navDiff("next"), !!file);
+  useShortcut("diff.prevChange", () => navDiff("prev"), !!file);
   useShortcut("diff.layout", () => setInline((v) => !v), !!file);
   useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), !!file && editable);
   useShortcut("diff.undo", () => diffApi.current?.undo(), !!file && editable);
