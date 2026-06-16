@@ -28,7 +28,7 @@ const ALT: { style: KeymapStyle; title: string; blurb: string } = IS_MAC
   : {
       style: "mac",
       title: "macOS style",
-      blurb: "Map the key next to the spacebar (Alt) to ⌘ and Ctrl to ⌥ for Mac muscle memory. On Linux the window manager reserves many Alt shortcuts, so Native is more reliable.",
+      blurb: "Emulate a Mac: Alt (next to the spacebar) becomes ⌘, the Super/Win key becomes ⌥ Option, and Ctrl stays ⌃ Control. Fn can't be read in-app, so Option sits on Super. The window manager may reserve some Super and Alt shortcuts, so Native is more reliable on Linux.",
     };
 
 const OPTIONS = [NATIVE, ALT];

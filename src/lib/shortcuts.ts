@@ -4,6 +4,7 @@
 
 import { useEffect } from "react";
 import { platform } from "@tauri-apps/plugin-os";
+import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { monacoSeesMac } from "./fixPlatform";
 import { type KeymapStyle, getPrefs, subscribePrefs } from "./uiPrefs";
 
@@ -26,6 +27,57 @@ function detectMac(): boolean {
   }
 }
 export const IS_MAC = detectMac();
+
+/** True when the host is Linux. WebKitGTK (the Linux Tauri webview) blocks the
+ *  browser clipboard APIs Monaco's built-in copy/cut/paste rely on, so the editor
+ *  routes those through the Tauri clipboard plugin there. */
+function detectLinux(): boolean {
+  try {
+    return platform() === "linux";
+  } catch {
+    return /linux/i.test(navigator.platform || navigator.userAgent || "");
+  }
+}
+export const IS_LINUX = detectLinux();
+
+// Opt-in diagnostics for shortcuts that silently do nothing (the usual Linux/
+// WebKitGTK failure mode). Enable from the devtools console with
+//   localStorage.setItem("ff.debugShortcuts", "1")
+// then reload; disable by removing the key. Logs platform detection at install
+// and, for every keydown, the resolved combo plus the reason it did or didn't
+// fire. window.ffShortcutsDebug() prints the current detection snapshot on demand.
+let DEBUG = (() => {
+  try {
+    return localStorage.getItem("ff.debugShortcuts") === "1";
+  } catch {
+    return false;
+  }
+})();
+function dbg(...args: unknown[]) {
+  if (DEBUG) console.log("%c[shortcuts]", "color:#7c3aed;font-weight:bold", ...args);
+}
+/** True when shortcut diagnostics are on; lets other modules (Monaco bindings in
+ *  FileView) log under the same opt-in flag. */
+export function shortcutsDebugEnabled(): boolean {
+  return DEBUG;
+}
+function detectionSnapshot() {
+  let osPlugin: string;
+  try {
+    osPlugin = platform();
+  } catch (e) {
+    osPlugin = `unavailable (${String(e)})`;
+  }
+  return {
+    "platform() (Tauri OS)": osPlugin,
+    IS_MAC,
+    monacoSeesMac,
+    "navigator.platform": navigator.platform,
+    "navigator.userAgent": navigator.userAgent,
+    keymapStyle: getPrefs().keymapStyle,
+    scheme: { mod: scheme.mod, alt: scheme.alt, monacoMod: scheme.monacoMod, monacoAlt: scheme.monacoAlt },
+  };
+}
 
 export interface ActionDef {
   id: string;
@@ -116,12 +168,33 @@ export const ACTIONS: ActionDef[] = [
 
 const STORE_KEY = "ff.shortcuts";
 
+// Per-scheme default overrides for mac-on-PC only. The ⌥ token maps to the Super
+// key there, and GNOME/KDE hard-grab Super+arrow / Super+PageUp-Down / Super+L /
+// Super+R (maximize, workspace switch, screen lock, KRunner) before the webview
+// ever sees them — so these ⌥ defaults are dead on Linux. Re-anchor them onto the
+// physical Alt key (the "Mod"/⌘ key here), which the WM does not reserve, keeping
+// the canonical pc / native / real-mac defaults in ACTIONS untouched. Users can
+// still rebind freely; resetting an action returns it to the value below.
+const MAC_EMU_DEFAULTS: Record<string, string> = {
+  "diff.next": "Mod+Shift+ArrowDown",
+  "diff.prev": "Mod+Shift+ArrowUp",
+  "diff.layout": "Mod+Shift+\\",
+  "diff.revertBlock": "Mod+Shift+Backspace",
+  "nav.nextPoint": "Mod+PageDown",
+  "nav.prevPoint": "Mod+PageUp",
+};
+
 /** A resolved scheme: how physical modifiers map to the logical Mod/Alt tokens,
  *  how those tokens render, and which Monaco modifier each maps to. Canonical
  *  combo strings ("Mod+S", "Alt+D") never change — only this mapping does. */
 interface Scheme {
   matchMod: (e: KeyboardEvent) => boolean;
   matchAlt: (e: KeyboardEvent) => boolean;
+  // Detects the literal ⌃ Ctrl token. Only set where physical Ctrl is distinct
+  // from Mod (mac-on-PC: Mod is Alt, Ctrl is the physical Ctrl key) so it can be
+  // serialized for matching and the rebind / find-by-key UI. In pc/native, Ctrl
+  // *is* Mod, so leaving this unset avoids emitting both tokens for one keypress.
+  matchCtrl?: (e: KeyboardEvent) => boolean;
   mod: string;
   alt: string;
   shift: string;
@@ -136,6 +209,13 @@ interface Scheme {
   // physical Alt key on every OS.
   monacoMod: "CtrlCmd" | "Alt" | "WinCtrl";
   monacoAlt: "Alt" | "WinCtrl" | "CtrlCmd";
+  // True only for mac-style on a non-Mac host (the mac-on-PC emulation). Drives
+  // two PC-keyboard fixes: (1) the global handler bridges ⌘C/⌘X/⌘V/⌘A/⌘Z to the
+  // focused field, since off Mac the webview's native clipboard answers only
+  // physical Ctrl, not the physical Alt key that now carries ⌘ (handleMacClipboard);
+  // (2) actions whose ⌥ (Super) chord the window manager reserves are remapped to a
+  // deliverable physical-Alt chord (MAC_EMU_DEFAULTS, applied in comboFor).
+  macEmu?: boolean;
 }
 
 export function resolveScheme(style: KeymapStyle, hostIsMac: boolean): Scheme {
@@ -173,22 +253,29 @@ export function resolveScheme(style: KeymapStyle, hostIsMac: boolean): Scheme {
       monacoAlt: "Alt",
     };
   }
-  // mac scheme on a PC keyboard: the key next to space (physically Alt) acts as
-  // ⌘ (Mod); the far key (physically Ctrl) acts as ⌥ (Alt/Option). There is no
-  // ⌘ key on this machine, so label modifiers by the *physical* key the user
-  // actually presses (Alt for Mod, Ctrl for ⌥) instead of mac glyphs.
+  // mac scheme on a PC keyboard: emulate macOS. The keys flanking the spacebar
+  // (physically Left/Right Alt) act as ⌘ (Mod) — they sit where ⌘ does on a Mac;
+  // the Super/Win key acts as ⌥ (Option); physical Ctrl stays ⌃ (Control). Fn —
+  // Option's real home on a Mac — never reaches the webview (no event/flag), so
+  // Option lives on Super. There is no ⌘/⌥ keycap here, so label modifiers by the
+  // physical key the user actually presses (Alt for ⌘, Super for ⌥, Ctrl for ⌃).
   return {
-    matchMod: (e) => e.metaKey || e.altKey,
-    matchAlt: (e) => e.ctrlKey,
+    matchMod: (e) => e.altKey,
+    matchAlt: (e) => e.metaKey,
+    matchCtrl: (e) => e.ctrlKey,
     mod: "Alt",
-    alt: "Ctrl",
+    alt: "Super",
     shift: "Shift",
     ctrl: "Ctrl",
     sep: "+",
     monacoMod: "Alt",
-    // The far key (physically Ctrl) acts as ⌥; bind it to the Monaco KeyMod
-    // that resolves to physical Ctrl for the detected OS (see the pc branch).
-    monacoAlt: monacoSeesMac ? "WinCtrl" : "CtrlCmd",
+    // ⌥ (Option) is the Super/Meta key; bind it to the Monaco KeyMod that
+    // resolves to Meta/Super for the OS Monaco detected — WinCtrl on Linux/Windows
+    // (the normal case, fixPlatform strips the Mac token), CtrlCmd when that patch
+    // failed and Monaco still sees macOS. The literal ⌃ Ctrl token takes the
+    // opposite KeyMod (physical Ctrl) — see ctrlFlag in FileView's toKeybinding.
+    monacoAlt: monacoSeesMac ? "CtrlCmd" : "WinCtrl",
+    macEmu: true,
   };
 }
 
@@ -230,13 +317,20 @@ function persist() {
   subscribers.forEach((fn) => fn());
 }
 
-export function comboFor(id: string): string {
-  if (id in overrides) return overrides[id];
+/** The default combo for an action under the active scheme: the mac-on-PC
+ *  override when present, else the canonical ACTIONS default. */
+function defaultCombo(id: string): string {
+  if (scheme.macEmu && id in MAC_EMU_DEFAULTS) return MAC_EMU_DEFAULTS[id];
   return ACTIONS.find((a) => a.id === id)?.default ?? "";
 }
 
+export function comboFor(id: string): string {
+  if (id in overrides) return overrides[id];
+  return defaultCombo(id);
+}
+
 export function setCombo(id: string, combo: string) {
-  if (!combo || combo === (ACTIONS.find((a) => a.id === id)?.default ?? "")) delete overrides[id];
+  if (!combo || combo === defaultCombo(id)) delete overrides[id];
   else overrides[id] = combo;
   persist();
 }
@@ -294,6 +388,7 @@ export function comboFromEvent(e: KeyboardEvent): string {
   if (["Meta", "Control", "Alt", "Shift"].includes(e.key)) return "";
   const parts: string[] = [];
   if (scheme.matchMod(e)) parts.push("Mod");
+  if (scheme.matchCtrl?.(e)) parts.push("Ctrl");
   if (scheme.matchAlt(e)) parts.push("Alt");
   if (e.shiftKey) parts.push("Shift");
   parts.push(keyFromCode(e));
@@ -336,6 +431,94 @@ function inTextField(): boolean {
   return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable;
 }
 
+function isInputLike(el: HTMLElement | null): el is HTMLInputElement | HTMLTextAreaElement {
+  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+}
+function isEditable(el: HTMLElement | null): boolean {
+  return isInputLike(el) || !!el?.isContentEditable;
+}
+
+// ⌘-clipboard on a PC keyboard: the native copy/paste shortcut on Linux/Windows
+// is physical Ctrl, but mac-emulation puts ⌘ on the physical Alt key, so ⌘C/⌘V/…
+// never reach the webview's built-in editing outside Monaco. Bridge them onto the
+// focused field. WebKitGTK blocks execCommand("copy"/"cut"/"paste"), so the actual
+// clipboard read/write goes through the Tauri plugin (Rust); only the *editing*
+// side (delete on cut, insert on paste, select) uses execCommand, which WebKitGTK
+// does honour — and routes through the editing pipeline so React's onChange fires.
+const CLIPBOARD_OPS: Record<string, "copy" | "cut" | "paste" | "selectAll" | "undo" | "redo"> = {
+  "Mod+C": "copy",
+  "Mod+X": "cut",
+  "Mod+V": "paste",
+  "Mod+A": "selectAll",
+  "Mod+Z": "undo",
+  "Mod+Shift+Z": "redo",
+};
+
+/** Text currently selected in the focused field (or the page selection). */
+function selectedText(el: HTMLElement | null): string {
+  if (isInputLike(el)) {
+    return el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0);
+  }
+  return window.getSelection?.()?.toString() ?? "";
+}
+
+async function clipWrite(text: string) {
+  try {
+    await writeText(text);
+  } catch (err) {
+    dbg("mac clipboard write failed; falling back to execCommand", String(err));
+    document.execCommand("copy");
+  }
+}
+
+async function macPaste() {
+  let text = "";
+  try {
+    text = (await readText()) ?? "";
+  } catch (err) {
+    dbg("mac clipboard read failed", String(err));
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      return;
+    }
+  }
+  if (text) document.execCommand("insertText", false, text);
+}
+
+/** Bridges a ⌘ clipboard combo to the focused field under mac-emulation. Returns
+ *  true when it handled the combo (caller then stops the event). Monaco and the
+ *  terminal own their clipboard, so it defers to them. */
+function handleMacClipboard(combo: string): boolean {
+  const op = CLIPBOARD_OPS[combo];
+  if (!op) return false;
+  const el = document.activeElement as HTMLElement | null;
+  if (el?.closest(".monaco-editor") || el?.closest(".xterm")) return false;
+  if (op === "selectAll") {
+    if (isInputLike(el)) el.select();
+    else if (isEditable(el)) document.execCommand("selectAll");
+    else return false;
+    return true;
+  }
+  if (op === "undo" || op === "redo") {
+    if (!isEditable(el)) return false;
+    document.execCommand(op);
+    return true;
+  }
+  if (op === "paste") {
+    if (!isEditable(el)) return false;
+    void macPaste();
+    return true;
+  }
+  // copy / cut: write the live selection via the plugin; cut also deletes it.
+  const sel = selectedText(el);
+  if (!sel) return true;
+  void clipWrite(sel);
+  if (op === "cut" && isEditable(el)) document.execCommand("delete");
+  dbg("mac clipboard", op, `${sel.length} chars`);
+  return true;
+}
+
 /** Listens for the next real combo and reports it once (used by the rebind UI). */
 export function beginCapture(onCombo: (combo: string) => void): () => void {
   capturing = onCombo;
@@ -376,6 +559,9 @@ function onKeyDown(e: KeyboardEvent) {
   }
   lastShiftAt = 0;
   if (!combo) return;
+  if (DEBUG) {
+    dbg("keydown", { key: e.key, code: e.code, meta: e.metaKey, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, combo });
+  }
   if (capturing) {
     e.preventDefault();
     e.stopPropagation();
@@ -384,20 +570,44 @@ function onKeyDown(e: KeyboardEvent) {
     cb(combo);
     return;
   }
+  // mac-emulation: route ⌘C/⌘X/⌘V/⌘A/⌘Z (physical Alt) to the focused field,
+  // since the webview's native clipboard only answers physical Ctrl off Mac.
+  if (scheme.macEmu && handleMacClipboard(combo)) {
+    dbg("mac clipboard handled", combo);
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
   // Don't hijack plain typing in inputs/editors; only modified combos and
   // function keys (debug stepping) fire there.
-  if (inTextField() && !/(^|\+)(Mod|Alt)(\+|$)/.test(combo) && !/^(Shift\+)?F\d+$/.test(combo)) return;
+  if (inTextField() && !/(^|\+)(Mod|Alt)(\+|$)/.test(combo) && !/^(Shift\+)?F\d+$/.test(combo)) {
+    dbg("skip", combo, "— plain key in a text field");
+    return;
+  }
   const action = ACTIONS.find((a) => comboFor(a.id) === combo);
-  if (!action) return;
+  if (!action) {
+    dbg("no action bound to", combo);
+    return;
+  }
   const el = document.activeElement as HTMLElement | null;
   // While a terminal is focused, only the toggle fires; every other combo goes
   // to the shell (Ctrl-C, Ctrl-R, etc.).
-  if (action.id !== "terminal.toggle" && el?.closest(".xterm")) return;
+  if (action.id !== "terminal.toggle" && el?.closest(".xterm")) {
+    dbg("skip", action.id, "— terminal focused");
+    return;
+  }
   // Diff-scoped bindings (undo/redo) only act when the diff editor is focused,
   // so they don't steal ⌘Z from the commit box or other inputs.
-  if (action.scope === "diff" && !el?.closest(".editor-wrap")) return;
+  if (action.scope === "diff" && !el?.closest(".editor-wrap")) {
+    dbg("skip", action.id, "— diff-scoped but diff editor not focused");
+    return;
+  }
   const handler = registry.get(action.id);
-  if (!handler) return;
+  if (!handler) {
+    dbg("matched", action.id, "but no handler registered (owning component unmounted / not using useShortcut)");
+    return;
+  }
+  dbg("fire", action.id);
   // Capture-phase stop so the focused control (e.g. Monaco) doesn't also act.
   e.preventDefault();
   e.stopPropagation();
@@ -409,6 +619,24 @@ export function installShortcuts() {
   if (installed) return;
   installed = true;
   window.addEventListener("keydown", onKeyDown, true);
+  (window as unknown as { ffShortcutsDebug?: (on?: boolean) => object }).ffShortcutsDebug = (on?: boolean) => {
+    if (typeof on === "boolean") {
+      DEBUG = on;
+      try {
+        if (on) localStorage.setItem("ff.debugShortcuts", "1");
+        else localStorage.removeItem("ff.debugShortcuts");
+      } catch {
+        // localStorage unavailable: in-memory toggle still applies this session.
+      }
+    }
+    const snap = detectionSnapshot();
+    console.table(snap);
+    return snap;
+  };
+  if (DEBUG) {
+    console.log("%c[shortcuts] detection", "color:#7c3aed;font-weight:bold");
+    console.table(detectionSnapshot());
+  }
 }
 
 /** Registers a handler for an action while the calling component is mounted. */

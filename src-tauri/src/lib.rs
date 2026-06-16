@@ -28,10 +28,24 @@ const DETECT_INTERVAL: Duration = Duration::from_secs(5);
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("ff".into()),
+                    }),
+                ])
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .setup(|app| {
+            if let Ok(dir) = app.path().app_log_dir() {
+                println!("📂 ff logs: {}/ff.log  (tail -f to follow)", dir.display());
+            }
             let data_dir = app.path().app_data_dir()?;
             let engine = Engine::open(&data_dir)?;
             let manager = Arc::new(MonitorManager::new(engine.clone()));

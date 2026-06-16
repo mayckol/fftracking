@@ -1,6 +1,7 @@
 // Must run before monaco-editor is imported (Monaco reads navigator.userAgent at
 // module-eval to pick its OS, and WebKitGTK on Linux lies that it is a Mac).
 import "./lib/fixPlatform";
+import { installLogForwarding } from "./lib/log";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import * as monaco from "monaco-editor";
@@ -20,6 +21,10 @@ import "./styles.css";
 import { applyTheme, getTheme } from "./lib/themes";
 import { applyUIVars, getPrefs, subscribePrefs } from "./lib/uiPrefs";
 import { defineAllThemes } from "./components/monacoTheme";
+
+// Tee the webview console + uncaught errors to the app log (stdout + file) so
+// they can be followed from a terminal, not just devtools.
+installLogForwarding();
 
 // Theme CSS variables must land before first paint; Monaco picks its theme up
 // via the `theme` prop on the editors.

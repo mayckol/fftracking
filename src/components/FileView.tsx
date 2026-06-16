@@ -28,8 +28,9 @@ import {
   subscribeDebug,
   type LaunchConfig,
 } from "../lib/debug";
+import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { monacoSeesMac } from "../lib/fixPlatform";
-import { comboFor, formatCombo, IS_MAC, monacoModifiers } from "../lib/shortcuts";
+import { comboFor, formatCombo, IS_LINUX, IS_MAC, monacoModifiers, shortcutsDebugEnabled } from "../lib/shortcuts";
 import { resetZoom, useZoomLevel, zoomPercent } from "../lib/editorZoom";
 import { editorPrefOptions, getPrefs, useUIPrefs } from "../lib/uiPrefs";
 import { api } from "../lib/ipc";
@@ -427,7 +428,17 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       await editor.getAction("editor.action.formatDocument")?.run();
     };
     const bind = (id: string, fn: () => void) => {
-      const kb = toKeybinding(monaco, comboFor(id));
+      const combo = comboFor(id);
+      const kb = toKeybinding(monaco, combo);
+      if (shortcutsDebugEnabled()) {
+        console.log(
+          "%c[shortcuts:monaco]",
+          "color:#0ea5e9;font-weight:bold",
+          id,
+          combo,
+          kb == null ? "→ UNRESOLVED (combo not mapped, command not bound)" : `→ keybinding ${kb}`,
+        );
+      }
       if (kb) editor.addCommand(kb, fn);
     };
     // Manual save formats / regroups imports per prefs; auto-save just writes
@@ -527,46 +538,72 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     // Fold/unfold (⌘⇧±) and zoom (⌘±, ⌘0) are bound globally in App via the
     // shortcut registry — not here — so the numpad +/-/− keys work too.
 
-    // Under the mac-on-PC swap the ⌘ key is physically Alt and physical Ctrl is
-    // ⌥. Monaco's addCommand bindings on KeyMod.Alt don't fire under WebKitGTK
-    // (Linux) — physical-Ctrl/CtrlCmd bindings do — so match the ⌘ chords
-    // directly off the editor keydown by physical e.code: layout-independent and
-    // independent of Monaco's keybinding resolution. Separately shadow Monaco's
-    // built-ins (which sit on physical Ctrl here) so physical Ctrl acts as ⌥
-    // rather than a second ⌘ — e.g. Ctrl+A no longer selects all.
-    if (monacoModifiers().mod === "Alt") {
-      const addCmd = (combo: string, fn: () => void) => {
-        const kb = toKeybinding(monaco, combo);
-        if (kb) editor.addCommand(kb, fn);
-      };
-      for (const k of ["C", "X", "V", "A", "Z", "F"]) addCmd(`Ctrl+${k}`, () => {});
-      addCmd("Ctrl+Shift+Z", () => {});
+    const addCmd = (combo: string, fn: () => void) => {
+      const kb = toKeybinding(monaco, combo);
+      if (kb) editor.addCommand(kb, fn);
+    };
 
-      const macAlt: Record<string, () => void> = {
-        KeyC: () => run("editor.action.clipboardCopyAction"),
-        KeyX: () => run("editor.action.clipboardCutAction"),
-        KeyV: () => run("editor.action.clipboardPasteAction"),
-        KeyA: () => run("editor.action.selectAll"),
-        KeyF: () => run("actions.find"),
-      };
-      editor.onKeyDown((e) => {
-        const be = e.browserEvent;
-        if (!be.altKey || be.ctrlKey || be.metaKey) return;
-        // ⌘Z / ⌘⇧Z undo-redo; the rest only on a bare ⌘ chord.
-        if (be.code === "KeyZ") {
-          e.preventDefault();
-          e.stopPropagation();
-          editor.trigger("ff", be.shiftKey ? "redo" : "undo", null);
-          return;
-        }
-        if (be.shiftKey) return;
-        const fn = macAlt[be.code];
-        if (fn) {
-          e.preventDefault();
-          e.stopPropagation();
-          fn();
-        }
-      });
+    // WebKitGTK (the Linux Tauri webview) blocks the browser clipboard that
+    // Monaco's built-in copy/cut/paste rely on, so the editor's copy/cut/paste
+    // silently fail there in EVERY keymap. Route them through the Tauri clipboard
+    // plugin and apply the edit with Monaco's model API. Empty selection
+    // copies/cuts the whole line, matching Monaco's own default.
+    const lineRange = (ln: number) => {
+      const model = editor.getModel()!;
+      return ln < model.getLineCount()
+        ? new monaco.Range(ln, 1, ln + 1, 1)
+        : new monaco.Range(ln, 1, ln, model.getLineMaxColumn(ln));
+    };
+    const clipCopy = async (cut: boolean) => {
+      const model = editor.getModel();
+      const sel = editor.getSelection();
+      if (!model || !sel) return;
+      const range = sel.isEmpty() ? lineRange(sel.startLineNumber) : sel;
+      const text = model.getValueInRange(range);
+      if (shortcutsDebugEnabled()) console.log(`[shortcuts:monaco] ${cut ? "cut" : "copy"} ${text.length} chars`);
+      try {
+        await writeText(text);
+      } catch (err) {
+        console.error("editor clipboard copy failed", String(err));
+        return;
+      }
+      if (cut) editor.executeEdits("ff-cut", [{ range, text: "", forceMoveMarkers: true }]);
+    };
+    const clipPaste = async () => {
+      let text = "";
+      try {
+        text = (await readText()) ?? "";
+      } catch (err) {
+        console.error("editor clipboard paste failed", String(err));
+        return;
+      }
+      const sel = editor.getSelection();
+      if (!text || !sel) return;
+      if (shortcutsDebugEnabled()) console.log(`[shortcuts:monaco] paste ${text.length} chars`);
+      editor.executeEdits("ff-paste", [{ range: sel, text, forceMoveMarkers: true }]);
+      editor.focus();
+    };
+    // Override the built-ins on Linux (every keymap) and in mac-emulation on any
+    // OS, where ⌘ sits on the physical Alt key that has no native clipboard.
+    // Real-Mac and Windows-native keep Monaco's working built-ins. The "Mod" combo
+    // resolves to the right physical key per scheme via toKeybinding (physical Ctrl
+    // in pc/native, the physical Alt key in mac-emulation).
+    if (IS_LINUX || monacoModifiers().mod === "Alt") {
+      addCmd("Mod+C", () => void clipCopy(false));
+      addCmd("Mod+X", () => void clipCopy(true));
+      addCmd("Mod+V", () => void clipPaste());
+    }
+
+    // mac-on-PC: ⌘ is the physical Alt key. Put the remaining ⌘ editor commands on
+    // it and neutralise Monaco's built-ins that otherwise fire on physical Ctrl —
+    // on a Mac ⌃ neither copies, selects-all, nor undoes. (C/X/V handled above.)
+    if (monacoModifiers().mod === "Alt") {
+      for (const key of ["C", "X", "V", "A", "Z"]) addCmd(`Ctrl+${key}`, () => {});
+      addCmd("Mod+A", () => run("editor.action.selectAll"));
+      addCmd("Mod+Z", () => editor.trigger("ff", "undo", null));
+      addCmd("Mod+Shift+Z", () => editor.trigger("ff", "redo", null));
+      // ⌘F opens find; next/prev stay on F3 / Enter inside the widget.
+      addCmd("Mod+F", () => run("actions.find"));
     }
 
     // JetBrains-style run-test icons on `func TestX` and table-driven

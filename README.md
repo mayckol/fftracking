@@ -139,6 +139,33 @@ npm run tauri dev     # hot-reload app (Vite + Rust)
 cargo test -p ffcore  # engine tests
 ```
 
+### Logs
+
+The app mirrors its webview console output and uncaught errors to **stdout** (the
+`npm run tauri dev` terminal) and to a log file you can follow live. On startup it
+prints the exact path:
+
+```
+📂 ff logs: <app-log-dir>/ff.log  (tail -f to follow)
+```
+
+Default locations:
+
+- Linux: `~/.local/share/com.fftracking.app/logs/ff.log`
+- macOS: `~/Library/Logs/com.fftracking.app/ff.log`
+
+```bash
+tail -f ~/.local/share/com.fftracking.app/logs/ff.log
+```
+
+For verbose **keyboard-shortcut** diagnostics — every keypress, the resolved
+combo, and why it did or didn't fire — enable the debug channel from the in-app
+devtools console, then reload:
+
+```js
+ffShortcutsDebug(true)   // snapshot of key detection; disable with ffShortcutsDebug(false)
+```
+
 ## Usage
 
 1. **+ Folder** (or just open a project in VSCode / Zed — it's picked up automatically).
