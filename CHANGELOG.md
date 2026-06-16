@@ -4,6 +4,20 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.6] — 2026-06-16
+
+### Fixed
+
+- **Integrated terminal now resolves user PATH tools** (docker, docker-compose,
+  nvm-managed binaries, etc.). The shell is launched as a login shell (`-l`) so it
+  sources the user's profile and re-runs macOS `path_helper` — a GUI-launched app
+  otherwise inherits a stripped PATH. Matches how Warp/Terminal open shells. Skipped
+  on Windows (`COMSPEC` rejects `-l`).
+- **`.env` syntax highlighting no longer leaks across lines.** The Monarch value
+  state never popped at end-of-line (the greedy content rule consumed past the `$`
+  pop rule), so a following comment or key tokenized as a string. The state now pops
+  at the start of the next line via `@rematch`, re-tokenizing from `root`.
+
 ## [1.0.5] — 2026-06-16
 
 ### Fixed
