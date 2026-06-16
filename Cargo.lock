@@ -1213,7 +1213,7 @@ dependencies = [
 
 [[package]]
 name = "fftracking"
-version = "0.8.9"
+version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
  "ffcore",
