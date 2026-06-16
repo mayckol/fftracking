@@ -547,7 +547,8 @@ select:focus {
   z-index: 30;
   /* Leave a 6px sliver on-screen as the hover hot-zone. */
   transform: translateX(calc(-100% + 6px));
-  transition: transform 0.16s var(--ease);
+  /* Smooth, slightly slower slide (ease-out) — shadow fades with it. */
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.32s ease;
 }
 .side-float::after {
   content: "";
@@ -558,6 +559,7 @@ select:focus {
   width: 3px;
   background: var(--ac);
   opacity: 0.5;
+  transition: opacity 0.32s ease;
 }
 .side-float.open {
   transform: translateX(0);
@@ -1160,13 +1162,25 @@ button.vs-tag:hover {
 
 /* Branch picker (Compare with branch) */
 .branch-pick {
-  min-width: 360px;
+  min-width: 380px;
+}
+.branch-pick-search {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.branch-pick-group {
+  padding: 6px 6px 2px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tx-2);
 }
 .branch-pick-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 320px;
+  max-height: 340px;
   overflow-y: auto;
 }
 .branch-pick-item {

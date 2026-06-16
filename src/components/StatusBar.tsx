@@ -71,7 +71,7 @@ export default function StatusBar({ sidebar = null, workspace = null }: Props) {
           title={workspace.historyOn ? "Show the project files tree" : "Show history (timeline & changed files)"}
           onClick={workspace.onToggle}
         >
-          {workspace.historyOn ? "History" : "Files"}
+          {workspace.historyOn ? "Files" : "History"}
         </button>
       )}
       <span className="sb-spacer" />

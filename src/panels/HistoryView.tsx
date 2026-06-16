@@ -107,7 +107,8 @@ export default function HistoryView({
   // Compare a working file against a branch's version (right-click → Compare with
   // branch). Own panes, independent of the snapshot diff.
   const [branchPickFor, setBranchPickFor] = useState<string | null>(null);
-  const [branchList, setBranchList] = useState<string[]>([]);
+  const [branchRefs, setBranchRefs] = useState<{ local: string[]; remote: string[] }>({ local: [], remote: [] });
+  const [branchQuery, setBranchQuery] = useState("");
   const [branchDiff, setBranchDiff] = useState<{ path: string; branch: string } | null>(null);
   const [branchLeft, setBranchLeft] = useState("");
   const [branchRight, setBranchRight] = useState("");
@@ -850,8 +851,12 @@ export default function HistoryView({
     if (!repoRoot) return toast("Not inside a git repository", true);
     try {
       const refs = await api.gitListRefs(repoRoot);
-      if (!refs.branches.length) return toast("No branches in this repository", true);
-      setBranchList(refs.branches);
+      const remote = refs.remote_branches ?? [];
+      if (!refs.branches.length && !remote.length) {
+        return toast("No branches in this repository", true);
+      }
+      setBranchRefs({ local: refs.branches, remote });
+      setBranchQuery("");
       setBranchPickFor(path);
     } catch (e) {
       toast(String(e), true);
@@ -1373,28 +1378,60 @@ export default function HistoryView({
         />
       )}
 
-      {branchPickFor && (
-        <div className="modal-overlay" onClick={() => setBranchPickFor(null)}>
-          <div className="modal branch-pick" onClick={(e) => e.stopPropagation()}>
-            <h3>Compare with branch</h3>
-            <p className="hint" style={{ margin: "0 0 8px" }}>
-              {basename(branchPickFor)} ↔ working tree
-            </p>
-            <div className="branch-pick-list">
-              {branchList.map((b) => (
-                <button key={b} className="branch-pick-item" onClick={() => chooseBranch(b)} title={`Compare against ${b}`}>
-                  ⎇ {b}
+      {branchPickFor && (() => {
+        const q = branchQuery.trim().toLowerCase();
+        const match = (b: string) => b.toLowerCase().includes(q);
+        const local = branchRefs.local.filter(match);
+        const remote = branchRefs.remote.filter(match);
+        const first = local[0] ?? remote[0];
+        return (
+          <div className="modal-overlay" onClick={() => setBranchPickFor(null)}>
+            <div className="modal branch-pick" onClick={(e) => e.stopPropagation()}>
+              <h3>Compare with branch</h3>
+              <p className="hint" style={{ margin: "0 0 8px" }}>
+                {basename(branchPickFor)} ↔ working tree
+              </p>
+              <input
+                className="branch-pick-search"
+                autoFocus
+                value={branchQuery}
+                placeholder="Filter branches…"
+                spellCheck={false}
+                onChange={(e) => setBranchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && first) chooseBranch(first);
+                  else if (e.key === "Escape") setBranchPickFor(null);
+                }}
+              />
+              <div className="branch-pick-list">
+                {local.length === 0 && remote.length === 0 ? (
+                  <div className="palette-note">No matching branches</div>
+                ) : (
+                  <>
+                    {local.length > 0 && <div className="branch-pick-group">Local</div>}
+                    {local.map((b) => (
+                      <button key={"l:" + b} className="branch-pick-item" onClick={() => chooseBranch(b)} title={`Compare against ${b}`}>
+                        ⎇ {b}
+                      </button>
+                    ))}
+                    {remote.length > 0 && <div className="branch-pick-group">Remote</div>}
+                    {remote.map((b) => (
+                      <button key={"r:" + b} className="branch-pick-item" onClick={() => chooseBranch(b)} title={`Compare against ${b}`}>
+                        ⎇ {b}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+              <div className="modal-actions">
+                <button className="tbtn" onClick={() => setBranchPickFor(null)}>
+                  Cancel
                 </button>
-              ))}
-            </div>
-            <div className="modal-actions">
-              <button className="tbtn" onClick={() => setBranchPickFor(null)}>
-                Cancel
-              </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </>
   );
 }

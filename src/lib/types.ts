@@ -67,6 +67,7 @@ export interface CommitInfo {
 
 export interface RefList {
   branches: string[];
+  remote_branches: string[];
   commits: CommitInfo[];
 }
 

@@ -181,6 +181,7 @@ pub struct CommitInfo {
 #[derive(Debug, Clone, Serialize)]
 pub struct RefList {
     pub branches: Vec<String>,
+    pub remote_branches: Vec<String>,
     pub commits: Vec<CommitInfo>,
 }
 
@@ -204,6 +205,17 @@ pub fn list_refs(repo_path: &Path, commit_limit: usize) -> Result<RefList> {
         }
     }
 
+    let mut remote_branches = Vec::new();
+    for b in repo.branches(Some(git2::BranchType::Remote))? {
+        if let Ok(Some(name)) = b?.0.name() {
+            // Skip the symbolic "origin/HEAD -> origin/main" pointer.
+            if name.ends_with("/HEAD") {
+                continue;
+            }
+            remote_branches.push(name.to_string());
+        }
+    }
+
     let mut commits = Vec::new();
     if let Ok(mut walk) = repo.revwalk() {
         if walk.push_head().is_ok() {
@@ -219,7 +231,7 @@ pub fn list_refs(repo_path: &Path, commit_limit: usize) -> Result<RefList> {
         }
     }
 
-    Ok(RefList { branches, commits })
+    Ok(RefList { branches, remote_branches, commits })
 }
 
 fn tree_at<'r>(repo: &'r Repository, rev: &str) -> Result<Tree<'r>> {
