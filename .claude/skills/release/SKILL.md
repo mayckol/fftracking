@@ -26,6 +26,8 @@ never rely on CI sync alone, or `main` drifts from its tags.
 
 ## Steps
 
+0. Check if there is changes, is so commit them
+
 1. **Preflight.** Run:
    ```sh
    git rev-parse --abbrev-ref HEAD   # must be main
@@ -44,7 +46,7 @@ never rely on CI sync alone, or `main` drifts from its tags.
    - `src-tauri/Cargo.toml` → `version = "X.Y.Z"` (the `[package]` line)
    - Refresh the lock: `cd src-tauri && cargo update -p fftracking --precise X.Y.Z 2>/dev/null || cargo build --offline 2>/dev/null; cd -`
      (Cargo.lock version line for the crate must match; a plain `cargo check` also rewrites it.)
-
+3.1 **update the changelog**
 4. **Commit + tag + push:**
    ```sh
    git add src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
