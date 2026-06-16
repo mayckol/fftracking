@@ -295,13 +295,6 @@ export default function App() {
           fftracking
           {appVersion && <small>v{appVersion}</small>}
         </div>
-        <nav className="tabs">
-          {(["files", "git", "plugins", "settings"] as Tab[]).map((t) => (
-            <button key={t} className={`tab${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
-              {t}
-            </button>
-          ))}
-        </nav>
         <div className="spacer" />
         {res && (
           <div className="res-meter" title="fftracking CPU and memory usage">
@@ -439,6 +432,7 @@ export default function App() {
       {!dockInWorkspace && bottomPanel}
 
       <StatusBar
+        tabs={{ active: tab === "history" ? "files" : tab, onSelect: (t) => setTab(t as Tab) }}
         sidebar={inWorkspace ? { hidden: treeHidden, onToggle: () => setTreeHidden((v) => !v) } : null}
         workspace={inWorkspace ? { historyOn: tab === "history", onToggle: () => setTab(tab === "history" ? "files" : "history") } : null}
       />

@@ -113,6 +113,15 @@ export const tokyoNight: Theme = {
       "editorOverviewRuler.border": "#00000000",
       "scrollbarSlider.background": "#41486880",
       "scrollbarSlider.hoverBackground": "#414868aa",
+      // Context menu (right-click) — kept in sync with the `.ctx-menu` dropdown.
+      // Monaco renders this menu inside a shadow root, so document CSS can't reach
+      // it; theming has to go through these color tokens.
+      "menu.background": "#1e202e",
+      "menu.foreground": "#c0caf5",
+      "menu.selectionBackground": "#7aa2f729",
+      "menu.selectionForeground": "#c0caf5",
+      "menu.separatorBackground": "#363b54",
+      "menu.border": "#363b54",
     },
   },
 };

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { restartLsp } from "../lib/lsp";
 import { useEditorStatus, type LspPhase } from "../lib/editorStatus";
 import { resetZoom, useZoomLevel, zoomPercent } from "../lib/editorZoom";
@@ -40,7 +41,69 @@ function SidebarIcon() {
   );
 }
 
+const TAB_ICONS: Record<string, ReactNode> = {
+  files: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M3.5 2.5h5L12 6v7.5H3.5z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path d="M8.5 2.5V6H12" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  ),
+  git: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <circle cx="4" cy="3.5" r="1.7" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="4" cy="12.5" r="1.7" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="12" cy="6" r="1.7" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M4 5.2v5.6M4 8h4a2.3 2.3 0 0 0 2.3-2.3" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  ),
+  plugins: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M6 2.5a1.3 1.3 0 0 1 2.6 0v.9H11v2.4h.9a1.3 1.3 0 0 1 0 2.6H11v2.6H8.4v-.9a1.3 1.3 0 0 0-2.6 0v.9H3.2V8.4h.9a1.3 1.3 0 0 0 0-2.6h-.9V2.5z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+    </svg>
+  ),
+  settings: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  ),
+};
+
+function HistoryIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M3 3v5h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+const TAB_LABEL: Record<string, string> = {
+  files: "Files",
+  git: "Git",
+  plugins: "Plugins",
+  settings: "Settings",
+};
+const TAB_ORDER = ["files", "git", "plugins", "settings"] as const;
+
 interface Props {
+  /** Primary view nav (files/git/plugins/settings), rendered as icon buttons. */
+  tabs?: { active: string; onSelect: (tab: string) => void } | null;
   /** Whether the project sidebar is hidden, and a toggle for it. Null hides the
    *  control entirely (tabs without a sidebar). */
   sidebar?: { hidden: boolean; onToggle: () => void } | null;
@@ -48,32 +111,55 @@ interface Props {
   workspace?: { historyOn: boolean; onToggle: () => void } | null;
 }
 
-export default function StatusBar({ sidebar = null, workspace = null }: Props) {
+export default function StatusBar({ tabs = null, sidebar = null, workspace = null }: Props) {
   const st = useEditorStatus();
   const zoomLevel = useZoomLevel();
 
   return (
     <div className="statusbar app-statusbar">
-      {sidebar && (
-        <button
-          type="button"
-          className={`sb-icon${sidebar.hidden ? "" : " on"}`}
-          title={sidebar.hidden ? "Show project tree" : "Hide project tree"}
-          onClick={sidebar.onToggle}
-        >
-          <SidebarIcon />
-        </button>
-      )}
-      {workspace && (
-        <button
-          type="button"
-          className={`sb-toggle${workspace.historyOn ? " on" : ""}`}
-          title={workspace.historyOn ? "Show the project files tree" : "Show history (timeline & changed files)"}
-          onClick={workspace.onToggle}
-        >
-          {workspace.historyOn ? "Files" : "History"}
-        </button>
-      )}
+      <div className="sb-nav">
+        {sidebar && (
+          <button
+            type="button"
+            aria-pressed={!sidebar.hidden}
+            className={`sb-tab sb-tgl${sidebar.hidden ? "" : " on"}`}
+            title={sidebar.hidden ? "Show project tree" : "Hide project tree"}
+            onClick={sidebar.onToggle}
+          >
+            <SidebarIcon />
+          </button>
+        )}
+        {sidebar && tabs && <span className="sb-div" />}
+        {tabs && (
+          <div className="sb-tabs" role="tablist">
+            {TAB_ORDER.map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={tabs.active === t}
+                className={`sb-tab${tabs.active === t ? " on" : ""}`}
+                title={TAB_LABEL[t]}
+                onClick={() => tabs.onSelect(t)}
+              >
+                {TAB_ICONS[t]}
+              </button>
+            ))}
+          </div>
+        )}
+        {workspace && <span className="sb-div" />}
+        {workspace && (
+          <button
+            type="button"
+            aria-pressed={workspace.historyOn}
+            className={`sb-tab sb-tgl${workspace.historyOn ? " on" : ""}`}
+            title={workspace.historyOn ? "Show the project files tree" : "Show history (timeline & changed files)"}
+            onClick={workspace.onToggle}
+          >
+            <HistoryIcon />
+          </button>
+        )}
+      </div>
       <span className="sb-spacer" />
       {st && (
         <>

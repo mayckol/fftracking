@@ -4,6 +4,7 @@ import { setScopeDir } from "../lib/searchScope";
 import { startRun } from "../lib/run";
 import { dirname } from "../lib/util";
 import { FileTypeIcon, FolderTypeIcon } from "../components/FileTypeIcon";
+import { CtxShortcut } from "../components/CtxShortcut";
 
 interface Menu {
   x: number;
@@ -172,7 +173,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
     onCopyPath && (
       <>
         <button onClick={() => { onCopyPath(absPath(path), "absolute path"); setMenu(null); }}>
-          Copy path (absolute)
+          Copy path (absolute)<CtxShortcut id="file.copyPath" />
         </button>
         <button onClick={() => { onCopyPath(path, "relative path"); setMenu(null); }}>
           Copy path (relative)
@@ -250,7 +251,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
           <div className="ctx-backdrop" onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
           <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
             {menu.kind === "file" && onOpen && (
-              <button onClick={() => { onOpen(menu.path); setMenu(null); }}>Open file</button>
+              <button onClick={() => { onOpen(menu.path); setMenu(null); }}>Open file<CtxShortcut id="file.open" /></button>
             )}
             {menu.kind === "file" && onShowHistory && (
               <button onClick={() => { onShowHistory(menu.path, false); setMenu(null); }}>Show history for this file</button>
@@ -259,7 +260,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
               <button onClick={() => { onCompareBranch(menu.path); setMenu(null); }}>Compare with branch…</button>
             )}
             {menu.kind === "file" && onReveal && (
-              <button onClick={() => { onReveal(menu.path); setMenu(null); }}>Reveal in Finder</button>
+              <button onClick={() => { onReveal(menu.path); setMenu(null); }}>Reveal in Finder<CtxShortcut id="file.reveal" /></button>
             )}
             {menu.kind === "file" && menu.path.endsWith("_test.go") && rootPath && (
               <button
@@ -305,7 +306,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
               <button onClick={() => { onReplaceInFolder(menu.path); setMenu(null); }}>Replace in folder</button>
             )}
             {menu.kind === "dir" && onReveal && (
-              <button onClick={() => { onReveal(menu.path); setMenu(null); }}>Reveal in Finder</button>
+              <button onClick={() => { onReveal(menu.path); setMenu(null); }}>Reveal in Finder<CtxShortcut id="file.reveal" /></button>
             )}
             {menu.kind === "dir" && copyButtons(menu.path)}
             {menu.kind === "dir" && onIgnoreFolder && (

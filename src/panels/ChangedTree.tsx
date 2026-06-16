@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { FileChange } from "../lib/types";
 import { buildFileTree, type TreeNode } from "../lib/filetree";
 import { FolderTypeIcon } from "../components/FileTypeIcon";
+import { CtxShortcut } from "../components/CtxShortcut";
 
 const GLYPH = { added: "A", modified: "M", deleted: "D" } as const;
 
@@ -120,7 +121,7 @@ export default function ChangedTree({
               </button>
             )}
             {menu.kind === "file" && onRevertFile && (
-              <button onClick={() => { onRevertFile(menu.path); setMenu(null); }}>Revert this file to point</button>
+              <button onClick={() => { onRevertFile(menu.path); setMenu(null); }}>Revert this file to point<CtxShortcut id="revert.file" /></button>
             )}
             {menu.kind === "file" && onIgnoreFile && (
               <button onClick={() => { onIgnoreFile(menu.path); setMenu(null); }}>Ignore this file</button>

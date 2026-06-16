@@ -101,6 +101,15 @@ export const fftrackDark: Theme = {
       "editorOverviewRuler.border": "#00000000",
       "scrollbarSlider.background": "#2b374488",
       "scrollbarSlider.hoverBackground": "#3a4756aa",
+      // Context menu (right-click) — kept in sync with the `.ctx-menu` dropdown.
+      // Monaco renders this menu inside a shadow root, so document CSS can't reach
+      // it; theming has to go through these color tokens.
+      "menu.background": "#141a21",
+      "menu.foreground": "#e6edf3",
+      "menu.selectionBackground": "#7c8cff29",
+      "menu.selectionForeground": "#e6edf3",
+      "menu.separatorBackground": "#2b3744",
+      "menu.border": "#2b3744",
     },
   },
 };

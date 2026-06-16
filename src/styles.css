@@ -217,31 +217,6 @@ select:focus {
   font-weight: 500;
 }
 
-.tabs {
-  display: flex;
-  gap: 2px;
-  margin-left: var(--s4);
-}
-.tab {
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--tx-2);
-  padding: 6px 12px;
-  border-radius: var(--r-sm);
-  transition: var(--dur) var(--ease);
-}
-.tab:hover {
-  color: var(--tx-1);
-  background: var(--bg-2);
-}
-.tab.on {
-  color: var(--tx-0);
-  background: var(--bg-3);
-  box-shadow: inset 0 -2px 0 var(--ac);
-}
-
 .spacer {
   flex: 1;
 }
@@ -1758,35 +1733,59 @@ button.vs-tag:hover {
   inset: 0;
   z-index: 60;
 }
+/* Standard dropdown — must match the Monaco editor context menu (see the
+   "Monaco editor context menu" block) so every menu in the app reads the same. */
 .ctx-menu {
   position: fixed;
   z-index: 61;
   min-width: 210px;
-  padding: 4px;
-  background: var(--bg-3);
+  padding: var(--s1);
+  background: var(--bg-2);
   border: 1px solid var(--line-2);
   border-radius: var(--r-md);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.03) inset,
+    0 14px 38px -10px rgba(0, 0, 0, 0.62),
+    0 4px 12px rgba(0, 0, 0, 0.34);
+  animation: ff-menu-in 0.1s var(--ease);
 }
 .ctx-menu button {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
   width: 100%;
+  height: 28px;
   text-align: left;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   color: var(--tx-0);
-  padding: 7px 10px;
+  padding: 0 var(--s3);
+  margin: 1px 0;
   border-radius: var(--r-sm);
 }
+.ctx-menu .ctx-kb {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--tx-2);
+  letter-spacing: 0.02em;
+}
+.ctx-menu button:hover:not(:disabled) .ctx-kb {
+  color: var(--tx-1);
+}
 .ctx-menu button:hover:not(:disabled) {
-  background: var(--ac);
-  color: var(--bg-0);
+  background: var(--ac-glow);
+  color: var(--tx-0);
+}
+.ctx-menu button:disabled {
+  color: var(--tx-3);
 }
 .ctx-menu button.danger {
-  color: var(--danger, #f7768e);
+  color: var(--del);
 }
 .ctx-menu button.danger:hover:not(:disabled) {
-  background: var(--danger, #f7768e);
-  color: var(--bg-0);
+  background: var(--del-bg);
+  color: var(--del);
 }
 
 /* Run / Debug split button + recent-executions dropdown. */
@@ -2205,30 +2204,49 @@ button.vs-tag:hover {
 .statusbar .sb-spacer {
   flex: 1;
 }
-.statusbar .sb-icon,
-.statusbar .sb-toggle {
+.statusbar .sb-nav {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 1px 7px;
-  height: 18px;
+  gap: 3px;
+}
+.statusbar .sb-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.statusbar .sb-div {
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: var(--line-2);
+}
+.statusbar .sb-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 19px;
+  padding: 0;
   border: none;
   border-radius: 5px;
   background: none;
   color: var(--tx-2);
-  font: inherit;
   cursor: pointer;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.statusbar .sb-icon:hover,
-.statusbar .sb-toggle:hover {
+.statusbar .sb-tab:hover {
   color: var(--tx-0);
   background: var(--bg-3);
 }
-.statusbar .sb-icon.on {
-  color: var(--tx-0);
-}
-.statusbar .sb-toggle.on {
+.statusbar .sb-tab.on {
   color: var(--ac);
+  background: var(--ac-glow);
+}
+/* Toggles (project tree, history) — pressed state is subtler than the accent
+   used to mark the active view tab, so a shown tree doesn't read as "selected". */
+.statusbar .sb-tgl.on {
+  color: var(--tx-0);
+  background: var(--bg-3);
 }
 .statusbar .sb-pos {
   font-variant-numeric: tabular-nums;
@@ -3035,6 +3053,16 @@ textarea:focus {
   from {
     opacity: 0;
     transform: translate(-50%, 8px);
+  }
+}
+
+/* The Monaco editor's right-click menu renders inside a shadow root, so it
+   cannot be styled from here — it's themed via the `menu.*` color tokens in
+   src/lib/themes/*. This keyframe is shared with the `.ctx-menu` dropdown. */
+@keyframes ff-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.99);
   }
 }
 
