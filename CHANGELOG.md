@@ -4,6 +4,25 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.5] — 2026-06-16
+
+### Fixed
+
+- **Find / search occurrences now scroll into view.** The find widget (⌘F) moved
+  the selection to an off-screen match but never scrolled to it — the smooth-scroll
+  reveal was being cancelled by the cursor re-render. Reveal is immediate now.
+  Jumping to a search-palette result inside the already-open file also scrolls and
+  focuses it (previously only worked when the file opened fresh).
+- **Select all (⌘A / Ctrl+A) in the editor.** It silently did nothing — the binding
+  targeted a Monaco core command via the wrong API and shadowed the native shortcut.
+
+### Changed
+
+- **External package files (stdlib / module cache) open editable** instead of read-only.
+- **Themed command palette, quick-input, find widget, lists and menus** in the
+  fftrackDark and TokyoNight themes (focus border, inputs, list focus/hover,
+  picker group, keybinding labels).
+
 ## [0.5.8] — 2026-06-11
 
 ### Changed
