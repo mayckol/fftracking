@@ -2594,6 +2594,37 @@ button.vs-tag:hover {
   margin-top: 0;
 }
 
+/* Export / import settings: section checklist */
+.xfer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.xfer-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.xfer-row:hover {
+  background: var(--bg-1);
+}
+.xfer-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--tx-1);
+  white-space: nowrap;
+}
+.xfer-hint {
+  margin: 0 !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Plugins section: catalog cards with add/remove + enable/disable */
 .plugin-list {
   display: flex;

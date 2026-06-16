@@ -1,6 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/ipc";
 import type { Settings } from "../lib/types";
+import {
+  TRANSFER_SECTIONS,
+  applyImport,
+  buildExport,
+  parseBundle,
+  sectionsInBundle,
+  type SettingsBundle,
+} from "../lib/settingsTransfer";
 import {
   FONT_CHOICES,
   type GoImportStyle,
@@ -34,6 +42,73 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
   const [s, setS] = useState<Settings | null>(null);
   const [autostart, setAutostart] = useState(false);
   const prefs = useUIPrefs();
+  const [exportSel, setExportSel] = useState<Set<string>>(() => new Set(TRANSFER_SECTIONS.map((x) => x.id)));
+  const [imported, setImported] = useState<{ bundle: SettingsBundle; available: string[] } | null>(null);
+  const [importSel, setImportSel] = useState<Set<string>>(new Set());
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const toggle = (id: string, set: (fn: (p: Set<string>) => Set<string>) => void) =>
+    set((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+
+  async function doExport() {
+    const ids = [...exportSel];
+    if (!ids.length) return toast("Pick at least one section to export", true);
+    try {
+      const text = JSON.stringify(await buildExport(ids, new Date().toISOString()), null, 2);
+      const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `fftracking-settings-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast("Settings exported");
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  async function copyExport() {
+    const ids = [...exportSel];
+    if (!ids.length) return toast("Pick at least one section to export", true);
+    try {
+      const text = JSON.stringify(await buildExport(ids, new Date().toISOString()), null, 2);
+      await navigator.clipboard.writeText(text);
+      toast("Settings JSON copied to clipboard");
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  function loadBundleText(text: string) {
+    try {
+      const bundle = parseBundle(text);
+      const available = sectionsInBundle(bundle);
+      if (!available.length) return toast("No known settings in that file", true);
+      setImported({ bundle, available });
+      setImportSel(new Set(available));
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  async function doImport() {
+    if (!imported) return;
+    const ids = [...importSel];
+    if (!ids.length) return toast("Pick at least one section to import", true);
+    try {
+      await applyImport(imported.bundle, ids);
+      toast("Settings imported — reloading…");
+      setTimeout(() => window.location.reload(), 700);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
 
   useEffect(() => {
     if (!scrollTo) return;
@@ -479,6 +554,76 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
           <button className="tbtn" onClick={onOpenShortcuts}>
             Open keyboard shortcuts…
           </button>
+        </div>
+
+        <div className="section-title" id="set-backup">Backup &amp; transfer</div>
+
+        <div className="field">
+          <label>
+            Export settings
+            <span className="hint">Pick what to include, then download a JSON file (or copy it). Per-folder tracking history is not included.</span>
+          </label>
+          <div className="xfer-list">
+            {TRANSFER_SECTIONS.map((sec) => (
+              <label key={sec.id} className="xfer-row" title={sec.hint}>
+                <input type="checkbox" checked={exportSel.has(sec.id)} onChange={() => toggle(sec.id, setExportSel)} />
+                <span className="xfer-label">{sec.label}</span>
+                <span className="hint xfer-hint">{sec.hint}</span>
+              </label>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button className="tbtn primary" onClick={doExport}>
+              Export selected…
+            </button>
+            <button className="tbtn" onClick={copyExport}>
+              Copy JSON
+            </button>
+          </div>
+        </div>
+
+        <div className="field">
+          <label>
+            Import settings
+            <span className="hint">Load a settings file, choose which sections to apply, then import. The app reloads to apply them.</span>
+          </label>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.currentTarget.value = "";
+              if (f) f.text().then(loadBundleText).catch((err) => toast(String(err), true));
+            }}
+          />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="tbtn" onClick={() => fileRef.current?.click()}>
+              Choose file…
+            </button>
+          </div>
+          {imported && (
+            <>
+              <div className="xfer-list" style={{ marginTop: 8 }}>
+                {TRANSFER_SECTIONS.filter((sec) => imported.available.includes(sec.id)).map((sec) => (
+                  <label key={sec.id} className="xfer-row" title={sec.hint}>
+                    <input type="checkbox" checked={importSel.has(sec.id)} onChange={() => toggle(sec.id, setImportSel)} />
+                    <span className="xfer-label">{sec.label}</span>
+                    <span className="hint xfer-hint">{sec.hint}</span>
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button className="tbtn primary" onClick={doImport}>
+                  Apply import
+                </button>
+                <button className="tbtn" onClick={() => setImported(null)}>
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
