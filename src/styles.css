@@ -2942,6 +2942,142 @@ button.vs-tag:hover {
   font-family: var(--mono);
 }
 
+/* ---------- ref picker (compare branches / commits) ---------- */
+.git-bar .refpick {
+  position: relative;
+}
+.refpick-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 210px;
+  max-width: 300px;
+  height: 28px;
+  padding: 0 8px;
+  font-family: var(--ui);
+  font-size: var(--fs-sm);
+  color: var(--tx-0);
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.refpick-trigger:hover {
+  border-color: var(--line-3);
+}
+.refpick-cur {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.refpick-caret {
+  flex: none;
+  color: var(--tx-2);
+  font-size: 9px;
+}
+.refpick-badge {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  font-size: 11px;
+}
+.refpick-badge.local {
+  color: var(--ac);
+}
+.refpick-badge.origin {
+  color: var(--t-event);
+}
+.refpick-badge.commit {
+  color: var(--mod);
+}
+.refpick-badge.head {
+  color: var(--tx-1);
+}
+.refpick-badge.work {
+  color: var(--add);
+}
+.refpick-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 62;
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  max-height: 60vh;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.refpick-head {
+  padding: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.refpick-head input {
+  width: 100%;
+  font-size: var(--fs-sm);
+}
+.refpick-list {
+  overflow-y: auto;
+  padding: 4px;
+}
+.refpick-empty {
+  padding: 14px;
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--tx-2);
+}
+.refpick-group + .refpick-group {
+  margin-top: 2px;
+  border-top: 1px solid var(--line);
+  padding-top: 2px;
+}
+.refpick-gtitle {
+  padding: 6px 8px 3px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tx-2);
+}
+.refpick-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  color: var(--tx-1);
+}
+.refpick-row:hover {
+  background: var(--bg-2);
+  color: var(--tx-0);
+}
+.refpick-row.on {
+  background: var(--ac-glow);
+  color: var(--tx-0);
+}
+.refpick-label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.refpick-sub {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--tx-2);
+}
+
 /* commit/compare segmented toggle */
 .git-mode {
   display: inline-flex;

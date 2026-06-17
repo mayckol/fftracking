@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
+import RefPicker from "../components/RefPicker";
 import { api, WORKDIR } from "../lib/ipc";
 import { useShortcut } from "../lib/shortcuts";
 import { isConfirmSuppressed } from "../lib/confirmPrefs";
@@ -258,31 +259,6 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
   useShortcut("diff.undo", () => diffApi.current?.undo(), !!file && editable);
   useShortcut("diff.redo", () => diffApi.current?.redo(), !!file && editable);
 
-  const refOptions = (includeWorkdir: boolean) => (
-    <>
-      {includeWorkdir && <option value={WORKDIR}>Working tree</option>}
-      <option value="HEAD">HEAD</option>
-      {refs && refs.branches.length > 0 && (
-        <optgroup label="Branches">
-          {refs.branches.map((b) => (
-            <option key={b} value={b}>
-              {b}
-            </option>
-          ))}
-        </optgroup>
-      )}
-      {refs && refs.commits.length > 0 && (
-        <optgroup label="Commits">
-          {refs.commits.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.id.slice(0, 8)} · {c.summary.slice(0, 40)}
-            </option>
-          ))}
-        </optgroup>
-      )}
-    </>
-  );
-
   const stagedCount = status?.staged.length ?? 0;
 
   const fileRow = (f: GitFileChange, staged: boolean) => (
@@ -333,13 +309,9 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
           )}
           {repo && mode === "compare" && (
             <>
-              <select className="ref" value={from} onChange={(e) => setFrom(e.target.value)}>
-                {refOptions(false)}
-              </select>
+              <RefPicker refs={refs} value={from} onChange={setFrom} includeWorkdir={false} />
               <span className="arrow">→</span>
-              <select className="ref" value={to} onChange={(e) => setTo(e.target.value)}>
-                {refOptions(true)}
-              </select>
+              <RefPicker refs={refs} value={to} onChange={setTo} includeWorkdir />
               <button className="tbtn" onClick={compare}>
                 Compare
               </button>
