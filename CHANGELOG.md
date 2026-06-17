@@ -4,6 +4,24 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.10] — 2026-06-17
+
+### Added
+
+- **Change all occurrences of a word** (⌘⇧A) — the word at the caret (or the current
+  selection) gets a cursor on every occurrence in the file, so a single edit rewrites
+  them all. Rebindable.
+- **Configurable shortcuts for the remaining footer actions**: show/hide the project
+  tree (⌘B) and the Plugins tab (⌘4). All footer actions now appear in the Navigation
+  group of the shortcuts editor, and the footer tooltips show their combo.
+
+### Fixed
+
+- **Change stripes clear after an external checkout/discard.** The open file re-syncs
+  with disk on editor focus and window refocus (a checkout/discard changes the file
+  without moving HEAD, so the HEAD poll alone wouldn't notice). Dirty buffers are
+  skipped, so unsaved edits are never overwritten.
+
 ## [1.0.9] — 2026-06-17
 
 ### Added
