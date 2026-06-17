@@ -15,7 +15,7 @@ use ffcore::sysmon::SelfMonitor;
 use ffcore::Engine;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{Manager, RunEvent, WindowEvent};
+use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 
 pub struct AppState {
@@ -49,6 +49,14 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             let engine = Engine::open(&data_dir)?;
             let manager = Arc::new(MonitorManager::new(engine.clone()));
+
+            // Push a "monitor-changed" event on every filesystem change so the
+            // UI refreshes the tree / open file (covers touch, branch switch,
+            // external edits) without polling the working tree.
+            let change_handle = app.handle().clone();
+            manager.set_change_listener(move |monitor_id| {
+                let _ = change_handle.emit("monitor-changed", monitor_id);
+            });
 
             // Resume watching monitors that were active in a previous session.
             for m in engine.list_monitors()? {

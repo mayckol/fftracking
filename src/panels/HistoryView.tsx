@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
 import { api, WORKDIR } from "../lib/ipc";
 import type { BaseInfo, ChangeSummary, FileChange, HunkInfo, RefList, SnapshotRow } from "../lib/types";
@@ -93,6 +94,9 @@ export default function HistoryView({
   // Full on-disk file list for the project tree (all files, not just changes).
   const [files, setFiles] = useState<string[]>([]);
   const [fileContent, setFileContent] = useState<string | null>("");
+  // The open file vanished from disk (e.g. an external branch switch removed
+  // it). Distinct from binary/unreadable so the placeholder can say so.
+  const [fileMissing, setFileMissing] = useState(false);
   // Which file `fileContent` belongs to — the editor must never mount with a
   // previous file's text (its undo stack would record the swap as an edit).
   const [contentFor, setContentFor] = useState<string | null>(null);
@@ -470,7 +474,12 @@ export default function HistoryView({
     });
   }, [scopedSummaries, historyFilter, snaps]);
 
-  useEffect(() => {
+  // Working-tree file list that drives the project tree. Re-fetched on the
+  // reload counter and whenever HEAD/branch moves — a branch switch or commit,
+  // run in the app's own terminal or an external one, is picked up by the
+  // baseInfo poll below, so added/removed files refresh instead of leaving
+  // stale rows.
+  const loadFiles = useCallback(() => {
     let alive = true;
     api
       .monitorFiles(monitorId)
@@ -479,11 +488,14 @@ export default function HistoryView({
     return () => {
       alive = false;
     };
-  }, [monitorId, reload]);
+  }, [monitorId]);
 
-  // Project mode: plain view of the live working file (null = binary or
-  // unreadable, so we show a placeholder). External packages (absolute path,
-  // outside the monitor) are read straight off disk.
+  useEffect(() => loadFiles(), [loadFiles, reload, baseInfo?.head, baseInfo?.branch]);
+
+  // Project mode: plain view of the live working file. null content is binary/
+  // unreadable (a vanished file is told apart at render time via the live file
+  // list). External packages (absolute path, outside the monitor) are read
+  // straight off disk and reject when gone, which sets fileMissing.
   useEffect(() => {
     if (openKind !== "file" || !file) return;
     let alive = true;
@@ -492,12 +504,14 @@ export default function HistoryView({
       .then((c) => {
         if (alive) {
           setFileContent(c);
+          setFileMissing(false);
           setContentFor(file);
         }
       })
       .catch(() => {
         if (alive) {
           setFileContent(null);
+          setFileMissing(true);
           setContentFor(file);
         }
       });
@@ -592,7 +606,11 @@ export default function HistoryView({
 
   useEffect(() => {
     const onFocus = () => {
-      if (document.visibilityState === "visible") resyncDisk();
+      if (document.visibilityState !== "visible") return;
+      resyncDisk();
+      // Tree may have changed under us (external branch switch added/removed
+      // files); the open-file resync alone leaves stale rows.
+      loadFiles();
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
@@ -600,39 +618,55 @@ export default function HistoryView({
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
     };
-  }, [resyncDisk]);
+  }, [resyncDisk, loadFiles]);
 
-  // Changed-files set for the tree tint, refreshed on the same cadence as the
-  // timeline poll. Git mode: status vs HEAD (paths are repo-relative — map to
-  // monitor-relative). Fallback: drift vs the latest breaking point.
-  useEffect(() => {
-    let alive = true;
-    const refresh = async () => {
-      try {
-        let paths: string[] = [];
-        if (baseInfo?.kind === "git" && baseInfo.repo_root && root) {
-          const st = await api.gitStatus(baseInfo.repo_root);
-          const prefix = baseInfo.repo_root.endsWith("/") ? baseInfo.repo_root : `${baseInfo.repo_root}/`;
-          const sub = root === baseInfo.repo_root ? "" : root.startsWith(prefix) ? `${root.slice(prefix.length)}/` : "";
-          paths = [...st.staged, ...st.unstaged]
-            .map((c) => c.path)
-            .filter((p) => p.startsWith(sub))
-            .map((p) => p.slice(sub.length));
-        } else if (latestSnap != null) {
-          paths = (await api.snapshotWorkingChanges(monitorId, latestSnap)).map((c) => c.path);
-        }
-        if (alive) setTreeChanged(new Set(paths));
-      } catch {
-        if (alive) setTreeChanged(new Set());
+  // Which tree rows are tinted green: changed vs git HEAD (staged + unstaged),
+  // which includes untracked, non-ignored files as additions — so new files
+  // tint too. Paths come back repo-relative; map them to monitor-relative.
+  // Fallback (non-git): drift vs the latest breaking point.
+  const refreshChanged = useCallback(async () => {
+    try {
+      let paths: string[] = [];
+      if (baseInfo?.kind === "git" && baseInfo.repo_root && root) {
+        const st = await api.gitStatus(baseInfo.repo_root);
+        const prefix = baseInfo.repo_root.endsWith("/") ? baseInfo.repo_root : `${baseInfo.repo_root}/`;
+        const sub = root === baseInfo.repo_root ? "" : root.startsWith(prefix) ? `${root.slice(prefix.length)}/` : "";
+        paths = [...st.staged, ...st.unstaged]
+          .map((c) => c.path)
+          .filter((p) => p.startsWith(sub))
+          .map((p) => p.slice(sub.length));
+      } else if (latestSnap != null) {
+        paths = (await api.snapshotWorkingChanges(monitorId, latestSnap)).map((c) => c.path);
       }
-    };
-    refresh();
-    const stop = pollWhileVisible(refresh, 3000);
+      setTreeChanged(new Set(paths));
+    } catch {
+      setTreeChanged(new Set());
+    }
+  }, [baseInfo, root, monitorId, latestSnap]);
+
+  // The backend watcher emits this on every debounced filesystem change for the
+  // monitor (touch, branch switch, external edit). Re-walk the tree, refresh the
+  // green tint (so a new file is marked at once), and re-sync the open file so
+  // the view tracks disk in near real time without polling.
+  useEffect(() => {
+    const un = listen<number>("monitor-changed", (e) => {
+      if (e.payload !== monitorId) return;
+      loadFiles();
+      refreshChanged();
+      resyncDisk();
+    });
     return () => {
-      alive = false;
-      stop();
+      un.then((f) => f());
     };
-  }, [monitorId, root, baseInfo, latestSnap, reload]);
+  }, [monitorId, loadFiles, refreshChanged, resyncDisk]);
+
+  // Tint also polled while visible so a change on a stopped monitor (no watcher
+  // events) still surfaces.
+  useEffect(() => {
+    refreshChanged();
+    const stop = pollWhileVisible(refreshChanged, 3000);
+    return stop;
+  }, [refreshChanged, reload]);
 
   // List the files for the selected mode — the same pair the diff shows, so a
   // row always opens a real diff. "point" matches the timeline badges (what
@@ -1216,6 +1250,12 @@ export default function HistoryView({
                 // Still loading this file — mounting the editor with the
                 // previous file's content would poison its undo stack.
                 <div className="editor-shell" />
+              ) : fileMissing || (fileContent === null && !file.startsWith("/") && !files.includes(file)) ? (
+                <div className="empty">
+                  <div className="glyph">🗑️</div>
+                  <h3>This file no longer exists</h3>
+                  <p>It was deleted or removed by a branch switch.</p>
+                </div>
               ) : fileContent === null ? (
                 <div className="empty">
                   <div className="glyph">⛔</div>

@@ -430,11 +430,21 @@ impl Engine {
     }
 
     /// Reads a file as it currently exists in the monitor's working tree.
+    /// `None` = missing, binary, or otherwise unreadable as text (callers that
+    /// diff/copy treat that as empty; the open-file view tells missing from
+    /// binary via the live file list).
     pub fn working_file(&self, monitor_id: i64, path: &str) -> Result<Option<String>> {
         let root = self.with_db(|db| monitor_root(db, monitor_id))?;
-        Ok(std::fs::read(root.join(path))
-            .ok()
-            .map(|b| String::from_utf8_lossy(&b).into_owned()))
+        let Ok(bytes) = std::fs::read(root.join(path)) else {
+            return Ok(None);
+        };
+        // Null byte = binary; everything else is decoded lossily so non-UTF-8
+        // text encodings still render instead of falling through to the
+        // "can't display" placeholder.
+        if bytes.contains(&0) {
+            return Ok(None);
+        }
+        Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
     }
 
     pub fn set_all_monitor_intervals(&self, secs: i64) -> Result<()> {

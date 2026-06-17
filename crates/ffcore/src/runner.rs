@@ -11,6 +11,10 @@ use crate::{Engine, Result};
 const DEBOUNCE: Duration = Duration::from_millis(750);
 const TICK: Duration = Duration::from_secs(1);
 
+/// Fired (debounced) whenever a watched tree changes on disk, so the UI can
+/// refresh its file list / open file without polling.
+type ChangeCb = Arc<dyn Fn(i64) + Send + Sync>;
+
 struct Handle {
     stop: Arc<AtomicBool>,
     interval_thread: Option<JoinHandle<()>>,
@@ -32,11 +36,18 @@ impl Drop for Handle {
 pub struct MonitorManager {
     engine: Arc<Engine>,
     handles: Mutex<HashMap<i64, Handle>>,
+    change_cb: Mutex<Option<ChangeCb>>,
 }
 
 impl MonitorManager {
     pub fn new(engine: Arc<Engine>) -> Self {
-        Self { engine, handles: Mutex::new(HashMap::new()) }
+        Self { engine, handles: Mutex::new(HashMap::new()), change_cb: Mutex::new(None) }
+    }
+
+    /// Registers a callback fired on every debounced filesystem change for any
+    /// running monitor. Must be set before monitors start to take effect.
+    pub fn set_change_listener<F: Fn(i64) + Send + Sync + 'static>(&self, f: F) {
+        *self.change_cb.lock().expect("manager mutex poisoned") = Some(Arc::new(f));
     }
 
     pub fn start(&self, monitor_id: i64, root: &Path, interval_secs: i64) -> Result<()> {
@@ -47,8 +58,15 @@ impl MonitorManager {
 
         let eng = self.engine.clone();
         let throttle = Arc::new(Mutex::new(EventThrottle::default()));
+        // Snapshots are throttled to one per gap (default 20s), but the UI needs
+        // to learn about added/removed/edited files right away — notify on every
+        // debounced watcher tick instead of waiting for the next snapshot.
+        let change_cb = self.change_cb.lock().expect("manager mutex poisoned").clone();
         let watcher = watcher::spawn(root, DEBOUNCE, move || {
             fire_event(&eng, monitor_id, &throttle);
+            if let Some(cb) = &change_cb {
+                cb(monitor_id);
+            }
         })?;
 
         let stop = Arc::new(AtomicBool::new(false));
