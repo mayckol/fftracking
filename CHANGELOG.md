@@ -4,6 +4,31 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.9] — 2026-06-17
+
+### Added
+
+- **Find all references** (Shift+F12) for Go, powered by gopls. Previously no
+  reference provider was registered, so every symbol reported "No references found".
+- **Last project is restored on launch**, so a multi-project setup reopens where you
+  left off (then reopens that project's last file).
+
+### Changed
+
+- **Background polling pauses while the window is hidden** and refreshes the moment
+  it regains focus — no git/IPC work piles up when the app isn't visible.
+
+### Fixed
+
+- **Terminal no longer clips its last row** under the status bar. The breathing room
+  moved off the FitAddon-measured host (WebKitGTK reports a border-box height that
+  made FitAddon over-count rows) onto a structural slot inset.
+- **Copy works in hover docs, markdown preview and settings hints** under the
+  macOS-style keymap on Linux — a live DOM selection is copied via the clipboard
+  plugin instead of being swallowed by Monaco.
+- **Git change stripes clear after committing.** The gutter baseline now follows
+  HEAD, so committing (even from the integrated terminal) drops the stale markers.
+
 ## [1.0.8] — 2026-06-17
 
 ### Added
