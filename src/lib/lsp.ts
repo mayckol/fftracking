@@ -841,6 +841,23 @@ function registerProviders(monaco: typeof Monaco) {
     },
   });
 
+  monaco.languages.registerReferenceProvider("go", {
+    async provideReferences(model, position, context) {
+      const d = docForModel(model);
+      if (!d) return null;
+      const r = await request(d.conn, "textDocument/references", {
+        textDocument: { uri: d.uri },
+        position: pos(position),
+        context: { includeDeclaration: context.includeDeclaration },
+      });
+      const locs: Json[] = Array.isArray(r) ? r : r ? [r] : [];
+      return locs.map((l) => ({
+        uri: monaco.Uri.parse(l.uri ?? l.targetUri),
+        range: range(l.range ?? l.targetSelectionRange ?? l.targetRange),
+      }));
+    },
+  });
+
   monaco.languages.registerSignatureHelpProvider("go", {
     signatureHelpTriggerCharacters: ["(", ","],
     async provideSignatureHelp(model, position) {

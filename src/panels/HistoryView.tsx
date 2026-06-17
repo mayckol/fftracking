@@ -8,6 +8,7 @@ import { isConfirmSuppressed } from "../lib/confirmPrefs";
 import { getPrefs } from "../lib/uiPrefs";
 import { getErrorPaths, setNavHandler, subscribeDiagnostics } from "../lib/lsp";
 import { recordRecent } from "../lib/fuzzy";
+import { pollWhileVisible } from "../lib/poll";
 import ConfirmModal from "../components/ConfirmModal";
 import ChangedTree from "./ChangedTree";
 import ProjectTree, { type ProjectTreeHandle } from "./ProjectTree";
@@ -424,10 +425,7 @@ export default function HistoryView({
 
   // New breaking points (event/interval) land in the DB while watching — poll
   // so the timeline reflects them live without re-selecting the folder.
-  useEffect(() => {
-    const t = window.setInterval(() => loadSnaps(), 3000);
-    return () => window.clearInterval(t);
-  }, [loadSnaps]);
+  useEffect(() => pollWhileVisible(() => loadSnaps(), 3000), [loadSnaps]);
 
   // Scoped history: which points touched the filtered path (+ scoped badges).
   // Re-runs only when the point set actually changes, not on every poll.
@@ -497,12 +495,32 @@ export default function HistoryView({
 
   useEffect(() => {
     let alive = true;
-    api
-      .monitorBaseInfo(monitorId)
-      .then((b) => alive && setBaseInfo(b))
-      .catch(() => alive && setBaseInfo(null));
+    // Polled so a commit (HEAD moves) is noticed even without leaving this view:
+    // the gutter baseline diffs against baseInfo.head, so a stale head leaves the
+    // change stripes painted after the change is already committed. Only swap the
+    // object when something actually changed, so dependent effects don't refire
+    // every tick.
+    const refresh = () =>
+      api
+        .monitorBaseInfo(monitorId)
+        .then((b) => {
+          if (!alive) return;
+          setBaseInfo((prev) =>
+            prev &&
+            prev.head === b.head &&
+            prev.branch === b.branch &&
+            prev.kind === b.kind &&
+            prev.repo_root === b.repo_root
+              ? prev
+              : b,
+          );
+        })
+        .catch(() => alive && setBaseInfo(null));
+    refresh();
+    const stop = pollWhileVisible(refresh, 3000);
     return () => {
       alive = false;
+      stop();
     };
   }, [monitorId]);
 
@@ -575,10 +593,10 @@ export default function HistoryView({
       }
     };
     refresh();
-    const t = window.setInterval(refresh, 3000);
+    const stop = pollWhileVisible(refresh, 3000);
     return () => {
       alive = false;
-      window.clearInterval(t);
+      stop();
     };
   }, [monitorId, root, baseInfo, latestSnap, reload]);
 

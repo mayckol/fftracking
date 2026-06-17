@@ -94,6 +94,7 @@ export const ACTIONS: ActionDef[] = [
   // have no global handler, so the key passes through to the focused editor.
   { id: "editor.format", label: "Format document", group: "Editor", default: "Mod+Shift+L" },
   { id: "editor.gotoDef", label: "Go to definition", group: "Editor", default: "F12" },
+  { id: "editor.references", label: "Find all references", group: "Editor", default: "Shift+F12" },
   { id: "editor.save", label: "Save file", group: "Editor", default: "Mod+S" },
   { id: "editor.selectAll", label: "Select all", group: "Editor", default: "Mod+A" },
   { id: "editor.gotoLineEnd", label: "Go to end of line", group: "Editor", default: "Ctrl+E" },
@@ -521,6 +522,20 @@ function handleMacClipboard(combo: string): boolean {
   const op = CLIPBOARD_OPS[combo];
   if (!op) return false;
   const el = document.activeElement as HTMLElement | null;
+  // A live DOM text selection (Monaco hover docs, markdown preview, settings
+  // hints) is plain HTML the webview won't copy under mac-emulation. Grab it via
+  // the plugin before deferring to Monaco — the hover widget lives inside
+  // .monaco-editor, but Monaco only copies its own model selection and would
+  // otherwise swallow the combo. (Normal editor selection leaves the DOM
+  // selection empty, so this never hijacks code copy.)
+  if ((op === "copy" || op === "cut") && !isInputLike(el)) {
+    const dom = window.getSelection?.()?.toString() ?? "";
+    if (dom) {
+      void clipWrite(dom);
+      dbg("mac clipboard (dom selection)", op, `${dom.length} chars`);
+      return true;
+    }
+  }
   if (el?.closest(".monaco-editor") || el?.closest(".xterm")) return false;
   if (op === "selectAll") {
     if (isInputLike(el)) el.select();

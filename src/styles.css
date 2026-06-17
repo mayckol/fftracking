@@ -754,16 +754,20 @@ select:focus {
 }
 .term-slot {
   position: absolute;
-  inset: 0;
+  /* Top/bottom insets are the terminal's breathing room (below the tab bar, above
+     the status bar). They live on the slot, NOT as .term-host vertical padding, on
+     purpose: WebKitGTK reports the border-box height from getComputedStyle, so
+     FitAddon counts host padding as usable rows and over-counts by one — clipping
+     the last row under the footer. Insetting the slot shrinks the measured host
+     itself, so the row count stays exact and the last row is never cut. */
+  inset: 8px 0 8px 0;
 }
 .term-host {
   width: 100%;
   height: 100%;
-  /* top | right | bottom | left — trimmed left so content sits closer to edge.
-     FitAddon sizes rows from this element's content height, so the bottom pad is
-     real breathing room between the last row and the status bar; without it the
-     prompt glues to the footer whenever the panel height lands on a whole row. */
-  padding: 8px 14px 8px 8px;
+  /* Horizontal only — left trimmed so content sits closer to the edge. Vertical
+     breathing is the slot inset above (see why there, not here). */
+  padding: 0 14px 0 8px;
   background: var(--bg-0);
 }
 .term-panel .splitter.y {

@@ -451,6 +451,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     bind("editor.gotoDef", () => editor.getAction("editor.action.revealDefinition")?.run());
 
     const run = (action: string) => editor.getAction(action)?.run();
+    bind("editor.references", () => run("editor.action.referenceSearch.trigger"));
     const dupLine = () => run("editor.action.copyLinesDownAction");
     bind("editor.duplicateLine", dupLine);
     // On a Mac ⌘D duplicates too (the canonical Alt+D binding covers ⌥D); the

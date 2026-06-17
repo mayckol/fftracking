@@ -7,6 +7,7 @@ import { isConfirmSuppressed } from "./lib/confirmPrefs";
 import { getSelectedText } from "./lib/selection";
 import { foldAtCursor, resetZoom, unfoldAtCursor, zoomIn, zoomOut } from "./lib/editorActions";
 import { getScopeDir } from "./lib/searchScope";
+import { pollWhileVisible } from "./lib/poll";
 import { setTerminalOpener } from "./lib/runner";
 import { getRunSnapshot, setRunOpener, subscribeRun } from "./lib/run";
 import { restartLsp } from "./lib/lsp";
@@ -38,6 +39,11 @@ import DebugPanel from "./panels/DebugPanel";
 import RunPanel from "./panels/RunPanel";
 
 type Tab = "files" | "history" | "git" | "plugins" | "settings";
+
+// Last project the user had open, restored on the next launch so a multi-project
+// setup reopens where they left off (HistoryView then restores that project's
+// last file from ff.lastFile.<id>).
+const LAST_PROJECT_KEY = "ff.lastProject";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("files");
@@ -113,8 +119,7 @@ export default function App() {
   useEffect(() => {
     const tick = () => api.resourceUsage().then(setRes).catch(() => {});
     tick();
-    const t = window.setInterval(tick, 2000);
-    return () => window.clearInterval(t);
+    return pollWhileVisible(tick, 2000);
   }, []);
 
   const notify = useCallback((msg: string, error = false) => {
@@ -126,13 +131,22 @@ export default function App() {
   const loadMonitors = useCallback(async () => {
     const rows = await api.listMonitors();
     setMonitors(rows);
-    setSelected((cur) => cur ?? rows[0]?.id ?? null);
+    setSelected((cur) => {
+      if (cur != null) return cur;
+      const saved = Number(localStorage.getItem(LAST_PROJECT_KEY));
+      if (saved && rows.some((r) => r.id === saved)) return saved;
+      return rows[0]?.id ?? null;
+    });
   }, []);
+
+  // Remember the active project across restarts.
+  useEffect(() => {
+    if (selected != null) localStorage.setItem(LAST_PROJECT_KEY, String(selected));
+  }, [selected]);
 
   useEffect(() => {
     loadMonitors();
-    const t = window.setInterval(loadMonitors, 4000); // reflect daemon-added folders
-    return () => window.clearInterval(t);
+    return pollWhileVisible(loadMonitors, 4000); // reflect daemon-added folders
   }, [loadMonitors]);
 
   async function addFolder() {

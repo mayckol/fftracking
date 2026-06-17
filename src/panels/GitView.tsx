@@ -10,6 +10,7 @@ import { basename, langOf } from "../lib/util";
 import ChangedTree from "./ChangedTree";
 import ConflictResolver from "./ConflictResolver";
 import { usePlugins } from "../lib/plugins/registry";
+import { pollWhileVisible } from "../lib/poll";
 
 type GitMode = "commit" | "compare";
 
@@ -93,8 +94,7 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
   // Keep the working-tree status fresh while staging.
   useEffect(() => {
     if (!repo || mode !== "commit") return;
-    const t = window.setInterval(() => loadStatus(repo), 3000);
-    return () => window.clearInterval(t);
+    return pollWhileVisible(() => loadStatus(repo), 3000);
   }, [repo, mode, loadStatus]);
 
   async function pick() {
