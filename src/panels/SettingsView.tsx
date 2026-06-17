@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { api } from "../lib/ipc";
 import type { Settings } from "../lib/types";
 import {
@@ -11,6 +11,7 @@ import {
 } from "../lib/settingsTransfer";
 import {
   FONT_CHOICES,
+  WEIGHT_CHOICES,
   type GoImportStyle,
   type KeymapStyle,
   type TabOverflow,
@@ -276,6 +277,8 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
 
         <div className="section-title" id="set-interface">Interface</div>
 
+        <div className="subsection-title">Theme &amp; colors</div>
+
         <div className="field">
           <label>
             Theme
@@ -306,6 +309,28 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
 
         <div className="field">
           <label>
+            Window transparency
+            <span className="hint">Let the desktop show through the whole window. 100% is fully opaque.</span>
+          </label>
+          <div className="range-field">
+            <input
+              type="range"
+              className="range"
+              min={50}
+              max={100}
+              step={1}
+              value={prefs.windowOpacity}
+              onChange={(e) => setPref("windowOpacity", +e.target.value)}
+              style={{ "--range-fill": `${((prefs.windowOpacity - 50) / 50) * 100}%` } as CSSProperties}
+            />
+            <span className="range-val">{prefs.windowOpacity}%</span>
+          </div>
+        </div>
+
+        <div className="subsection-title">Fonts</div>
+
+        <div className="field">
+          <label>
             Folder &amp; file font
             <span className="hint">Font family for folder and file names in the project tree.</span>
           </label>
@@ -320,6 +345,24 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
             {FONT_CHOICES.map((f) => (
               <option key={f} value={f} style={{ fontFamily: `${f}, monospace` }}>
                 {f}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="field">
+          <label>
+            Folder &amp; file weight
+            <span className="hint">Thickness of project-tree names. Folders render one step heavier.</span>
+          </label>
+          <select
+            value={prefs.treeFontWeight}
+            onChange={(e) => setPref("treeFontWeight", +e.target.value)}
+            style={{ width: 200, fontFamily: prefs.treeFont, fontWeight: prefs.treeFontWeight }}
+          >
+            {WEIGHT_CHOICES.map((w) => (
+              <option key={w.value} value={w.value}>
+                {w.label}
               </option>
             ))}
           </select>
@@ -361,6 +404,24 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
 
         <div className="field">
           <label>
+            Editor weight
+            <span className="hint">Thickness of code in the file viewer and diff.</span>
+          </label>
+          <select
+            value={prefs.fontWeight}
+            onChange={(e) => setPref("fontWeight", +e.target.value)}
+            style={{ width: 200, fontFamily: `${prefs.fontFamily}, monospace`, fontWeight: prefs.fontWeight }}
+          >
+            {WEIGHT_CHOICES.map((w) => (
+              <option key={w.value} value={w.value}>
+                {w.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="field">
+          <label>
             Editor font size
             <span className="hint">In pixels.</span>
           </label>
@@ -375,6 +436,8 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
           />
         </div>
 
+        <div className="subsection-title">Editor</div>
+
         <div className="field">
           <label>
             Indentation guides
@@ -388,38 +451,6 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
             />
             <span className="changecount">{prefs.indentGuides ? "Showing guides" : "Hidden"}</span>
           </label>
-        </div>
-
-        <div className="field">
-          <label>
-            Auto-hide monitored sidebar
-            <span className="hint">
-              Hide the projects sidebar; reveal it by moving the pointer to the left edge (like the macOS menu bar).
-            </span>
-          </label>
-          <label style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-            <input
-              type="checkbox"
-              checked={prefs.autohideSidebar}
-              onChange={(e) => setPref("autohideSidebar", e.target.checked)}
-            />
-            <span className="changecount">{prefs.autohideSidebar ? "Auto-hide on" : "Always visible"}</span>
-          </label>
-        </div>
-
-        <div className="field">
-          <label>
-            Max open file tabs
-            <span className="hint">Upper bound on editor tabs kept open at once.</span>
-          </label>
-          <input
-            type="number"
-            min={1}
-            max={40}
-            value={prefs.maxTabs}
-            onChange={(e) => setPref("maxTabs", Math.max(1, Math.min(40, +e.target.value || 1)))}
-            style={{ width: 90 }}
-          />
         </div>
 
         <div className="field">
@@ -484,6 +515,40 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
             />
             <span className="changecount">Regroup whole import block on save</span>
           </label>
+        </div>
+
+        <div className="subsection-title">Tabs &amp; sidebar</div>
+
+        <div className="field">
+          <label>
+            Auto-hide monitored sidebar
+            <span className="hint">
+              Hide the projects sidebar; reveal it by moving the pointer to the left edge (like the macOS menu bar).
+            </span>
+          </label>
+          <label style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="checkbox"
+              checked={prefs.autohideSidebar}
+              onChange={(e) => setPref("autohideSidebar", e.target.checked)}
+            />
+            <span className="changecount">{prefs.autohideSidebar ? "Auto-hide on" : "Always visible"}</span>
+          </label>
+        </div>
+
+        <div className="field">
+          <label>
+            Max open file tabs
+            <span className="hint">Upper bound on editor tabs kept open at once.</span>
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={40}
+            value={prefs.maxTabs}
+            onChange={(e) => setPref("maxTabs", Math.max(1, Math.min(40, +e.target.value || 1)))}
+            style={{ width: 90 }}
+          />
         </div>
 
         <div className="field">

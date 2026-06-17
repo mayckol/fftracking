@@ -101,6 +101,13 @@ body,
   height: 100%;
 }
 
+/* Window translucency: the Tauri window is transparent, so dropping the whole
+   webview's opacity lets the desktop show through. 1 = fully opaque (default). */
+html {
+  opacity: var(--win-alpha, 1);
+  transition: opacity 0.18s var(--ease);
+}
+
 body {
   font-family: var(--ui);
   font-size: var(--fs-base);
@@ -217,6 +224,47 @@ select:focus {
   font-weight: 500;
 }
 
+/* Selected project + branch, far left of the titlebar. */
+.project-id {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+}
+.project-name {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--tx-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.project-branch {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--ac);
+  background: var(--ac-glow);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+}
+.project-branch::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 5px;
+  opacity: 0.85;
+}
+.project-none {
+  font-size: var(--fs-sm);
+  color: var(--tx-2);
+}
+
 .spacer {
   flex: 1;
 }
@@ -240,18 +288,16 @@ select:focus {
   gap: 5px;
   font-variant-numeric: tabular-nums;
 }
-.res-meter .rm-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+.res-meter .rm-ic {
+  flex: none;
 }
-.res-meter .rm-dot.cpu {
-  background: var(--t-event);
-  box-shadow: 0 0 6px var(--t-event);
+.res-meter .rm-ic.cpu {
+  color: var(--t-event);
+  filter: drop-shadow(0 0 4px var(--t-event-bg));
 }
-.res-meter .rm-dot.mem {
-  background: var(--ac);
-  box-shadow: 0 0 6px var(--ac);
+.res-meter .rm-ic.mem {
+  color: var(--ac);
+  filter: drop-shadow(0 0 4px var(--ac-glow));
 }
 
 .tbtn {
@@ -634,8 +680,11 @@ select:focus {
 .term-host {
   width: 100%;
   height: 100%;
-  /* top | right | bottom | left — trimmed left so content sits closer to edge */
-  padding: 10px 14px 10px 8px;
+  /* top | right | bottom | left — trimmed left so content sits closer to edge.
+     Bottom kept at 0: xterm fits whole rows and leaves sub-row slack at the
+     foot, so any bottom padding compounds into a visible dead band before the
+     status bar. */
+  padding: 8px 14px 0 8px;
   background: var(--bg-0);
 }
 .term-panel .splitter.y {
@@ -1063,7 +1112,7 @@ button.vs-tag:hover {
 .dname {
   font-family: var(--tree-font, var(--mono));
   font-size: var(--tree-font-size, var(--fs-sm));
-  font-weight: 600;
+  font-weight: var(--tree-font-weight-strong, 600);
   color: var(--tx-1);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1071,6 +1120,7 @@ button.vs-tag:hover {
 .tname {
   font-family: var(--tree-font, var(--mono));
   font-size: var(--tree-font-size, var(--fs-sm));
+  font-weight: var(--tree-font-weight, 400);
   color: var(--tx-0);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2694,6 +2744,74 @@ button.vs-tag:hover {
 .section-title:first-child {
   margin-top: 0;
 }
+/* Lighter heading that groups related fields inside a section. */
+.subsection-title {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--tx-1);
+  margin: var(--s4) 0 calc(-1 * var(--s1));
+  padding-bottom: var(--s1);
+}
+
+/* ---------- range slider (draggable bar) ---------- */
+.range-field {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+.range {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--ac) 0%,
+    var(--ac) var(--range-fill, 100%),
+    var(--line-2) var(--range-fill, 100%),
+    var(--line-2) 100%
+  );
+  outline: none;
+  cursor: pointer;
+}
+.range::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--ac-bright);
+  border: 2px solid var(--bg-0);
+  box-shadow: 0 0 0 1px var(--ac-dim);
+  cursor: grab;
+  transition: box-shadow var(--dur) var(--ease);
+}
+.range::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  box-shadow: 0 0 0 4px var(--ac-glow);
+}
+.range::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--ac-bright);
+  border: 2px solid var(--bg-0);
+  box-shadow: 0 0 0 1px var(--ac-dim);
+  cursor: grab;
+}
+.range:focus-visible {
+  box-shadow: 0 0 0 3px var(--ac-glow);
+}
+.range-val {
+  min-width: 44px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--tx-1);
+}
 
 /* Export / import settings: section checklist */
 .xfer-list {
@@ -2999,11 +3117,14 @@ textarea:focus {
   font-size: var(--fs-sm);
   line-height: 1.55;
   padding: var(--s2);
-  white-space: pre-wrap;
-  word-break: break-word;
+  /* Don't wrap: long signatures stay on one line and scroll horizontally so
+     nothing is silently cropped. Drag the bottom edge to expand. */
+  white-space: pre;
   color: var(--tx-1);
-  max-height: 220px;
+  min-height: 40px;
+  max-height: 260px;
   overflow: auto;
+  resize: vertical;
 }
 .resolved-editor {
   margin-top: 6px;
@@ -3015,12 +3136,123 @@ textarea:focus {
   color: var(--tx-0);
 }
 .hunk-acts {
+  position: relative;
   display: flex;
   gap: var(--s1);
   padding: var(--s2);
   background: var(--bg-1);
   border-top: 1px solid var(--line);
 }
+
+/* Hover preview: what the resolved text gets for this choice. */
+.choice-preview {
+  position: absolute;
+  left: var(--s2);
+  right: var(--s2);
+  bottom: calc(100% + 6px);
+  z-index: 40;
+  max-height: 280px;
+  overflow: auto;
+  background: var(--bg-2);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-md);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  animation: cp-in 120ms var(--ease);
+}
+@keyframes cp-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.choice-preview::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  top: 100%;
+  border: 6px solid transparent;
+  border-top-color: var(--line-3);
+}
+.choice-preview .cp-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 5px var(--s2);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--bg-3);
+  border-bottom: 1px solid var(--line);
+}
+.choice-preview.ours .cp-head { color: var(--ac); }
+.choice-preview.theirs .cp-head { color: var(--t-event); }
+.choice-preview.both .cp-head { color: var(--add); }
+.choice-preview .cp-arrow {
+  color: var(--tx-2);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.choice-preview .cp-apply {
+  margin-left: auto;
+  font-family: var(--ui);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--bg-0);
+  background: currentColor;
+  border-radius: var(--r-sm);
+  padding: 2px 8px;
+}
+.choice-preview.ours .cp-apply { background: var(--ac); }
+.choice-preview.theirs .cp-apply { background: var(--t-event); }
+.choice-preview.both .cp-apply { background: var(--add); }
+.choice-preview .cp-apply:hover { filter: brightness(1.12); }
+textarea.cp-body {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: var(--s2);
+  border: none;
+  border-radius: 0;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  white-space: pre;
+  color: var(--tx-0);
+  background: var(--bg-1);
+}
+textarea.cp-body:focus {
+  outline: none;
+  box-shadow: none;
+}
+.cp-edited {
+  margin-left: 5px;
+  font-size: 8px;
+  vertical-align: middle;
+  color: var(--mod);
+}
+
+/* Resolved-result line highlights by origin (ours / theirs / both). */
+.merge-line-ours {
+  background: var(--ac-glow);
+  box-shadow: inset 3px 0 0 var(--ac);
+}
+.merge-line-theirs {
+  background: var(--t-event-bg);
+  box-shadow: inset 3px 0 0 var(--t-event);
+}
+.merge-line-both {
+  background: var(--add-bg);
+  box-shadow: inset 3px 0 0 var(--add);
+}
+.merge-gutter-ours { background: var(--ac); }
+.merge-gutter-theirs { background: var(--t-event); }
+.merge-gutter-both { background: var(--add); }
 .ctx-line {
   font-family: var(--mono);
   font-size: var(--fs-sm);

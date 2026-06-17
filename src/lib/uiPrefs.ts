@@ -25,12 +25,16 @@ export interface UIPrefs {
   goImportsOnSave: boolean;
   fontFamily: string;
   fontSize: number;
+  fontWeight: number;
   indentGuides: boolean;
   theme: string;
   iconPack: string;
-  // Font + size for folder/file names in the project tree.
+  // Window translucency 30–100 (% opaque); below 100 lets the desktop show through.
+  windowOpacity: number;
+  // Font + size + weight for folder/file names in the project tree.
   treeFont: string;
   treeFontSize: number;
+  treeFontWeight: number;
   keymapStyle: KeymapStyle;
   // The style active before the last change — drives "revert to previous".
   keymapStylePrev: KeymapStyle;
@@ -48,11 +52,14 @@ const DEFAULTS: UIPrefs = {
   goImportsOnSave: false,
   fontFamily: "JetBrains Mono",
   fontSize: 12.5,
+  fontWeight: 400,
   indentGuides: true,
   theme: "tokyo-night",
   iconPack: "material",
+  windowOpacity: 100,
   treeFont: "JetBrains Mono",
   treeFontSize: 11.5,
+  treeFontWeight: 400,
   keymapStyle: "native",
   keymapStylePrev: "native",
   keymapStyleChosen: false,
@@ -60,8 +67,14 @@ const DEFAULTS: UIPrefs = {
 
 /** Pushes prefs that drive CSS (not Monaco) onto the document root. */
 export function applyUIVars(p: UIPrefs) {
-  document.documentElement.style.setProperty("--tree-font", `${p.treeFont}, ui-monospace, monospace`);
-  document.documentElement.style.setProperty("--tree-font-size", `${p.treeFontSize}px`);
+  const root = document.documentElement.style;
+  root.setProperty("--tree-font", `${p.treeFont}, ui-monospace, monospace`);
+  root.setProperty("--tree-font-size", `${p.treeFontSize}px`);
+  root.setProperty("--tree-font-weight", String(p.treeFontWeight));
+  // Folders read heavier than files for hierarchy (default 400→600 matches the
+  // prior look), capped to the heaviest loaded weight.
+  root.setProperty("--tree-font-weight-strong", String(Math.min(p.treeFontWeight + 200, 700)));
+  root.setProperty("--win-alpha", String(Math.max(0.3, Math.min(1, p.windowOpacity / 100))));
 }
 
 export const FONT_CHOICES = [
@@ -76,12 +89,21 @@ export const FONT_CHOICES = [
   "IBM Plex Mono",
 ];
 
+export const WEIGHT_CHOICES: { value: number; label: string }[] = [
+  { value: 300, label: "Light" },
+  { value: 400, label: "Regular" },
+  { value: 500, label: "Medium" },
+  { value: 600, label: "Semibold" },
+  { value: 700, label: "Bold" },
+];
+
 // Shared Monaco options derived from prefs: font + indentation guides + rulers.
 export function editorPrefOptions(p: UIPrefs) {
   const themeVars = getTheme(p.theme).cssVars;
   return {
     fontFamily: `${p.fontFamily}, monospace`,
     fontSize: p.fontSize,
+    fontWeight: String(p.fontWeight),
     guides: { indentation: p.indentGuides, highlightActiveIndentation: p.indentGuides },
     // Soft column guides at the conventional 80/120 line-length limits.
     rulers: [

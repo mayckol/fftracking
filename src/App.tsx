@@ -88,6 +88,19 @@ export default function App() {
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
   }, []);
+  // Branch of the selected project, shown next to its name in the titlebar.
+  const [branch, setBranch] = useState<string | null>(null);
+  useEffect(() => {
+    if (selected == null) return setBranch(null);
+    let alive = true;
+    api
+      .monitorBaseInfo(selected)
+      .then((b) => alive && setBranch(b.branch))
+      .catch(() => alive && setBranch(null));
+    return () => {
+      alive = false;
+    };
+  }, [selected]);
 
   // Suppress the webview's native right-click menu (the "Reload" popup);
   // our own context menus call preventDefault themselves where needed.
@@ -180,6 +193,7 @@ export default function App() {
   }
 
   const selectedMonitor = monitors.find((m) => m.id === selected) ?? null;
+  const projectName = selectedMonitor?.root_path.replace(/\/+$/, "").split("/").pop() ?? null;
 
   useEffect(installShortcuts, []);
   // Test-runner clicks need the terminal panel visible before they can type.
@@ -290,24 +304,17 @@ export default function App() {
   return (
     <div className="app">
       <header className="titlebar">
-        <div className="brand">
-          <span className="dot" />
-          fftracking
-          {appVersion && <small>v{appVersion}</small>}
+        <div className="project-id" title={selectedMonitor?.root_path ?? undefined}>
+          {projectName ? (
+            <>
+              <span className="project-name">{projectName}</span>
+              {branch && <span className="project-branch">{branch}</span>}
+            </>
+          ) : (
+            <span className="project-none">No project selected</span>
+          )}
         </div>
         <div className="spacer" />
-        {res && (
-          <div className="res-meter" title="fftracking CPU and memory usage">
-            <span>
-              <i className="rm-dot cpu" />
-              {res.cpu_percent.toFixed(res.cpu_percent < 10 ? 1 : 0)}%
-            </span>
-            <span>
-              <i className="rm-dot mem" />
-              {(res.mem_bytes / 1048576).toFixed(0)} MB
-            </span>
-          </div>
-        )}
         <div className="split-btn">
           <button
             className={`tbtn${bottom === "run" ? " on" : ""}`}
@@ -349,6 +356,29 @@ export default function App() {
         >
           {">_ Terminal"}
         </button>
+        {res && (
+          <div className="res-meter" title="fftracking CPU and memory usage">
+            <span title="CPU">
+              <svg className="rm-ic cpu" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round">
+                <rect x="4.75" y="4.75" width="6.5" height="6.5" rx="1.2" />
+                <path d="M6.5 2v2.5M9.5 2v2.5M6.5 11.5V14M9.5 11.5V14M2 6.5h2.5M2 9.5h2.5M11.5 6.5H14M11.5 9.5H14" />
+              </svg>
+              {res.cpu_percent.toFixed(res.cpu_percent < 10 ? 1 : 0)}%
+            </span>
+            <span title="Memory">
+              <svg className="rm-ic mem" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round">
+                <rect x="1.75" y="4.5" width="12.5" height="7" rx="1.2" />
+                <path d="M5 11.5V14M8 11.5V14M11 11.5V14M5 6.75v2.5M8 6.75v2.5M11 6.75v2.5" />
+              </svg>
+              {(res.mem_bytes / 1048576).toFixed(0)} MB
+            </span>
+          </div>
+        )}
+        <div className="brand">
+          <span className="dot" />
+          fftracking
+          {appVersion && <small>v{appVersion}</small>}
+        </div>
       </header>
 
       {(tab === "files" || tab === "history") && (

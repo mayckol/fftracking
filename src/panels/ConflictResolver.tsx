@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Editor, loader } from "@monaco-editor/react";
 import { api, WORKDIR } from "../lib/ipc";
 import { basename, langOf } from "../lib/util";
@@ -47,16 +47,48 @@ function parse(raw: string): Segment[] {
 
 type Choice = "ours" | "theirs" | "both";
 
-function resolve(segs: Segment[], choices: Record<number, Choice>): string {
-  return segs
-    .map((s, i) => {
-      if (s.kind === "ctx") return s.text;
-      const c = choices[i] ?? "ours";
-      if (c === "ours") return s.ours;
-      if (c === "theirs") return s.theirs;
-      return [s.ours, s.theirs].filter(Boolean).join("\n");
-    })
-    .join("\n");
+// 1-based line span in the resolved text that a conflict region produced.
+type ResolvedRange = { start: number; end: number; choice: Choice };
+
+const editKey = (idx: number, c: Choice) => `${idx}:${c}`;
+
+// Text a conflict region contributes for a choice — a user edit of that
+// region/option (from the hover popup) wins over the original git content.
+function pickText(s: Extract<Segment, { kind: "conflict" }>, c: Choice, edits?: Record<string, string>, idx?: number): string {
+  if (edits && idx != null) {
+    const k = editKey(idx, c);
+    if (k in edits) return edits[k];
+  }
+  if (c === "ours") return s.ours;
+  if (c === "theirs") return s.theirs;
+  return [s.ours, s.theirs].filter(Boolean).join("\n");
+}
+
+// Resolved text plus the line ranges each conflict contributed, so the editor
+// can highlight where ours / theirs / both ended up.
+function resolveWithRanges(
+  segs: Segment[],
+  choices: Record<number, Choice>,
+  edits: Record<string, string>,
+): { text: string; ranges: ResolvedRange[] } {
+  const parts: string[] = [];
+  const ranges: ResolvedRange[] = [];
+  let line = 1;
+  segs.forEach((s, i) => {
+    let str: string;
+    let choice: Choice | null = null;
+    if (s.kind === "ctx") {
+      str = s.text;
+    } else {
+      choice = choices[i] ?? "ours";
+      str = pickText(s, choice, edits, i);
+    }
+    const count = str.length === 0 ? 1 : str.split("\n").length;
+    if (choice) ranges.push({ start: line, end: line + count - 1, choice });
+    parts.push(str);
+    line += count;
+  });
+  return { text: parts.join("\n"), ranges };
 }
 
 interface Props {
@@ -72,7 +104,48 @@ export default function ConflictResolver({ repoPath, path, toast, onResolved }: 
   const [segs, setSegs] = useState<Segment[]>([]);
   const [choices, setChoices] = useState<Record<number, Choice>>({});
   const [text, setText] = useState("");
+  const [ranges, setRanges] = useState<ResolvedRange[]>([]);
   const [colored, setColored] = useState<Record<number, { ours: string; theirs: string }>>({});
+  // Floating, editable preview shown while hovering an Accept/Keep button.
+  const [hover, setHover] = useState<{ idx: number; opt: Choice } | null>(null);
+  // Per-region/option overrides typed into the hover popup. Key = `${idx}:${opt}`.
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const closeTimer = useRef<number | undefined>(undefined);
+
+  const openHover = (idx: number, opt: Choice) => {
+    window.clearTimeout(closeTimer.current);
+    setHover({ idx, opt });
+  };
+  const scheduleCloseHover = () => {
+    window.clearTimeout(closeTimer.current);
+    closeTimer.current = window.setTimeout(() => setHover(null), 180);
+  };
+
+  function setEdit(idx: number, opt: Choice, val: string) {
+    const next = { ...edits, [editKey(idx, opt)]: val };
+    setEdits(next);
+    const r = resolveWithRanges(segs, choices, next);
+    setText(r.text);
+    setRanges(r.ranges);
+  }
+
+  const editorRef = useRef<{ createDecorationsCollection: (d: unknown[]) => { set: (d: unknown[]) => void } } | null>(null);
+  const monacoRef = useRef<{ Range: new (a: number, b: number, c: number, d: number) => unknown } | null>(null);
+  const decoRef = useRef<{ set: (d: unknown[]) => void } | null>(null);
+  const rangesRef = useRef<ResolvedRange[]>([]);
+  rangesRef.current = ranges;
+
+  const paintDecorations = (rs: ResolvedRange[]) => {
+    const ed = editorRef.current;
+    const mo = monacoRef.current;
+    if (!ed || !mo) return;
+    const decos = rs.map((r) => ({
+      range: new mo.Range(r.start, 1, r.end, 1),
+      options: { isWholeLine: true, className: `merge-line-${r.choice}`, linesDecorationsClassName: `merge-gutter-${r.choice}` },
+    }));
+    if (decoRef.current) decoRef.current.set(decos);
+    else decoRef.current = ed.createDecorationsCollection(decos);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -84,9 +157,11 @@ export default function ConflictResolver({ repoPath, path, toast, onResolved }: 
       parsed.forEach((s, i) => {
         if (s.kind === "conflict") c[i] = "ours";
       });
+      const r = resolveWithRanges(parsed, c, {});
       setSegs(parsed);
       setChoices(c);
-      setText(resolve(parsed, c));
+      setText(r.text);
+      setRanges(r.ranges);
     })();
     return () => {
       alive = false;
@@ -119,9 +194,21 @@ export default function ConflictResolver({ repoPath, path, toast, onResolved }: 
 
   function choose(idx: number, opt: Choice) {
     const next = { ...choices, [idx]: opt };
+    const r = resolveWithRanges(segs, next, edits);
     setChoices(next);
-    setText(resolve(segs, next));
+    setText(r.text);
+    setRanges(r.ranges);
   }
+
+  // Reapply highlights when a choice/edit rewrites the resolved text. Child
+  // Editor effects (value set) run before this parent effect, so decorations
+  // land on the fresh content. Manual typing in the resolved editor changes
+  // `text` but not `ranges`; we deliberately don't repaint then — Monaco shifts
+  // the existing sticky decorations to follow the edits.
+  useEffect(() => {
+    paintDecorations(ranges);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ranges]);
 
   async function save() {
     try {
@@ -178,10 +265,41 @@ export default function ConflictResolver({ repoPath, path, toast, onResolved }: 
               </div>
               <div className="hunk-acts">
                 {(["ours", "theirs", "both"] as Choice[]).map((opt) => (
-                  <button key={opt} className={`tbtn${c === opt ? " primary" : ""}`} onClick={() => choose(idx, opt)}>
+                  <button
+                    key={opt}
+                    className={`tbtn${c === opt ? " primary" : ""}`}
+                    onClick={() => choose(idx, opt)}
+                    onMouseEnter={() => openHover(idx, opt)}
+                    onMouseLeave={scheduleCloseHover}
+                  >
                     {opt === "ours" ? "Accept ours" : opt === "theirs" ? "Accept theirs" : "Keep both"}
+                    {editKey(idx, opt) in edits && <span className="cp-edited" title="Edited">●</span>}
                   </button>
                 ))}
+                {hover?.idx === idx && (
+                  <div
+                    className={`choice-preview ${hover.opt}`}
+                    onMouseEnter={() => openHover(hover.idx, hover.opt)}
+                    onMouseLeave={scheduleCloseHover}
+                  >
+                    <div className="cp-head">
+                      {hover.opt === "ours" ? "Accept ours" : hover.opt === "theirs" ? "Accept theirs" : "Keep both"}
+                      <span className="cp-arrow">→ result (editable)</span>
+                      {c !== hover.opt && (
+                        <button className="cp-apply" onClick={() => choose(idx, hover.opt)}>
+                          Use this
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      className="cp-body"
+                      spellCheck={false}
+                      value={pickText(s, hover.opt, edits, idx)}
+                      onChange={(e) => setEdit(idx, hover.opt, e.target.value)}
+                      rows={Math.min(14, Math.max(2, pickText(s, hover.opt, edits, idx).split("\n").length))}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -197,6 +315,12 @@ export default function ConflictResolver({ repoPath, path, toast, onResolved }: 
             beforeMount={(m) => {
               defineAllThemes(m);
               initPluginsForMonaco(m);
+            }}
+            onMount={(ed, m) => {
+              editorRef.current = ed as never;
+              monacoRef.current = m as never;
+              decoRef.current = null;
+              paintDecorations(rangesRef.current);
             }}
             onChange={(v) => setText(v ?? "")}
             options={{
