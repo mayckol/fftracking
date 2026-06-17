@@ -4,6 +4,22 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.12] — 2026-06-17
+
+### Fixed
+
+- **Project tree now tracks the filesystem live.** The directory monitor's watcher
+  emits a change event that re-walks the working tree, so an external branch switch,
+  `touch`, or edit (including one run in the integrated terminal) updates the tree
+  without waiting for a manual reload — stale rows for files that no longer exist on
+  the new branch are dropped, and newly added files appear at once.
+- **New untracked, non-ignored files tint green** as soon as they appear, instead of
+  only after the next status poll.
+- **Opening a file that was deleted** (e.g. removed by a branch switch) shows a clear
+  "This file no longer exists" placeholder instead of the misleading "binary or could
+  not be read as text" message. Binary files are now detected by content rather than
+  rendering as garbled text.
+
 ## [1.0.11] — 2026-06-17
 
 ### Added
