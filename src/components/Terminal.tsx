@@ -2,10 +2,12 @@ import { useEffect, useRef } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { listen } from "@tauri-apps/api/event";
+import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import "@xterm/xterm/css/xterm.css";
 import { api } from "../lib/ipc";
 import { setTerminalSink } from "../lib/runner";
 import { getTheme } from "../lib/themes";
+import { terminalClipboardIntent } from "../lib/shortcuts";
 import { getPrefs, subscribePrefs } from "../lib/uiPrefs";
 
 interface Props {
@@ -46,6 +48,31 @@ export default function Terminal({ cwd, active, onExit }: Props) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+
+    // Copy/paste/select-all follow the chosen keymap style (like the editor):
+    // ⌘ on a Mac, Ctrl+Shift elsewhere, and physical Alt under mac-style-on-PC.
+    // WebKitGTK blocks the browser clipboard, so route through the Tauri plugin.
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown") return true;
+      const intent = terminalClipboardIntent(e);
+      if (!intent) return true;
+      e.preventDefault();
+      if (intent === "selectAll") {
+        term.selectAll();
+        return false;
+      }
+      if (intent === "copy") {
+        const sel = term.getSelection();
+        if (sel) void writeText(sel);
+        return false;
+      }
+      void (async () => {
+        const text = await readText().catch(() => "");
+        if (text && idRef.current != null) api.terminalWrite(idRef.current, text);
+      })();
+      return false;
+    });
+
     term.open(host.current!);
     try {
       fit.fit();

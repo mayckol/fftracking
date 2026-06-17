@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/ipc";
 import type { Settings } from "../lib/types";
 import {
@@ -31,6 +31,55 @@ const KEYMAP_PREVIEW = [
   { id: "editor.deleteLine", label: "Delete line" },
   { id: "search.text", label: "Find in files" },
 ];
+
+// Draggable bar with the thumb pinned exactly at the value (so 100% sits flush
+// at the end), unlike a native range input that insets the thumb at the extremes.
+function Slider({ value, min, max, onChange }: { value: number; min: number; max: number; onChange: (v: number) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const pct = ((value - min) / (max - min)) * 100;
+  const setFrom = (clientX: number) => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+    onChange(Math.round(min + ratio * (max - min)));
+  };
+  return (
+    <div
+      ref={ref}
+      className="slider"
+      role="slider"
+      tabIndex={0}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={value}
+      onPointerDown={(e) => {
+        setFrom(e.clientX);
+        const move = (ev: PointerEvent) => setFrom(ev.clientX);
+        const up = () => {
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", up);
+        };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+          e.preventDefault();
+          onChange(Math.max(min, value - 1));
+        } else if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+          e.preventDefault();
+          onChange(Math.min(max, value + 1));
+        }
+      }}
+    >
+      <div className="slider-track">
+        <div className="slider-fill" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="slider-thumb" style={{ left: `${pct}%` }} />
+    </div>
+  );
+}
 
 interface Props {
   toast: (msg: string, error?: boolean) => void;
@@ -313,16 +362,7 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
             <span className="hint">Let the desktop show through the whole window. 100% is fully opaque.</span>
           </label>
           <div className="range-field">
-            <input
-              type="range"
-              className="range"
-              min={50}
-              max={100}
-              step={1}
-              value={prefs.windowOpacity}
-              onChange={(e) => setPref("windowOpacity", +e.target.value)}
-              style={{ "--range-fill": `${((prefs.windowOpacity - 50) / 50) * 100}%` } as CSSProperties}
-            />
+            <Slider min={50} max={100} value={prefs.windowOpacity} onChange={(v) => setPref("windowOpacity", v)} />
             <span className="range-val">{prefs.windowOpacity}%</span>
           </div>
         </div>

@@ -194,6 +194,12 @@ const MAC_EMU_DEFAULTS: Record<string, string> = {
 interface Scheme {
   matchMod: (e: KeyboardEvent) => boolean;
   matchAlt: (e: KeyboardEvent) => boolean;
+  // Modifier chord (letter excluded) for terminal copy/paste/select-all under
+  // this scheme. The terminal owns its own clipboard, so it can't reuse the Mod
+  // token: real ⌘ uses Cmd, mac-on-PC uses physical Alt (where ⌘ lives), and the
+  // pc/native scheme requires Ctrl+Shift so a bare Ctrl+C still reaches the shell
+  // as SIGINT.
+  matchTermClip: (e: KeyboardEvent) => boolean;
   // Detects the literal ⌃ Ctrl token. Only set where physical Ctrl is distinct
   // from Mod (mac-on-PC: Mod is Alt, Ctrl is the physical Ctrl key) so it can be
   // serialized for matching and the rebind / find-by-key UI. In pc/native, Ctrl
@@ -228,6 +234,7 @@ export function resolveScheme(style: KeymapStyle, hostIsMac: boolean): Scheme {
     return {
       matchMod: (e) => e.metaKey || e.ctrlKey,
       matchAlt: (e) => e.altKey,
+      matchTermClip: (e) => e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey,
       mod: "Ctrl",
       alt: "Alt",
       shift: "Shift",
@@ -248,6 +255,7 @@ export function resolveScheme(style: KeymapStyle, hostIsMac: boolean): Scheme {
     return {
       matchMod: (e) => e.metaKey || e.ctrlKey,
       matchAlt: (e) => e.altKey,
+      matchTermClip: (e) => e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey,
       mod: "⌘",
       alt: "⌥",
       shift: "⇧",
@@ -267,6 +275,9 @@ export function resolveScheme(style: KeymapStyle, hostIsMac: boolean): Scheme {
     matchMod: (e) => e.altKey,
     matchAlt: (e) => e.metaKey,
     matchCtrl: (e) => e.ctrlKey,
+    // mac-on-PC: ⌘ rides the physical Alt key, so terminal copy/paste is Alt+C/V
+    // (mirroring ⌘C/⌘V); physical Ctrl stays free for the shell's SIGINT.
+    matchTermClip: (e) => e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey,
     mod: "Alt",
     alt: "Super",
     shift: "Shift",
@@ -397,6 +408,18 @@ export function comboFromEvent(e: KeyboardEvent): string {
   if (e.shiftKey) parts.push("Shift");
   parts.push(keyFromCode(e));
   return parts.join("+");
+}
+
+/** Terminal clipboard intent for a keydown under the active scheme, or null.
+ *  Keyed off physical e.code so it is layout-independent. The terminal owns its
+ *  clipboard (the global handler defers every key to a focused terminal), so it
+ *  resolves copy/paste/select-all itself via this. */
+export function terminalClipboardIntent(e: KeyboardEvent): "copy" | "paste" | "selectAll" | null {
+  if (!scheme.matchTermClip(e)) return null;
+  if (e.code === "KeyC") return "copy";
+  if (e.code === "KeyV") return "paste";
+  if (e.code === "KeyA") return "selectAll";
+  return null;
 }
 
 // Style-independent display names; Mod/Alt/Shift come from the active scheme.
