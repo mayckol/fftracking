@@ -129,8 +129,8 @@ interface Props {
   // Copy helper (writes to clipboard + toasts) for the editor context-menu
   // "Copy path:line" actions.
   onCopyText?: (text: string, what: string) => void;
-  // Editor context-menu "Compare with branch…": host picks a branch and opens
-  // the diff (this file vs the branch's version).
+  // Editor context-menu "Compare with branch or commit…": host picks a ref and
+  // opens the diff (this file vs the ref's version).
   onCompareBranch?: () => void;
 }
 
@@ -425,6 +425,13 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       await groupImports();
       await editor.getAction("editor.action.formatDocument")?.run();
     };
+    // Format the selection when there is one, else the whole file. Import
+    // organizing/grouping is whole-file only, so it's skipped for a selection.
+    const formatSmart = async () => {
+      const sel = editor.getSelection();
+      if (sel && !sel.isEmpty()) await editor.getAction("editor.action.formatSelection")?.run();
+      else await format();
+    };
     const bind = (id: string, fn: () => void) => {
       const combo = comboFor(id);
       const kb = toKeybinding(monaco, combo);
@@ -453,7 +460,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       onDirtyRef.current?.(false);
     };
     bind("editor.save", () => void doSave(false));
-    bind("editor.format", () => format());
+    bind("editor.format", () => formatSmart());
     bind("editor.gotoDef", () => editor.getAction("editor.action.revealDefinition")?.run());
 
     const run = (action: string) => editor.getAction(action)?.run();
@@ -540,7 +547,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       });
       editor.addAction({
         id: "ff.compareWithBranch",
-        label: "Compare with branch…",
+        label: "Compare with branch or commit…",
         contextMenuGroupId: "navigation",
         contextMenuOrder: 5,
         run: () => onCompareBranchRef.current?.(),

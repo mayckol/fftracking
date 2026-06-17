@@ -29,7 +29,7 @@ interface Props {
   onOpen?: (path: string) => void;
   onReveal?: (path: string) => void;
   onShowHistory?: (path: string, isDir: boolean) => void;
-  onCompareBranch?: (path: string) => void;
+  onCompare?: (path: string, kind: "file" | "dir") => void;
   onCopyPath?: (text: string, label: string) => void;
   onIgnoreFile?: (path: string) => void;
   onIgnoreFolder?: (prefix: string) => void;
@@ -53,7 +53,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
   onOpen,
   onReveal,
   onShowHistory,
-  onCompareBranch,
+  onCompare,
   onCopyPath,
   onIgnoreFile,
   onIgnoreFolder,
@@ -227,7 +227,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
               onSelect(node.path);
             }}
             onContextMenu={(e) => {
-              if (!onOpen && !onReveal && !onIgnoreFile && !onCopyPath && !onShowHistory && !onCompareBranch && !onDelete) return;
+              if (!onOpen && !onReveal && !onIgnoreFile && !onCopyPath && !onShowHistory && !onCompare && !onDelete) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "file", path: node.path });
             }}
@@ -256,8 +256,8 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
             {menu.kind === "file" && onShowHistory && (
               <button onClick={() => { onShowHistory(menu.path, false); setMenu(null); }}>Show history for this file</button>
             )}
-            {menu.kind === "file" && onCompareBranch && (
-              <button onClick={() => { onCompareBranch(menu.path); setMenu(null); }}>Compare with branch…</button>
+            {menu.kind === "file" && onCompare && (
+              <button onClick={() => { onCompare(menu.path, "file"); setMenu(null); }}>Compare with branch or commit…</button>
             )}
             {menu.kind === "file" && onReveal && (
               <button onClick={() => { onReveal(menu.path); setMenu(null); }}>Reveal in Finder<CtxShortcut id="file.reveal" /></button>
@@ -298,6 +298,9 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
             )}
             {menu.kind === "dir" && onShowHistory && (
               <button onClick={() => { onShowHistory(menu.path, true); setMenu(null); }}>Show history for this folder</button>
+            )}
+            {menu.kind === "dir" && onCompare && (
+              <button onClick={() => { onCompare(menu.path, "dir"); setMenu(null); }}>Compare with branch or commit…</button>
             )}
             {menu.kind === "dir" && onFindInFolder && (
               <button onClick={() => { onFindInFolder(menu.path); setMenu(null); }}>Find in folder</button>

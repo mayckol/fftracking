@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
-import { api } from "../lib/ipc";
-import type { BaseInfo, ChangeSummary, FileChange, HunkInfo, SnapshotRow } from "../lib/types";
+import { api, WORKDIR } from "../lib/ipc";
+import type { BaseInfo, ChangeSummary, FileChange, HunkInfo, RefList, SnapshotRow } from "../lib/types";
 import { basename, dayLabel, dirname, fmtTime, langOf } from "../lib/util";
 import { useShortcut } from "../lib/shortcuts";
 import { isConfirmSuppressed } from "../lib/confirmPrefs";
@@ -110,23 +110,31 @@ export default function HistoryView({
   const [errFiles, setErrFiles] = useState<Set<string>>(new Set());
   // Pending cross-file go-to-definition jump (relative path + 1-based pos).
   const [pendingGoto, setPendingGoto] = useState<{ path: string; line: number; col: number } | null>(null);
-  // Compare a working file against a branch's version (right-click → Compare with
-  // branch). Own panes, independent of the snapshot diff.
-  const [branchPickFor, setBranchPickFor] = useState<string | null>(null);
-  const [branchRefs, setBranchRefs] = useState<{ local: string[]; remote: string[] }>({ local: [], remote: [] });
-  const [branchQuery, setBranchQuery] = useState("");
-  const [branchDiff, setBranchDiff] = useState<{ path: string; branch: string } | null>(null);
+  // Compare a working file (or folder) against a branch or commit (right-click →
+  // Compare with…). Own panes, independent of the snapshot diff.
+  const [comparePick, setComparePick] = useState<{ path: string; kind: "file" | "dir" } | null>(null);
+  const [compareRefs, setCompareRefs] = useState<RefList | null>(null);
+  const [compareQuery, setCompareQuery] = useState("");
+  // Folder compare, step 2: files under the folder that differ from the ref.
+  const [compareFolder, setCompareFolder] = useState<{ prefix: string; ref: string; label: string; files: string[] } | null>(null);
+  const [branchDiff, setBranchDiff] = useState<{ path: string; ref: string; label: string } | null>(null);
   const [branchLeft, setBranchLeft] = useState("");
   const [branchRight, setBranchRight] = useState("");
   const [branchHunks, setBranchHunks] = useState<HunkInfo[]>([]);
   const branchDiffApi = useRef<DiffHandle>(null);
   const repoRoot = baseInfo?.kind === "git" ? baseInfo.repo_root : null;
   // Monitor-relative path → repo-relative (the monitor may be a subfolder).
-  const toRepoRel = (p: string) => {
-    if (!repoRoot || !root) return p;
+  const monitorSub = () => {
+    if (!repoRoot || !root) return "";
     const prefix = repoRoot.endsWith("/") ? repoRoot : `${repoRoot}/`;
-    const sub = root === repoRoot ? "" : root.startsWith(prefix) ? `${root.slice(prefix.length)}/` : "";
-    return `${sub}${p}`;
+    return root === repoRoot ? "" : root.startsWith(prefix) ? `${root.slice(prefix.length)}/` : "";
+  };
+  const toRepoRel = (p: string) => `${monitorSub()}${p}`;
+  // Repo-relative path → monitor-relative (inverse of toRepoRel), for opening a
+  // file that git reported under the repo root.
+  const toMonitorRel = (p: string) => {
+    const sub = monitorSub();
+    return sub && p.startsWith(sub) ? p.slice(sub.length) : p;
   };
 
   // Back/Forward navigation history (JetBrains-style; mouse buttons 4/5). Refs,
@@ -689,7 +697,7 @@ export default function HistoryView({
     (async () => {
       try {
         const rel = toRepoRel(branchDiff.path);
-        const l = (await api.gitFile(repoRoot, branchDiff.branch, rel)) ?? "";
+        const l = (await api.gitFile(repoRoot, branchDiff.ref, rel)) ?? "";
         const r = branchDiff.path.startsWith("/")
           ? (await api.readTextFile(branchDiff.path)) ?? ""
           : (await api.workingFile(monitorId, branchDiff.path)) ?? "";
@@ -899,26 +907,43 @@ export default function HistoryView({
     }
   }
 
-  async function openBranchCompare(path: string) {
+  async function openCompare(path: string, kind: "file" | "dir") {
     if (!repoRoot) return toast("Not inside a git repository", true);
     try {
       const refs = await api.gitListRefs(repoRoot);
-      const remote = refs.remote_branches ?? [];
-      if (!refs.branches.length && !remote.length) {
-        return toast("No branches in this repository", true);
+      if (!refs.branches.length && !refs.remote_branches?.length && !refs.commits?.length) {
+        return toast("Nothing to compare against in this repository", true);
       }
-      setBranchRefs({ local: refs.branches, remote });
-      setBranchQuery("");
-      setBranchPickFor(path);
+      setCompareRefs(refs);
+      setCompareQuery("");
+      setComparePick({ path, kind });
     } catch (e) {
       toast(String(e), true);
     }
   }
 
-  function chooseBranch(branch: string) {
-    const path = branchPickFor;
-    setBranchPickFor(null);
-    if (path) setBranchDiff({ path, branch });
+  async function chooseRef(ref: string, label: string) {
+    const target = comparePick;
+    setComparePick(null);
+    if (!target || !repoRoot) return;
+    if (target.kind === "file") {
+      setBranchDiff({ path: target.path, ref, label });
+      return;
+    }
+    // Folder: list the files under it that differ from the chosen ref.
+    try {
+      const prefix = `${toRepoRel(target.path).replace(/\/$/, "")}/`;
+      const changed = await api.gitChangedFiles(repoRoot, ref, WORKDIR);
+      const files = changed
+        .map((c) => c.path)
+        .filter((p) => p.startsWith(prefix))
+        .map(toMonitorRel)
+        .sort();
+      if (!files.length) return toast(`No differences under ${target.path} vs ${label}`);
+      setCompareFolder({ prefix: target.path, ref, label, files });
+    } catch (e) {
+      toast(String(e), true);
+    }
   }
 
   // Diff-only bindings: gate to the diff view so they don't steal ⌘Z (undo) and
@@ -1082,7 +1107,7 @@ export default function HistoryView({
                     setShowHistory(true);
                     onModeChange?.(true);
                   }}
-                  onCompareBranch={repoRoot ? openBranchCompare : undefined}
+                  onCompare={repoRoot ? openCompare : undefined}
                   onCopyPath={copyToClipboard}
                   onIgnoreFile={(p) => ignorePath(p, false)}
                   onIgnoreFolder={(p) => ignorePath(p, true)}
@@ -1152,7 +1177,7 @@ export default function HistoryView({
               <button className="tbtn" title="Next change" onClick={() => navDiff("next")}>
                 ↓
               </button>
-              <span className="vs">{branchDiff.branch} → working tree</span>
+              <span className="vs">{branchDiff.label} → working tree</span>
               {branchHunks.length > 0 && (
                 <span className="changecount">
                   {branchHunks.length} change{branchHunks.length === 1 ? "" : "s"}
@@ -1207,7 +1232,7 @@ export default function HistoryView({
                   path={file.startsWith("/") ? file : root && file ? `${root}/${file}` : undefined}
                   root={root ?? undefined}
                   onCopyText={copyToClipboard}
-                  onCompareBranch={repoRoot && !file.startsWith("/") ? () => openBranchCompare(file) : undefined}
+                  onCompareBranch={repoRoot && !file.startsWith("/") ? () => openCompare(file, "file") : undefined}
                   diffBase={!file.startsWith("/") && baseFor === file ? fileBase : undefined}
                   gotoPos={pendingGoto && pendingGoto.path === file ? { line: pendingGoto.line, col: pendingGoto.col } : undefined}
                   onSave={
@@ -1430,53 +1455,73 @@ export default function HistoryView({
         />
       )}
 
-      {branchPickFor && (() => {
-        const q = branchQuery.trim().toLowerCase();
-        const match = (b: string) => b.toLowerCase().includes(q);
-        const local = branchRefs.local.filter(match);
-        const remote = branchRefs.remote.filter(match);
-        const first = local[0] ?? remote[0];
+      {comparePick && compareRefs && (() => {
+        const q = compareQuery.trim().toLowerCase();
+        const local = compareRefs.branches.filter((b) => b.toLowerCase().includes(q));
+        const remote = compareRefs.remote_branches.filter((b) => b.toLowerCase().includes(q));
+        const commits = compareRefs.commits.filter(
+          (c) => c.summary.toLowerCase().includes(q) || c.id.toLowerCase().includes(q),
+        );
+        const firstRef: [string, string] | null = local[0]
+          ? [local[0], local[0]]
+          : remote[0]
+            ? [remote[0], remote[0]]
+            : commits[0]
+              ? [commits[0].id, `${commits[0].id.slice(0, 8)} · ${commits[0].summary}`]
+              : null;
+        const targetLabel = comparePick.kind === "dir" ? `${comparePick.path}/` : basename(comparePick.path);
         return (
-          <div className="modal-overlay" onClick={() => setBranchPickFor(null)}>
+          <div className="modal-overlay" onClick={() => setComparePick(null)}>
             <div className="modal branch-pick" onClick={(e) => e.stopPropagation()}>
-              <h3>Compare with branch</h3>
+              <h3>Compare with branch or commit</h3>
               <p className="hint" style={{ margin: "0 0 8px" }}>
-                {basename(branchPickFor)} ↔ working tree
+                {targetLabel} ↔ working tree
               </p>
               <input
                 className="branch-pick-search"
                 autoFocus
-                value={branchQuery}
-                placeholder="Filter branches…"
+                value={compareQuery}
+                placeholder="Filter branches & commits…"
                 spellCheck={false}
-                onChange={(e) => setBranchQuery(e.target.value)}
+                onChange={(e) => setCompareQuery(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && first) chooseBranch(first);
-                  else if (e.key === "Escape") setBranchPickFor(null);
+                  if (e.key === "Enter" && firstRef) chooseRef(firstRef[0], firstRef[1]);
+                  else if (e.key === "Escape") setComparePick(null);
                 }}
               />
               <div className="branch-pick-list">
-                {local.length === 0 && remote.length === 0 ? (
-                  <div className="palette-note">No matching branches</div>
+                {!local.length && !remote.length && !commits.length ? (
+                  <div className="palette-note">No matching branches or commits</div>
                 ) : (
                   <>
-                    {local.length > 0 && <div className="branch-pick-group">Local</div>}
+                    {local.length > 0 && <div className="branch-pick-group">Local branches</div>}
                     {local.map((b) => (
-                      <button key={"l:" + b} className="branch-pick-item" onClick={() => chooseBranch(b)} title={`Compare against ${b}`}>
+                      <button key={"l:" + b} className="branch-pick-item" onClick={() => chooseRef(b, b)} title={`Compare against ${b}`}>
                         ⎇ {b}
                       </button>
                     ))}
-                    {remote.length > 0 && <div className="branch-pick-group">Remote</div>}
+                    {remote.length > 0 && <div className="branch-pick-group">Origin branches</div>}
                     {remote.map((b) => (
-                      <button key={"r:" + b} className="branch-pick-item" onClick={() => chooseBranch(b)} title={`Compare against ${b}`}>
-                        ⎇ {b}
+                      <button key={"r:" + b} className="branch-pick-item" onClick={() => chooseRef(b, b)} title={`Compare against ${b}`}>
+                        ⇡ {b}
+                      </button>
+                    ))}
+                    {commits.length > 0 && <div className="branch-pick-group">Commits</div>}
+                    {commits.map((c) => (
+                      <button
+                        key={"c:" + c.id}
+                        className="branch-pick-item"
+                        onClick={() => chooseRef(c.id, `${c.id.slice(0, 8)} · ${c.summary}`)}
+                        title={`Compare against ${c.id}`}
+                      >
+                        ● <code>{c.id.slice(0, 8)}</code> {c.summary}
                       </button>
                     ))}
                   </>
                 )}
               </div>
               <div className="modal-actions">
-                <button className="tbtn" onClick={() => setBranchPickFor(null)}>
+                <button className="tbtn" onClick={() => setComparePick(null)}>
                   Cancel
                 </button>
               </div>
@@ -1484,6 +1529,37 @@ export default function HistoryView({
           </div>
         );
       })()}
+
+      {compareFolder && (
+        <div className="modal-overlay" onClick={() => setCompareFolder(null)}>
+          <div className="modal branch-pick" onClick={(e) => e.stopPropagation()}>
+            <h3>Files differing from {compareFolder.label}</h3>
+            <p className="hint" style={{ margin: "0 0 8px" }}>
+              {compareFolder.prefix}/ · {compareFolder.files.length} file{compareFolder.files.length === 1 ? "" : "s"} → working tree
+            </p>
+            <div className="branch-pick-list">
+              {compareFolder.files.map((p) => (
+                <button
+                  key={p}
+                  className="branch-pick-item"
+                  title={p}
+                  onClick={() => {
+                    setBranchDiff({ path: p, ref: compareFolder.ref, label: compareFolder.label });
+                    setCompareFolder(null);
+                  }}
+                >
+                  <FileTypeIcon name={basename(p)} /> {p}
+                </button>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="tbtn" onClick={() => setCompareFolder(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

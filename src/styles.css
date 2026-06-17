@@ -1292,7 +1292,9 @@ button.vs-tag:hover {
   overflow-y: auto;
 }
 .branch-pick-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
   text-align: left;
   padding: 7px 10px;
@@ -1300,6 +1302,15 @@ button.vs-tag:hover {
   font-family: var(--mono);
   font-size: var(--fs-sm);
   color: var(--tx-0);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.branch-pick-item code {
+  color: var(--ac);
+  flex: none;
+}
+.branch-pick-item svg {
+  flex: none;
 }
 .branch-pick-item:hover {
   background: var(--bg-2);

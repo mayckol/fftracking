@@ -894,6 +894,26 @@ function registerProviders(monaco: typeof Monaco) {
       return (edits ?? []).map((e) => ({ range: range(e.range), text: e.newText }));
     },
   });
+
+  // Powers "Format Selection": gofmt the selected lines only. gopls may not
+  // advertise range formatting on every version, so a rejection degrades to a
+  // no-op rather than surfacing an error.
+  monaco.languages.registerDocumentRangeFormattingEditProvider("go", {
+    async provideDocumentRangeFormattingEdits(model, rng) {
+      const d = docForModel(model);
+      if (!d) return [];
+      try {
+        const edits: Json[] = await request(d.conn, "textDocument/rangeFormatting", {
+          textDocument: { uri: d.uri },
+          range: { start: pos({ lineNumber: rng.startLineNumber, column: rng.startColumn }), end: pos({ lineNumber: rng.endLineNumber, column: rng.endColumn }) },
+          options: { tabSize: 4, insertSpaces: false },
+        });
+        return (edits ?? []).map((e) => ({ range: range(e.range), text: e.newText }));
+      } catch {
+        return [];
+      }
+    },
+  });
 }
 
 export interface ImplLocation {
