@@ -239,7 +239,9 @@ export default function App() {
   useShortcut("nav.history", () => setTab("history"));
   useShortcut("nav.git", () => setTab("git"));
   useShortcut("nav.settings", () => setTab("settings"));
+  useShortcut("nav.plugins", () => setTab("plugins"));
   const inWorkspace = tab === "files" || tab === "history";
+  useShortcut("nav.toggleTree", () => setTreeHidden((v) => !v), inWorkspace);
   useShortcut("capture.snapshot", snapshotNow, inWorkspace && selected != null);
   useShortcut("terminal.toggle", () => toggleBottom("terminal"));
   useShortcut("run.toggle", () => toggleBottom("run"));

@@ -103,8 +103,13 @@ const TAB_ORDER = ["files", "git", "plugins", "settings"] as const;
 const TAB_ACTION: Record<string, string> = {
   files: "nav.files",
   git: "nav.git",
+  plugins: "nav.plugins",
   settings: "nav.settings",
 };
+function withCombo(label: string, action: string): string {
+  const combo = formatCombo(comboFor(action));
+  return combo ? `${label} (${combo})` : label;
+}
 function tabTitle(t: string): string {
   const action = TAB_ACTION[t];
   const combo = action ? formatCombo(comboFor(action)) : "";
@@ -133,7 +138,7 @@ export default function StatusBar({ tabs = null, sidebar = null, workspace = nul
             type="button"
             aria-pressed={!sidebar.hidden}
             className={`sb-tab sb-tgl${sidebar.hidden ? "" : " on"}`}
-            title={sidebar.hidden ? "Show project tree" : "Hide project tree"}
+            title={withCombo(sidebar.hidden ? "Show project tree" : "Hide project tree", "nav.toggleTree")}
             onClick={sidebar.onToggle}
           >
             <SidebarIcon />
@@ -163,7 +168,10 @@ export default function StatusBar({ tabs = null, sidebar = null, workspace = nul
             type="button"
             aria-pressed={workspace.historyOn}
             className={`sb-tab sb-tgl${workspace.historyOn ? " on" : ""}`}
-            title={workspace.historyOn ? "Show the project files tree" : "Show history (timeline & changed files)"}
+            title={withCombo(
+              workspace.historyOn ? "Show the project files tree" : "Show history (timeline & changed files)",
+              workspace.historyOn ? "nav.files" : "nav.history",
+            )}
             onClick={workspace.onToggle}
           >
             <HistoryIcon />

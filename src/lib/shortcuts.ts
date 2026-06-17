@@ -95,6 +95,7 @@ export const ACTIONS: ActionDef[] = [
   { id: "editor.format", label: "Format document", group: "Editor", default: "Mod+Shift+L" },
   { id: "editor.gotoDef", label: "Go to definition", group: "Editor", default: "F12" },
   { id: "editor.references", label: "Find all references", group: "Editor", default: "Shift+F12" },
+  { id: "editor.changeAllOccurrences", label: "Change all occurrences of word", group: "Editor", default: "Mod+Shift+A" },
   { id: "editor.save", label: "Save file", group: "Editor", default: "Mod+S" },
   { id: "editor.selectAll", label: "Select all", group: "Editor", default: "Mod+A" },
   { id: "editor.gotoLineEnd", label: "Go to end of line", group: "Editor", default: "Ctrl+E" },
@@ -146,6 +147,8 @@ export const ACTIONS: ActionDef[] = [
   { id: "nav.history", label: "Go to History tab", group: "Navigation", default: "Mod+Shift+1" },
   { id: "nav.git", label: "Go to Git tab", group: "Navigation", default: "Mod+2" },
   { id: "nav.settings", label: "Go to Settings tab", group: "Navigation", default: "Mod+3" },
+  { id: "nav.plugins", label: "Go to Plugins tab", group: "Navigation", default: "Mod+4" },
+  { id: "nav.toggleTree", label: "Show / hide project tree", group: "Navigation", default: "Mod+B" },
   // Back/forward avoid Mod+Alt+Arrow: that lands on physical Ctrl+Alt+Arrow,
   // which GNOME/KDE/XFCE reserve for workspace switching so it never reaches the
   // app. Minus/Equal (back/forward) are free and layout-stable.

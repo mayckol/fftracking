@@ -111,6 +111,9 @@ interface Props {
   // Reports whether the editor content differs from what's on disk, so the host
   // can show an unsaved-changes dot in the tab.
   onDirtyChange?: (dirty: boolean) => void;
+  // Editor gained focus — the host re-syncs the file with disk (an external
+  // checkout/discard may have changed it underneath while we were elsewhere).
+  onEnter?: () => void;
   // Absolute on-disk path + workspace root: enable the Go language server.
   path?: string;
   root?: string;
@@ -157,7 +160,7 @@ function MdIcon({ kind }: { kind: "raw" | "both" | "read" }) {
 }
 
 const FileView = forwardRef<FileHandle, Props>(function FileView(
-  { content, language, onSave, onDirtyChange, path, root, gotoPos, onCursorClick, diffBase, onCopyText, onCompareBranch },
+  { content, language, onSave, onDirtyChange, onEnter, path, root, gotoPos, onCursorClick, diffBase, onCopyText, onCompareBranch },
   ref,
 ) {
   const prefs = useUIPrefs();
@@ -208,6 +211,8 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   onSaveRef.current = onSave;
   const onDirtyRef = useRef(onDirtyChange);
   onDirtyRef.current = onDirtyChange;
+  const onEnterRef = useRef(onEnter);
+  onEnterRef.current = onEnter;
   const onCopyTextRef = useRef(onCopyText);
   onCopyTextRef.current = onCopyText;
   const onCompareBranchRef = useRef(onCompareBranch);
@@ -399,6 +404,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
         monaco.editor.onDidChangeMarkers((uris) => {
           if (uris.some((u) => u.toString() === model.uri.toString())) recount();
         }),
+        editor.onDidFocusEditorText(() => onEnterRef.current?.()),
       );
       // Models now outlive the editor (kept per path for undo history), so
       // tie listener cleanup to the editor instance instead.
@@ -452,6 +458,9 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
 
     const run = (action: string) => editor.getAction(action)?.run();
     bind("editor.references", () => run("editor.action.referenceSearch.trigger"));
+    // Word at the caret (or the current selection) → a cursor on every occurrence
+    // in the file, so typing edits them all at once.
+    bind("editor.changeAllOccurrences", () => run("editor.action.changeAll"));
     const dupLine = () => run("editor.action.copyLinesDownAction");
     bind("editor.duplicateLine", dupLine);
     // On a Mac ⌘D duplicates too (the canonical Alt+D binding covers ⌥D); the

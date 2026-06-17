@@ -65,6 +65,11 @@ export default function HistoryView({
   const [inline, setInline] = useState(false);
   const [hunks, setHunks] = useState<HunkInfo[]>([]);
   const [reload, setReload] = useState(0);
+  // Forces a re-read of the open working file + its gutter baseline, without the
+  // broader semantics of `reload`. Bumped when the editor regains focus / the
+  // window refocuses, so an external checkout or discard (which can change the
+  // file on disk without moving HEAD) is reflected. Guarded to clean buffers only.
+  const [diskSync, setDiskSync] = useState(0);
   const [revertAllId, setRevertAllId] = useState<number | null>(null);
   // The project tree is always visible; history (timeline + changed files) is an
   // optional panel. What the main pane shows follows where the selection came
@@ -491,7 +496,7 @@ export default function HistoryView({
     return () => {
       alive = false;
     };
-  }, [openKind, file, monitorId]);
+  }, [openKind, file, monitorId, diskSync]);
 
   useEffect(() => {
     let alive = true;
@@ -566,7 +571,28 @@ export default function HistoryView({
     return () => {
       alive = false;
     };
-  }, [openKind, file, monitorId, root, baseInfo, latestSnap, reload]);
+  }, [openKind, file, monitorId, root, baseInfo, latestSnap, reload, diskSync]);
+
+  // Re-sync the open working file with disk. Skips dirty buffers so unsaved edits
+  // are never clobbered by a disk re-read. Fires on editor focus and window
+  // refocus, which is when an external checkout/discard would have landed.
+  const resyncDisk = useCallback(() => {
+    if (openKind !== "file" || !file || file.startsWith("/")) return;
+    if (dirtyPaths.has(file)) return;
+    setDiskSync((n) => n + 1);
+  }, [openKind, file, dirtyPaths]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      if (document.visibilityState === "visible") resyncDisk();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [resyncDisk]);
 
   // Changed-files set for the tree tint, refreshed on the same cadence as the
   // timeline poll. Git mode: status vs HEAD (paths are repo-relative — map to
@@ -1200,6 +1226,7 @@ export default function HistoryView({
                         }
                   }
                   onDirtyChange={file && !file.startsWith("/") ? (d) => markDirty(file, d) : undefined}
+                  onEnter={resyncDisk}
                 />
               )}
             </>
