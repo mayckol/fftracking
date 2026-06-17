@@ -4,6 +4,24 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.11] — 2026-06-17
+
+### Added
+
+- **Three-way merge editor** for resolving conflicts, opened in its own standalone
+  window (drag it anywhere, even to another monitor). Ours / Result / Theirs panes
+  with per-hunk accept, `↓` keep-both for differing sides, danger bands for conflicts,
+  and a unified undo/redo that covers both accept decisions and manual edits.
+- **Conflicts in the commit view**: a collapsible **Conflicts** section (alongside
+  collapsible Staged and Changes) lists each conflicted file; the status-bar git icon
+  turns danger with a count badge and opens the conflicts list. Modify/delete conflicts
+  are surfaced too, and a merge started in the integrated terminal shows up within seconds.
+
+### Changed
+
+- Closing the merge window with unresolved conflicts warns before discarding; resolving
+  every conflict shows a success state and closing then applies & stages automatically.
+
 ## [1.0.10] — 2026-06-17
 
 ### Added
@@ -236,7 +254,7 @@ All notable changes to this project are documented here. Format loosely follows
 
 ### Changed
 
-- **The Breaking Points view is now true JetBrains-style Local History.** Selecting
+- **The Breaking Points view now features local history comparison.** Selecting
   a breaking point compares it directly with the **current working tree**: the left
   pane is "🔒 Before · <time>" (the file as captured at that point, read-only) and
   the right pane is "Current" (your live file, editable). The Changed Files list is

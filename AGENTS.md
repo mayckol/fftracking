@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Local file-history & breaking-point tracker (JetBrains *Local History* style, git-independent). Tauri desktop app + CLI + MCP server. macOS · Linux.
+Local file-history & breaking-point tracker (IDE-style history view, git-independent). Tauri desktop app + CLI + MCP server. macOS · Linux.
 
 ## Stack
 

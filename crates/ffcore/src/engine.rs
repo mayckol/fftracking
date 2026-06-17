@@ -152,7 +152,7 @@ impl Engine {
 
     /// Files that differ between a breaking point and the preceding one —
     /// what this point changed. Git is deliberately not consulted: file
-    /// history is pure local history, like JetBrains.
+    /// history is pure local history, independent of version control.
     pub fn breaking_point_changes(&self, monitor_id: i64, snapshot_id: i64) -> Result<Vec<FileChange>> {
         // The first breaking point is the baseline — nothing existed before it,
         // so adding a folder starts clean instead of "every file added".
@@ -214,10 +214,10 @@ impl Engine {
         Ok(map)
     }
 
-    /// Files that differ between a breaking point and the CURRENT working tree
-    /// (JetBrains "Local History" semantics). `added` means present now but not
-    /// at the point (added since), `deleted` present at the point but gone now —
-    /// so reverting a row to the point is the exact inverse of its status.
+    /// Files that differ between a breaking point and the CURRENT working tree.
+    /// `added` means present now but not at the point (added since), `deleted`
+    /// present at the point but gone now — so reverting a row to the point is the
+    /// exact inverse of its status.
     pub fn snapshot_working_changes(&self, monitor_id: i64, snapshot_id: i64) -> Result<Vec<FileChange>> {
         let s = self.get_settings()?;
         let root = self.with_db(|db| monitor_root(db, monitor_id))?;

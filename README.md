@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  Local file-history &amp; breaking-point tracker — JetBrains <em>Local History</em> style, independent of git.<br/>
+  Local file-history &amp; breaking-point tracker — IDE-style history view, independent of git.<br/>
   <b>macOS · Linux</b>
 </p>
 
@@ -32,7 +32,7 @@ Drive it from the desktop app, the **`fft` command line**, or the built-in
   interval; rapid saves coalesce into one point per configurable gap (default 20s).
 - **Content-addressed store** — blake3-deduplicated blobs; one changed file in a
   10k-file tree stores a single new blob.
-- **JetBrains-style diff** — Monaco side-by-side or inline, change-navigation
+- **Diff with inline revert** — Monaco side-by-side or inline, change-navigation
   arrows, and an always-visible **⟲ revert icon** on every changed block.
 - **Revert anything** — per block (gutter ⟲), per file, or per folder; right-click
   the changed-files tree to revert; in-diff editing with Cmd+Z / Cmd+Shift+Z.

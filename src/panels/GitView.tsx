@@ -5,10 +5,11 @@ import { api, WORKDIR } from "../lib/ipc";
 import { useShortcut } from "../lib/shortcuts";
 import { isConfirmSuppressed } from "../lib/confirmPrefs";
 import ConfirmModal from "../components/ConfirmModal";
-import type { GitFileChange, HunkInfo, RefList, WorkingStatus } from "../lib/types";
+import type { GitFileChange, HunkInfo, MergeState, RefList, WorkingStatus } from "../lib/types";
 import { basename, langOf } from "../lib/util";
 import ChangedTree from "./ChangedTree";
-import ConflictResolver from "./ConflictResolver";
+import ConflictsDialog from "./ConflictsDialog";
+import { openMergeWindow } from "../lib/mergeWindow";
 import { usePlugins } from "../lib/plugins/registry";
 import { pollWhileVisible } from "../lib/poll";
 
@@ -21,9 +22,21 @@ interface Props {
   toast: (msg: string, error?: boolean) => void;
   /** Open the file in the editor (Files tab). Path is repo-relative. */
   onOpenFile?: (path: string) => void;
+  /** Set by the status-bar git icon: pop the conflicts list once merge loads. */
+  conflictsIntent?: boolean;
+  onConflictsHandled?: () => void;
+  /** Bumped when a standalone merge window resolves a file: reload merge state. */
+  reloadReq?: number;
 }
 
-export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
+export default function GitView({
+  initialRepo,
+  toast,
+  onOpenFile,
+  conflictsIntent,
+  onConflictsHandled,
+  reloadReq,
+}: Props) {
   usePlugins();
   const [repo, setRepo] = useState<string | null>(initialRepo);
   const [mode, setMode] = useState<GitMode>("commit");
@@ -36,8 +49,9 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
   const [file, setFile] = useState<string | null>(null);
   const [left, setLeft] = useState("");
   const [right, setRight] = useState("");
-  const [conflicts, setConflicts] = useState<string[]>([]);
-  const [conflictFile, setConflictFile] = useState<string | null>(null);
+  const [merge, setMerge] = useState<MergeState | null>(null);
+  const [showConflicts, setShowConflicts] = useState(false);
+  const [collapsed, setCollapsed] = useState({ conflicts: false, staged: false, changes: false });
   const [inline, setInline] = useState(false);
   const [hunks, setHunks] = useState<HunkInfo[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
@@ -78,7 +92,7 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
         const r = await api.gitListRefs(path);
         setRefs(r);
         setRepo(path);
-        setConflicts(await api.gitConflicts(path));
+        setMerge(await api.gitMergeState(path));
         await loadStatus(path);
       } catch (e) {
         toast(String(e), true);
@@ -91,23 +105,39 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
     if (initialRepo) loadRepo(initialRepo);
   }, [initialRepo, loadRepo]);
 
-  // Keep the working-tree status fresh while staging.
+  // Status-bar git icon asked to show the conflicts list: open it once merge
+  // state has loaded (it may still be null right after mount), then clear intent.
+  useEffect(() => {
+    if (!conflictsIntent || !merge) return;
+    if (merge.files.length > 0) setShowConflicts(true);
+    onConflictsHandled?.();
+  }, [conflictsIntent, merge, onConflictsHandled]);
+
+  const reloadMerge = useCallback(async (): Promise<MergeState> => {
+    const ms = await api.gitMergeState(repo!);
+    setMerge(ms);
+    if (repo) loadStatus(repo);
+    return ms;
+  }, [repo, loadStatus]);
+
+  // A standalone merge window resolved a file: re-read merge state so the list drops it.
+  useEffect(() => {
+    if (!reloadReq || !repo) return;
+    reloadMerge();
+  }, [reloadReq, repo, reloadMerge]);
+
+  // Keep the working-tree status AND merge state fresh while staging, so a merge
+  // started in the integrated terminal surfaces its conflicts section here.
   useEffect(() => {
     if (!repo || mode !== "commit") return;
-    return pollWhileVisible(() => loadStatus(repo), 3000);
-  }, [repo, mode, loadStatus]);
-
-  async function pick() {
-    const p = await api.pickFolder();
-    if (p) loadRepo(p);
-  }
+    return pollWhileVisible(() => reloadMerge().catch(() => {}), 3000);
+  }, [repo, mode, reloadMerge]);
 
   async function compare() {
     if (!repo) return;
     try {
       const c = await api.gitChangedFiles(repo, from, to);
       setChanges(c);
-      setConflictFile(null);
       setFile(c[0]?.path ?? null);
     } catch (e) {
       toast(String(e), true);
@@ -167,14 +197,12 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
     if (mode === "commit") openWorkingFile(paths[j]);
     else {
       setFile(paths[j]);
-      setConflictFile(null);
     }
   }
 
   function switchMode(m: GitMode) {
     setMode(m);
     setFile(null);
-    setConflictFile(null);
     if (m === "commit") {
       setFrom("HEAD");
       setTo(WORKDIR);
@@ -183,7 +211,6 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
   }
 
   function openWorkingFile(path: string) {
-    setConflictFile(null);
     if (from !== "HEAD") setFrom("HEAD");
     if (to !== WORKDIR) setTo(WORKDIR);
     setFile(path);
@@ -219,7 +246,7 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
       await loadStatus(repo);
       setRefs(await api.gitListRefs(repo));
       // A commit can finish an in-progress merge → its conflicts are now cleared.
-      setConflicts(await api.gitConflicts(repo));
+      setMerge(await api.gitMergeState(repo));
     } catch (e) {
       toast(String(e), true);
     }
@@ -260,6 +287,41 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
   useShortcut("diff.redo", () => diffApi.current?.redo(), !!file && editable);
 
   const stagedCount = status?.staged.length ?? 0;
+  const conflictCount = merge?.files.length ?? 0;
+  type Section = "conflicts" | "staged" | "changes";
+  const toggle = (k: Section) => setCollapsed((c) => ({ ...c, [k]: !c[k] }));
+
+  // Collapsible root header for a commit-view section (Conflicts / Staged / Changes).
+  const sectionHead = (key: Section, label: string, count: number, action?: { label: string; onClick: () => void }) => (
+    <div className="stage-head" onClick={() => toggle(key)}>
+      <span className="sh-chev">{collapsed[key] ? "▸" : "▾"}</span>
+      <span className={key === "conflicts" ? "sh-conflict" : undefined}>{label}</span>
+      <span className="changecount">{count}</span>
+      {action && count > 0 && (
+        <button
+          className="linklike"
+          onClick={(e) => {
+            e.stopPropagation();
+            action.onClick();
+          }}
+        >
+          {action.label}
+        </button>
+      )}
+    </div>
+  );
+
+  const conflictRow = (c: { path: string }) => (
+    <div
+      key={"c:" + c.path}
+      className="frow conflict-row"
+      onClick={() => merge && repo && openMergeWindow({ repo, path: c.path, ours: merge.ours_label, theirs: merge.theirs_label })}
+      title={`${c.path} — open the 3-way merge`}
+    >
+      <span className="stat conflicted">!</span>
+      <span className="fname">{c.path}</span>
+    </div>
+  );
 
   const fileRow = (f: GitFileChange, staged: boolean) => (
     <div
@@ -299,9 +361,6 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
               </button>
             ))}
           </div>
-          <button className="tbtn primary" onClick={pick}>
-            {repo ? "Change repo" : "Open repo…"}
-          </button>
           {repo && (
             <span className="repo-name" title={repo}>
               {basename(repo)}
@@ -324,52 +383,46 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
           )}
         </div>
 
-        {conflicts.length > 0 && <div className="conflict-banner">⚠ {conflicts.length} conflict(s)</div>}
+        {merge && merge.files.length > 0 && (
+          <div className="conflict-banner" title="In-progress merge">
+            Merging <b>{merge.theirs_label}</b> into <b>{merge.ours_label}</b>
+          </div>
+        )}
 
         {mode === "commit" ? (
           <>
             <div className="col-scroll">
-              {conflicts.map((p) => (
-                <div
-                  key={p}
-                  className={`frow${conflictFile === p ? " on" : ""}`}
-                  onClick={() => {
-                    setConflictFile(p);
-                    setFile(null);
-                  }}
-                >
-                  <span className="stat deleted" style={{ color: "var(--conflict)", background: "var(--conflict-bg)" }}>
-                    !
-                  </span>
-                  <span className="fname">
-                    <b>{p}</b>
-                  </span>
-                </div>
-              ))}
+              {conflictCount > 0 && (
+                <>
+                  {sectionHead("conflicts", "Conflicts", conflictCount, {
+                    label: "Resolve all…",
+                    onClick: () => setShowConflicts(true),
+                  })}
+                  {!collapsed.conflicts && merge!.files.map((c) => conflictRow(c))}
+                </>
+              )}
 
-              <div className="stage-head">
-                <span>Staged</span>
-                <span className="changecount">{stagedCount}</span>
-                {stagedCount > 0 && (
-                  <button className="linklike" onClick={() => unstage(status!.staged.map((s) => s.path))}>
-                    Unstage all
-                  </button>
-                )}
-              </div>
-              {stagedCount === 0 && <div className="stage-empty">Nothing staged</div>}
-              {status?.staged.map((f) => fileRow(f, true))}
+              {sectionHead("staged", "Staged", stagedCount, {
+                label: "Unstage all",
+                onClick: () => unstage(status!.staged.map((s) => s.path)),
+              })}
+              {!collapsed.staged &&
+                (stagedCount === 0 ? (
+                  <div className="stage-empty">Nothing staged</div>
+                ) : (
+                  status?.staged.map((f) => fileRow(f, true))
+                ))}
 
-              <div className="stage-head">
-                <span>Changes</span>
-                <span className="changecount">{status?.unstaged.length ?? 0}</span>
-                {(status?.unstaged.length ?? 0) > 0 && (
-                  <button className="linklike" onClick={() => stage(status!.unstaged.map((s) => s.path))}>
-                    Stage all
-                  </button>
-                )}
-              </div>
-              {(status?.unstaged.length ?? 0) === 0 && <div className="stage-empty">No changes</div>}
-              {status?.unstaged.map((f) => fileRow(f, false))}
+              {sectionHead("changes", "Changes", status?.unstaged.length ?? 0, {
+                label: "Stage all",
+                onClick: () => stage(status!.unstaged.map((s) => s.path)),
+              })}
+              {!collapsed.changes &&
+                ((status?.unstaged.length ?? 0) === 0 ? (
+                  <div className="stage-empty">No changes</div>
+                ) : (
+                  status?.unstaged.map((f) => fileRow(f, false))
+                ))}
             </div>
 
             <div className="commit-box">
@@ -397,30 +450,10 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
               <span className="changecount">{changes.length}</span>
             </div>
             <div className="col-scroll">
-              {conflicts.map((p) => (
-                <div
-                  key={p}
-                  className={`frow${conflictFile === p ? " on" : ""}`}
-                  onClick={() => {
-                    setConflictFile(p);
-                    setFile(null);
-                  }}
-                >
-                  <span className="stat deleted" style={{ color: "var(--conflict)", background: "var(--conflict-bg)" }}>
-                    !
-                  </span>
-                  <span className="fname">
-                    <b>{p}</b>
-                  </span>
-                </div>
-              ))}
               <ChangedTree
                 changes={changes}
                 selected={file}
-                onSelect={(p) => {
-                  setFile(p);
-                  setConflictFile(null);
-                }}
+                onSelect={(p) => setFile(p)}
                 onOpenFile={onOpenFile}
               />
             </div>
@@ -428,18 +461,7 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
         )}
       </div>
 
-      {conflictFile && repo ? (
-        <ConflictResolver
-          repoPath={repo}
-          path={conflictFile}
-          toast={toast}
-          onResolved={async () => {
-            setConflicts(await api.gitConflicts(repo));
-            setConflictFile(null);
-            loadStatus(repo);
-          }}
-        />
-      ) : file ? (
+      {file ? (
         <div className="col main">
           <div className="diff-head">
             <span className="file" title={file}>
@@ -543,6 +565,19 @@ export default function GitView({ initialRepo, toast, onOpenFile }: Props) {
             </p>
           </div>
         </div>
+      )}
+
+      {showConflicts && repo && merge && (
+        <ConflictsDialog
+          repoPath={repo}
+          state={merge}
+          toast={toast}
+          onReload={reloadMerge}
+          onClose={() => setShowConflicts(false)}
+          onMerge={(p) =>
+            openMergeWindow({ repo, path: p, ours: merge.ours_label, theirs: merge.theirs_label })
+          }
+        />
       )}
 
       {menu && (

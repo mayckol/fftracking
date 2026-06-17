@@ -124,9 +124,13 @@ interface Props {
   sidebar?: { hidden: boolean; onToggle: () => void } | null;
   /** Files ⇄ History toggle, shown only on the workspace tab. */
   workspace?: { historyOn: boolean; onToggle: () => void } | null;
+  /** Unresolved merge conflicts: > 0 marks the git icon danger. */
+  conflicts?: number;
+  /** Clicking the git icon while conflicts exist opens the conflicts list. */
+  onShowConflicts?: () => void;
 }
 
-export default function StatusBar({ tabs = null, sidebar = null, workspace = null }: Props) {
+export default function StatusBar({ tabs = null, sidebar = null, workspace = null, conflicts = 0, onShowConflicts }: Props) {
   const st = useEditorStatus();
   const zoomLevel = useZoomLevel();
 
@@ -147,19 +151,26 @@ export default function StatusBar({ tabs = null, sidebar = null, workspace = nul
         {sidebar && tabs && <span className="sb-div" />}
         {tabs && (
           <div className="sb-tabs" role="tablist">
-            {TAB_ORDER.map((t) => (
-              <button
-                key={t}
-                type="button"
-                role="tab"
-                aria-selected={tabs.active === t}
-                className={`sb-tab${tabs.active === t ? " on" : ""}`}
-                title={tabTitle(t)}
-                onClick={() => tabs.onSelect(t)}
-              >
-                {TAB_ICONS[t]}
-              </button>
-            ))}
+            {TAB_ORDER.map((t) => {
+              const danger = t === "git" && conflicts > 0;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  role="tab"
+                  aria-selected={tabs.active === t}
+                  className={`sb-tab${tabs.active === t ? " on" : ""}${danger ? " danger" : ""}`}
+                  title={danger ? `Git — ${conflicts} conflict${conflicts === 1 ? "" : "s"} to resolve` : tabTitle(t)}
+                  onClick={() => {
+                    tabs.onSelect(t);
+                    if (danger) onShowConflicts?.();
+                  }}
+                >
+                  {TAB_ICONS[t]}
+                  {danger && <span className="sb-tab-badge">{conflicts}</span>}
+                </button>
+              );
+            })}
           </div>
         )}
         {workspace && <span className="sb-div" />}

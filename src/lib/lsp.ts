@@ -133,7 +133,7 @@ function notify(c: Conn, method: string, params: Json) {
 
 // Settings handed to gopls via workspace/configuration. completeUnimported
 // makes unimported package members show up in completion (with the import
-// attached as an additionalTextEdit); usePlaceholders gives JetBrains-style
+// attached as an additionalTextEdit); usePlaceholders gives
 // argument placeholders on call completion.
 const GOPLS_SETTINGS: Json = {
   completeUnimported: true,
@@ -654,7 +654,7 @@ function registerProviders(monaco: typeof Monaco) {
       const d = docForModel(model);
       if (!d) return { suggestions: [] };
       const word = model.getWordUntilPosition(position);
-      // Bare-identifier cross-package completion (JetBrains style): gopls only
+      // Bare-identifier cross-package completion: gopls only
       // completes unimported symbols when qualified, so in parallel with the
       // normal request we hit its workspace symbol index and synthesize
       // `pkg.Symbol` items with the import edit attached. Skipped on `.`
@@ -1014,7 +1014,7 @@ export function openLocation(path: string, line: number, col: number): boolean {
   return true;
 }
 
-/** A gutter marker for the implementations relationship (JetBrains-style).
+/** A gutter marker for the implementations relationship.
  *  "impls": interface / interface method that concrete types implement (↓);
  *  "spec": concrete type / method that satisfies an interface (↑). */
 export interface ImplAnnotation {

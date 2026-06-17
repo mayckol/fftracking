@@ -2,8 +2,8 @@ use std::path::Path;
 use std::process::Command;
 
 use ffcore::git::{
-    changed_files, commit, conflicted_paths, file_at_rev, resolve_conflict, stage_paths,
-    unstage_paths, working_status, WORKDIR,
+    accept_side, changed_files, commit, conflict_sides, conflicted_paths, file_at_rev, merge_blocks,
+    merge_state, resolve_conflict, stage_paths, unstage_paths, working_status, WORKDIR,
 };
 use ffcore::query::ChangeStatus;
 
@@ -124,4 +124,67 @@ fn detect_and_resolve_merge_conflict() {
     resolve_conflict(root, "f.txt", "resolved\n").unwrap();
     assert!(conflicted_paths(root).unwrap().is_empty(), "conflict cleared after staging");
     assert_eq!(std::fs::read_to_string(root.join("f.txt")).unwrap(), "resolved\n");
+}
+
+/// Reusable: leaves `root` mid-merge with `f.txt` conflicted. `main` has
+/// "from-main", `feature` has "from-feature", ancestor is "base".
+fn setup_conflict(root: &Path) {
+    git(root, &["init", "-q", "-b", "main"]);
+    write(root, "f.txt", "L1\nbase\nL3\n");
+    git(root, &["add", "."]);
+    git(root, &["commit", "-q", "-m", "base"]);
+
+    git(root, &["checkout", "-q", "-b", "feature"]);
+    write(root, "f.txt", "L1\nfrom-feature\nL3\n");
+    git(root, &["commit", "-q", "-am", "feature change"]);
+
+    git(root, &["checkout", "-q", "main"]);
+    write(root, "f.txt", "L1\nfrom-main\nL3\n");
+    git(root, &["commit", "-q", "-am", "main change"]);
+
+    run_git(root, &["merge", "feature"]);
+}
+
+#[test]
+fn merge_state_reports_branches_and_sides() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup_conflict(root);
+
+    let ms = merge_state(root).unwrap();
+    assert_eq!(ms.ours_label, "main");
+    assert_eq!(ms.theirs_label, "feature");
+    assert_eq!(ms.files.len(), 1);
+    assert_eq!(ms.files[0].path, "f.txt");
+    assert_eq!(ms.files[0].ours, "modified");
+    assert_eq!(ms.files[0].theirs, "modified");
+}
+
+#[test]
+fn conflict_sides_and_blocks() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup_conflict(root);
+
+    let sides = conflict_sides(root, "f.txt").unwrap();
+    assert_eq!(sides.base.as_deref(), Some("L1\nbase\nL3\n"));
+    assert_eq!(sides.ours.as_deref(), Some("L1\nfrom-main\nL3\n"));
+    assert_eq!(sides.theirs.as_deref(), Some("L1\nfrom-feature\nL3\n"));
+
+    let blocks = merge_blocks(root, "f.txt").unwrap();
+    let conflicts: Vec<_> = blocks.iter().filter(|b| b.kind == "conflict").collect();
+    assert_eq!(conflicts.len(), 1, "one conflicting region");
+    assert_eq!(conflicts[0].ours.join("\n"), "from-main");
+    assert_eq!(conflicts[0].theirs.join("\n"), "from-feature");
+}
+
+#[test]
+fn accept_side_takes_whole_side() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup_conflict(root);
+
+    accept_side(root, "f.txt", "theirs").unwrap();
+    assert!(conflicted_paths(root).unwrap().is_empty(), "conflict cleared");
+    assert_eq!(std::fs::read_to_string(root.join("f.txt")).unwrap(), "L1\nfrom-feature\nL3\n");
 }

@@ -137,7 +137,7 @@ export default function HistoryView({
     return sub && p.startsWith(sub) ? p.slice(sub.length) : p;
   };
 
-  // Back/Forward navigation history (JetBrains-style; mouse buttons 4/5). Refs,
+  // Back/Forward navigation history (mouse buttons 4/5). Refs,
   // not state — it drives setFile/setPendingGoto rather than rendering itself.
   const fileViewRef = useRef<FileHandle | null>(null);
   const projectTreeRef = useRef<ProjectTreeHandle | null>(null);
@@ -275,7 +275,7 @@ export default function HistoryView({
   // What the changed-files list and diff compare the selected point against:
   // "point" = the changes this breaking point introduced (vs the git branch or
   // the previous point — the same base the timeline badges use), "current" =
-  // drift between the point and the live working tree (JetBrains Local History).
+  // drift between the point and the live working tree.
   const [vsMode, setVsMode] = useState<"point" | "current">("point");
   // When set, the history view is scoped to one file/folder: the timeline shows
   // only points that changed this path, and the changed-files list is filtered
@@ -551,7 +551,7 @@ export default function HistoryView({
       let base: string | null = null;
       // git mode: a file with no HEAD blob is unversioned (gitignored or
       // untracked). Git has no baseline for it, so show no VCS gutter stripes
-      // (JetBrains-style) instead of diffing the whole file against "" and
+      // instead of diffing the whole file against "" and
       // painting every line as an addition.
       let unversioned = false;
       try {

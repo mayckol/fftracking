@@ -419,7 +419,7 @@ function expressionAt(model: Json, position: Json): string | null {
 let hoverRegistered = false;
 
 /** While paused, hovering an identifier shows its live value (delve evaluate)
- *  alongside the gopls type hover — JetBrains-style. */
+ *  alongside the gopls type hover. */
 export function registerDebugHover(monaco: Json) {
   if (hoverRegistered) return;
   hoverRegistered = true;

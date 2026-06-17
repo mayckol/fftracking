@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { listen } from "@tauri-apps/api/event";
 import { api } from "./lib/ipc";
 import { comboFor, formatCombo, installShortcuts, useShortcut } from "./lib/shortcuts";
 import { useUIPrefs } from "./lib/uiPrefs";
@@ -86,6 +87,13 @@ export default function App() {
   const [sideOpen, setSideOpen] = useState(false);
   // Manual show/hide of the project file tree, toggled from the bottom status bar.
   const [treeHidden, setTreeHidden] = useState(false);
+  // Unresolved merge conflicts in the selected repo: marks the status-bar git icon
+  // danger; `conflictsIntent` asks GitView to pop the conflicts list on next mount.
+  const [mergeConflicts, setMergeConflicts] = useState(0);
+  const [conflictsIntent, setConflictsIntent] = useState(false);
+  // Bumped when a standalone merge window resolves a file, so GitView re-reads
+  // merge state and the conflicts list drops the resolved entry.
+  const [mergeReload, setMergeReload] = useState(0);
   const toastTimer = useRef<number>();
   const prefs = useUIPrefs();
   // Shown in the titlebar — read from tauri.conf.json (the version of record,
@@ -208,6 +216,36 @@ export default function App() {
 
   const selectedMonitor = monitors.find((m) => m.id === selected) ?? null;
   const projectName = selectedMonitor?.root_path.replace(/\/+$/, "").split("/").pop() ?? null;
+
+  const repoPath = selectedMonitor?.root_path ?? null;
+  useEffect(() => {
+    if (!repoPath) {
+      setMergeConflicts(0);
+      return;
+    }
+    const tick = async () => {
+      try {
+        const ms = await api.gitMergeState(repoPath);
+        setMergeConflicts(ms.files.length);
+      } catch {
+        setMergeConflicts(0);
+      }
+    };
+    tick();
+    return pollWhileVisible(tick, 3000);
+  }, [repoPath]);
+
+  // A standalone merge window finished a file: refresh the count immediately and
+  // tell GitView to reload so its conflicts list stays in sync.
+  useEffect(() => {
+    const un = listen("merge-resolved", () => {
+      if (repoPath) api.gitMergeState(repoPath).then((ms) => setMergeConflicts(ms.files.length)).catch(() => {});
+      setMergeReload((n) => n + 1);
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, [repoPath]);
 
   useEffect(installShortcuts, []);
   // Test-runner clicks need the terminal panel visible before they can type.
@@ -460,6 +498,9 @@ export default function App() {
             initialRepo={selectedMonitor?.root_path ?? null}
             toast={notify}
             onOpenFile={(p) => openFromSearch(p)}
+            conflictsIntent={conflictsIntent}
+            onConflictsHandled={() => setConflictsIntent(false)}
+            reloadReq={mergeReload}
           />
         </div>
       )}
@@ -482,6 +523,11 @@ export default function App() {
         tabs={{ active: tab === "history" ? "files" : tab, onSelect: (t) => setTab(t as Tab) }}
         sidebar={inWorkspace ? { hidden: treeHidden, onToggle: () => setTreeHidden((v) => !v) } : null}
         workspace={inWorkspace ? { historyOn: tab === "history", onToggle: () => setTab(tab === "history" ? "files" : "history") } : null}
+        conflicts={mergeConflicts}
+        onShowConflicts={() => {
+          setTab("git");
+          setConflictsIntent(true);
+        }}
       />
 
       {search && selected != null && (

@@ -123,7 +123,7 @@ interface Props {
   onCursorClick?: (line: number, col: number) => void;
   // Baseline text for the VCS-style gutter (git HEAD or the latest breaking
   // point). Lines differing from it get colored change stripes; clicking a
-  // stripe opens a JetBrains-style popup with the old block + rollback/copy.
+  // stripe opens a popup with the old block + rollback/copy.
   // undefined = feature off (still loading, external file).
   diffBase?: string | null;
   // Copy helper (writes to clipboard + toasts) for the editor context-menu
@@ -179,7 +179,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       if (r === root) setLsp(phase);
     });
   }, [language, root]);
-  // Implementation-target picker (several results → JetBrains-style popup).
+  // Implementation-target picker (several results → popup).
   const [implPick, setImplPick] = useState<{ x: number; y: number; locs: ImplLocation[] } | null>(null);
   const jumpToRef = useRef<(loc: ImplLocation) => void>(() => {});
   // Run/debug scope menu (test function / file / package / table case / main).
@@ -242,7 +242,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     recomputeRef.current();
   }, [diffBase]);
 
-  // Implement-interface picker (Ctrl+I, JetBrains-style): search gopls's
+  // Implement-interface picker (Ctrl+I): search gopls's
   // workspace symbols, pick an interface, name the type, insert stubs.
   const [ifaceGen, setIfaceGen] = useState<{
     x: number;
@@ -411,7 +411,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       editor.onDidDispose(() => subs.forEach((s) => s.dispose()));
     }
 
-    // JetBrains-style reformat: gopls fixes missing/unused imports, the
+    // Reformat: gopls fixes missing/unused imports, the
     // grouping pass reorders the block per the chosen style, then gofmt runs
     // over the result.
     const groupImports = async () => {
@@ -625,7 +625,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       addCmd("Mod+F", () => run("actions.find"));
     }
 
-    // JetBrains-style run-test icons on `func TestX` and table-driven
+    // Run-test icons on `func TestX` and table-driven
     // `t.Run("case", …)` lines. Click → scope menu; commands run in the
     // integrated terminal from the workspace root.
     if (language === "go" && path && root && path.endsWith("_test.go")) {
@@ -763,7 +763,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           setTestPick({ x: be.clientX, y: be.clientY, items: menuFor(m) });
         });
 
-        // ^⇧R: run the nearest test context above the cursor, JetBrains-style —
+        // ^⇧R: run the nearest test context above the cursor —
         // a table case when inside one, else the enclosing test function.
         bind("test.run", () => {
           const line = editor.getPosition()?.lineNumber ?? 1;
@@ -781,7 +781,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       }
     }
 
-    // JetBrains-style run/debug icon on `func main()` lines.
+    // Run/debug icon on `func main()` lines.
     if (language === "go" && path && root && !path.endsWith("_test.go")) {
       const mmodel = editor.getModel();
       if (mmodel) {
@@ -877,7 +877,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
 
         registerDebugHover(monaco);
 
-        // JetBrains-style inline values: each local/argument is annotated at
+        // Inline values: each local/argument is annotated at
         // its last mention at-or-above the execution line.
         const fmtVal = (v: string) => {
           const flat = v.replace(/\s+/g, " ").trim();
@@ -943,7 +943,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       if (model) {
         setLsp("starting");
 
-        // JetBrains-style implementation markers: ↓ on interfaces / interface
+        // Implementation markers: ↓ on interfaces / interface
         // methods that have implementations, ↑ on types / methods that satisfy
         // an interface. Click navigates (peek list when there are several).
         let implDecos: string[] = [];
@@ -1138,7 +1138,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       }
     }
 
-    // JetBrains-style VCS gutter: stripes on lines that differ from the
+    // VCS gutter: stripes on lines that differ from the
     // baseline; click → popup with the old block, rollback and navigation.
     monacoApiRef.current = monaco;
     if (model) {

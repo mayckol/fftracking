@@ -1,6 +1,6 @@
 ## Why
 
-Markdown files open as raw source in the Monaco editor with no rendered view. JetBrains IDEs let you read and edit a `.md` in the same pane and toggle between source, split, and rendered preview from a small top-right toolbar — no extra tab. We want that, plus Mermaid diagram rendering, so docs are readable without leaving the editor.
+Markdown files open as raw source in the Monaco editor with no rendered view. Modern IDEs let you read and edit a `.md` in the same pane and toggle between source, split, and rendered preview from a small top-right toolbar — no extra tab. We want that, plus Mermaid diagram rendering, so docs are readable without leaving the editor.
 
 ## What Changes
 

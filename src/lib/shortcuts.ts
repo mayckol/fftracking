@@ -10,8 +10,8 @@ import { type KeymapStyle, getPrefs, subscribePrefs } from "./uiPrefs";
 
 export type ActionGroup = "Editor" | "Diff" | "Capture & revert" | "Changed files" | "Navigation" | "Search" | "Debug";
 
-/** Pseudo-combo for two bare Shift presses in quick succession (JetBrains
- *  "Search Everywhere"). Handled by a dedicated detector, not combo matching. */
+/** Pseudo-combo for two bare Shift presses in quick succession.
+ *  Handled by a dedicated detector, not combo matching. */
 export const DOUBLE_SHIFT = "DoubleShift";
 
 /** True when the *physical machine* is a Mac, independent of the chosen keymap
@@ -159,7 +159,7 @@ export const ACTIONS: ActionDef[] = [
   { id: "terminal.toggle", label: "Toggle terminal", group: "Navigation", default: "Mod+T" },
   { id: "run.toggle", label: "Toggle run panel", group: "Navigation", default: "Mod+Shift+P" },
   { id: "settings.palette", label: "Open settings palette", group: "Navigation", default: "Mod+," },
-  // Debug bindings follow JetBrains defaults (F8/F7/⇧F8/F9).
+  // Debug bindings (F8/F7/⇧F8/F9).
   { id: "debug.toggleBreakpoint", label: "Toggle breakpoint at cursor", group: "Debug", default: "Mod+F8" },
   { id: "debug.stepOver", label: "Step over", group: "Debug", default: "F8" },
   { id: "debug.stepInto", label: "Step into", group: "Debug", default: "F7" },

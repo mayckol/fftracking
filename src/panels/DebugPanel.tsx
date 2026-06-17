@@ -1,4 +1,4 @@
-// JetBrains-style debug tool window: step controls in the header, then frames
+// Debug tool window: step controls in the header, then frames
 // (call stack) + variables + watches on the Debugger tab and a REPL-capable
 // log on the Console tab. All session data comes from lib/debug subscriptions.
 

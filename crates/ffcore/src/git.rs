@@ -507,6 +507,176 @@ pub fn resolve_conflict(repo_path: &Path, path: &str, content: &str) -> Result<(
     Ok(())
 }
 
+/// One conflicted file with each side's change relative to the common ancestor.
+#[derive(Debug, Clone, Serialize)]
+pub struct ConflictFile {
+    pub path: String,
+    pub ours: String,
+    pub theirs: String,
+}
+
+/// The in-progress merge: branch labels for each side and the conflicted files,
+/// for the 3-way conflicts dialog.
+#[derive(Debug, Clone, Serialize)]
+pub struct MergeState {
+    pub ours_label: String,
+    pub theirs_label: String,
+    pub files: Vec<ConflictFile>,
+}
+
+/// "modified" / "added" / "deleted" for one side, from whether the ancestor and
+/// that side's blob are present in the conflict.
+fn side_status(has_base: bool, has_side: bool) -> String {
+    match (has_base, has_side) {
+        (true, true) => "modified",
+        (false, true) => "added",
+        (true, false) => "deleted",
+        (false, false) => "absent",
+    }
+    .to_string()
+}
+
+/// Best-effort branch name for `MERGE_HEAD` — the branch being merged in. Falls
+/// back to a short commit id when no local branch points at it.
+fn merge_head_label(repo: &Repository) -> Option<String> {
+    let oid = repo
+        .find_reference("MERGE_HEAD")
+        .ok()
+        .and_then(|r| r.target())
+        .or_else(|| repo.revparse_single("MERGE_HEAD").ok().map(|o| o.id()))?;
+    if let Ok(branches) = repo.branches(Some(git2::BranchType::Local)) {
+        for b in branches.flatten() {
+            if b.0.get().target() == Some(oid) {
+                if let Ok(Some(name)) = b.0.name() {
+                    return Some(name.to_string());
+                }
+            }
+        }
+    }
+    Some(oid.to_string().chars().take(7).collect())
+}
+
+pub fn merge_state(repo_path: &Path) -> Result<MergeState> {
+    let repo = open(repo_path)?;
+    let ours_label = repo
+        .head()
+        .ok()
+        .and_then(|h| h.shorthand().map(str::to_string))
+        .unwrap_or_else(|| "HEAD".to_string());
+    let theirs_label = merge_head_label(&repo).unwrap_or_else(|| "merge".to_string());
+
+    let index = repo.index()?;
+    let mut files = Vec::new();
+    if index.has_conflicts() {
+        for c in index.conflicts()? {
+            let c = c?;
+            let Some(path) = c
+                .our
+                .as_ref()
+                .or(c.their.as_ref())
+                .or(c.ancestor.as_ref())
+                .map(|e| String::from_utf8_lossy(&e.path).into_owned())
+            else {
+                continue;
+            };
+            let has_base = c.ancestor.is_some();
+            files.push(ConflictFile {
+                path,
+                ours: side_status(has_base, c.our.is_some()),
+                theirs: side_status(has_base, c.their.is_some()),
+            });
+        }
+    }
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    files.dedup_by(|a, b| a.path == b.path);
+    Ok(MergeState { ours_label, theirs_label, files })
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ConflictSides {
+    pub base: Option<String>,
+    pub ours: Option<String>,
+    pub theirs: Option<String>,
+}
+
+fn blob_text(repo: &Repository, entry: Option<&git2::IndexEntry>) -> Option<String> {
+    let blob = repo.find_blob(entry?.id).ok()?;
+    Some(String::from_utf8_lossy(blob.content()).into_owned())
+}
+
+/// The three conflicting versions (ancestor/ours/theirs) of `path` from the
+/// index conflict stages. Any side absent (added on one side, deleted on the
+/// other) comes back as `None`.
+pub fn conflict_sides(repo_path: &Path, path: &str) -> Result<ConflictSides> {
+    let repo = open(repo_path)?;
+    conflict_sides_in(&repo, path)
+}
+
+fn conflict_sides_in(repo: &Repository, path: &str) -> Result<ConflictSides> {
+    let index = repo.index()?;
+    let target = path.as_bytes();
+    for c in index.conflicts()? {
+        let c = c?;
+        let hit = [&c.ancestor, &c.our, &c.their]
+            .iter()
+            .any(|e| e.as_ref().is_some_and(|e| e.path == target));
+        if hit {
+            return Ok(ConflictSides {
+                base: blob_text(repo, c.ancestor.as_ref()),
+                ours: blob_text(repo, c.our.as_ref()),
+                theirs: blob_text(repo, c.their.as_ref()),
+            });
+        }
+    }
+    Ok(ConflictSides { base: None, ours: None, theirs: None })
+}
+
+/// Diff3 blocks for a conflicted file, powering the three-pane merge editor.
+pub fn merge_blocks(repo_path: &Path, path: &str) -> Result<Vec<crate::merge::MergeBlock>> {
+    let s = conflict_sides(repo_path, path)?;
+    Ok(crate::merge::diff3(
+        s.base.as_deref().unwrap_or(""),
+        s.ours.as_deref().unwrap_or(""),
+        s.theirs.as_deref().unwrap_or(""),
+    ))
+}
+
+/// Resolves a conflict by taking one whole side. `side` is `"ours"` or
+/// `"theirs"`; when that side deleted the file it is removed from disk. Stages
+/// the result, clearing the conflict.
+pub fn accept_side(repo_path: &Path, path: &str, side: &str) -> Result<()> {
+    let repo = open(repo_path)?;
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| Error::Msg("bare repo has no working tree".into()))?
+        .to_path_buf();
+    let sides = conflict_sides_in(&repo, path)?;
+    let content = match side {
+        "ours" => sides.ours,
+        "theirs" => sides.theirs,
+        _ => return Err(Error::Msg("side must be 'ours' or 'theirs'".into())),
+    };
+    let dest = workdir.join(path);
+    let mut index = repo.index()?;
+    match content {
+        Some(text) => {
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&dest, text)?;
+            index.add_path(Path::new(path))?;
+        }
+        None => {
+            if dest.exists() {
+                std::fs::remove_file(&dest)?;
+            }
+            index.remove_path(Path::new(path))?;
+        }
+    }
+    index.write()?;
+    Ok(())
+}
+
 /// Bytes of `path` at `rev`. For `WORKDIR` reads from disk; returns `None` when
 /// the file does not exist at that revision.
 pub fn file_at_rev(repo_path: &Path, rev: &str, path: &str) -> Result<Option<Vec<u8>>> {

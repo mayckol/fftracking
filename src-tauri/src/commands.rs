@@ -393,6 +393,21 @@ pub fn git_resolve_conflict(repo_path: String, path: String, content: String) ->
 }
 
 #[tauri::command]
+pub fn git_merge_state(repo_path: String) -> R<git::MergeState> {
+    err(git::merge_state(&PathBuf::from(repo_path)))
+}
+
+#[tauri::command]
+pub fn git_merge_blocks(repo_path: String, path: String) -> R<Vec<ffcore::merge::MergeBlock>> {
+    err(git::merge_blocks(&PathBuf::from(repo_path), &path))
+}
+
+#[tauri::command]
+pub fn git_accept_side(repo_path: String, path: String, side: String) -> R<()> {
+    err(git::accept_side(&PathBuf::from(repo_path), &path, &side))
+}
+
+#[tauri::command]
 pub async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
     tauri::async_runtime::spawn_blocking(move || {
         app.dialog().file().blocking_pick_folder().map(|p| p.to_string())

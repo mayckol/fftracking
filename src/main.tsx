@@ -18,7 +18,6 @@ import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/600.css";
 import "@fontsource/jetbrains-mono/700.css";
 
-import App from "./App";
 import "./styles.css";
 import { applyTheme, getTheme } from "./lib/themes";
 import { applyUIVars, getPrefs, subscribePrefs } from "./lib/uiPrefs";
@@ -46,8 +45,18 @@ loader.config({ monaco });
 // mounted editors otherwise keep stale theme data across HMR/theme edits.
 defineAllThemes(monaco);
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+// A `view=merge` window renders only the standalone merge editor. Load App vs
+// MergeWindow lazily so the merge window doesn't pull the whole app's panels —
+// it gets its own small chunk (Monaco stays shared in the entry).
+const isMergeWindow = new URLSearchParams(window.location.search).get("view") === "merge";
+const root = ReactDOM.createRoot(document.getElementById("root")!);
+const dropBoot = () => requestAnimationFrame(() => document.getElementById("ff-boot")?.remove());
+
+(isMergeWindow ? import("./panels/MergeWindow") : import("./App")).then(({ default: Root }) => {
+  root.render(
+    <React.StrictMode>
+      <Root />
+    </React.StrictMode>,
+  );
+  dropBoot();
+});

@@ -1,4 +1,4 @@
-// JetBrains-style "implement interface": parse an interface declaration out of
+// "Implement interface": parse an interface declaration out of
 // its source file and emit a type + method stubs that satisfy it. Textual on
 // purpose — no type checker here. Exported (capitalized) bare identifiers in
 // signatures are package-qualified when the interface lives in another

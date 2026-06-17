@@ -2,7 +2,7 @@
 
 `FileView` (`src/components/FileView.tsx`) wraps a single Monaco `Editor` in an `editor-shell` container with a bottom `statusbar`. It is rendered by `HistoryView.tsx` with `language={langOf(file)}`; `langOf` (`src/lib/util.ts`) already maps `.md` → `markdown`. There is no per-file top toolbar today and no Markdown rendering — `.md` opens as raw source like any other file. The app is a Tauri + React webview bundled by Vite; no Markdown or Mermaid dependency exists yet.
 
-The feature is local to the editor pane: a JetBrains-style mode switch (Raw / Both / Read) within the existing pane — explicitly no new tab per `.md`.
+The feature is local to the editor pane: a mode switch (Raw / Both / Read) within the existing pane — explicitly no new tab per `.md`.
 
 ## Goals / Non-Goals
 

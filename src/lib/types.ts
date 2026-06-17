@@ -82,6 +82,27 @@ export interface WorkingStatus {
   unstaged: GitFileChange[];
 }
 
+export interface ConflictFile {
+  path: string;
+  ours: string;
+  theirs: string;
+}
+
+export interface MergeState {
+  ours_label: string;
+  theirs_label: string;
+  files: ConflictFile[];
+}
+
+export type MergeBlockKind = "unchanged" | "ours" | "theirs" | "both" | "conflict";
+
+export interface MergeBlock {
+  kind: MergeBlockKind;
+  base: string[];
+  ours: string[];
+  theirs: string[];
+}
+
 export interface DetectedWorkspace {
   path: string;
   source: EditorSource;

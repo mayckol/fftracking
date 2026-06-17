@@ -1148,6 +1148,13 @@ button.vs-tag:hover {
   color: var(--del);
   background: var(--del-bg);
 }
+.stat.conflicted {
+  color: var(--conflict);
+  background: var(--conflict-bg);
+}
+.frow.conflict-row .fname {
+  color: var(--conflict);
+}
 .fname {
   font-family: var(--mono);
   font-size: var(--fs-sm);
@@ -2386,6 +2393,37 @@ button.vs-tag:hover {
   color: var(--ac);
   background: var(--ac-glow);
 }
+/* Unresolved merge conflicts — git icon turns danger, with a count badge. */
+.statusbar .sb-tab.danger {
+  position: relative;
+  color: var(--del);
+}
+.statusbar .sb-tab.danger:hover {
+  color: var(--del);
+  background: var(--del-bg);
+}
+.statusbar .sb-tab.danger.on {
+  color: var(--del);
+  background: var(--del-bg);
+}
+.statusbar .sb-tab-badge {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  min-width: 12px;
+  height: 12px;
+  padding: 0 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--bg-0);
+  background: var(--del);
+  border-radius: 7px;
+}
 /* Toggles (project tree, history) — pressed state is subtler than the accent
    used to mark the active view tab, so a shown tree doesn't read as "selected". */
 .statusbar .sb-tgl.on {
@@ -3213,6 +3251,19 @@ button.vs-tag:hover {
   position: sticky;
   top: 0;
   z-index: 1;
+  cursor: pointer;
+  user-select: none;
+}
+.stage-head:hover {
+  color: var(--tx-1);
+}
+.stage-head .sh-chev {
+  width: 10px;
+  font-size: 9px;
+  color: var(--tx-2);
+}
+.stage-head .sh-conflict {
+  color: var(--conflict);
 }
 .stage-head .linklike {
   margin-left: auto;
@@ -3299,195 +3350,378 @@ textarea:focus {
 
 /* ---------- conflict resolver ---------- */
 .conflict-banner {
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
+  /* Block flow, not flex: the label is a single run of text + <b> spans. As a
+     flex container each word/<b> became its own item with an 8px gap, scattering
+     the line. */
+  display: block;
   padding: 8px var(--s3);
   background: var(--conflict-bg);
   border-bottom: 1px solid var(--conflict);
   font-size: var(--fs-sm);
+  line-height: 1.5;
   color: var(--conflict);
   font-weight: 600;
 }
-.hunk {
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-md);
-  margin: var(--s3) 0;
-  overflow: hidden;
+.conflict-banner.cb-btn {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--conflict);
+  text-align: left;
+  cursor: pointer;
 }
-.hunk-side {
-  border-bottom: 1px solid var(--line);
+.conflict-banner.cb-btn:hover {
+  filter: brightness(1.08);
 }
-.hunk-side:last-child {
-  border-bottom: none;
+.conflict-banner b {
+  color: var(--conflict);
 }
-.hunk-side .lbl {
+/* ---------- 3-pane merge editor (JetBrains style) ---------- */
+.merge-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
   display: flex;
   align-items: center;
-  gap: var(--s2);
-  padding: 5px var(--s2);
-  font-family: var(--mono);
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
 }
-.hunk-side.ours .lbl {
-  color: var(--ac);
-  background: var(--ac-glow);
-}
-.hunk-side.theirs .lbl {
-  color: var(--t-event);
-  background: var(--t-event-bg);
-}
-.hunk-side pre {
-  font-family: var(--mono);
-  font-size: var(--fs-sm);
-  line-height: 1.55;
-  padding: var(--s2);
-  /* Don't wrap: long signatures stay on one line and scroll horizontally so
-     nothing is silently cropped. Drag the bottom edge to expand. */
-  white-space: pre;
-  color: var(--tx-1);
-  min-height: 40px;
-  max-height: 260px;
-  overflow: auto;
-  resize: vertical;
-}
-.resolved-editor {
-  margin-top: 6px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
-  overflow: hidden;
-}
-.hunk-side pre .mtk1 {
-  color: var(--tx-0);
-}
-.hunk-acts {
-  position: relative;
+.merge-modal {
   display: flex;
-  gap: var(--s1);
-  padding: var(--s2);
-  background: var(--bg-1);
-  border-top: 1px solid var(--line);
-}
-
-/* Hover preview: what the resolved text gets for this choice. */
-.choice-preview {
-  position: absolute;
-  left: var(--s2);
-  right: var(--s2);
-  bottom: calc(100% + 6px);
-  z-index: 40;
-  max-height: 280px;
-  overflow: auto;
-  background: var(--bg-2);
+  flex-direction: column;
+  width: 97vw;
+  height: 94vh;
+  background: var(--bg-0);
   border: 1px solid var(--line-3);
   border-radius: var(--r-md);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-  animation: cp-in 120ms var(--ease);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  will-change: transform;
 }
-@keyframes cp-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Standalone OS window: the editor fills the frame, no floating chrome. */
+.merge-window {
+  position: fixed;
+  inset: 0;
+  display: flex;
 }
-.choice-preview::after {
-  content: "";
-  position: absolute;
-  left: 18px;
-  top: 100%;
-  border: 6px solid transparent;
-  border-top-color: var(--line-3);
+.merge-modal.windowed {
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  will-change: auto;
 }
-.choice-preview .cp-head {
-  position: sticky;
-  top: 0;
+.merge-modal.windowed .merge-bar {
+  cursor: default;
+}
+.merge-bar {
+  cursor: grab;
+  user-select: none;
+}
+.merge-bar:active {
+  cursor: grabbing;
+}
+.merge-split {
+  flex: none;
+  width: 5px;
+  cursor: col-resize;
+  background: var(--line-2);
+}
+.merge-split:hover {
+  background: var(--ac);
+}
+.tbtn.icon {
+  padding: 2px 7px;
+  font-size: var(--fs-md);
+  line-height: 1;
+}
+.merge-bar {
   display: flex;
   align-items: center;
-  gap: var(--s2);
-  padding: 5px var(--s2);
+  gap: var(--s3);
+  padding: 6px var(--s3);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.merge-apply {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: var(--fs-xs);
+  color: var(--tx-2);
+}
+.merge-file {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--tx-0);
+}
+.merge-status {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.merge-status.ok {
+  color: var(--add);
+  padding: 3px 10px;
+  border-radius: var(--r-sm);
+  background: var(--add-bg);
+  border: 1px solid var(--add);
+}
+.merge-status.bad { color: var(--conflict); }
+
+.merge-panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.merge-pane {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line-2);
+}
+.merge-pane:last-child { border-right: none; }
+.merge-plabel {
+  flex: none;
+  padding: 4px var(--s2);
   font-family: var(--mono);
   font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  background: var(--bg-3);
   border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.choice-preview.ours .cp-head { color: var(--ac); }
-.choice-preview.theirs .cp-head { color: var(--t-event); }
-.choice-preview.both .cp-head { color: var(--add); }
-.choice-preview .cp-arrow {
-  color: var(--tx-2);
-  font-weight: 500;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.choice-preview .cp-apply {
-  margin-left: auto;
-  font-family: var(--ui);
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--bg-0);
-  background: currentColor;
-  border-radius: var(--r-sm);
-  padding: 2px 8px;
-}
-.choice-preview.ours .cp-apply { background: var(--ac); }
-.choice-preview.theirs .cp-apply { background: var(--t-event); }
-.choice-preview.both .cp-apply { background: var(--add); }
-.choice-preview .cp-apply:hover { filter: brightness(1.12); }
-textarea.cp-body {
-  display: block;
-  width: 100%;
-  margin: 0;
-  padding: var(--s2);
-  border: none;
-  border-radius: 0;
-  resize: vertical;
-  font-family: var(--mono);
-  font-size: var(--fs-sm);
-  line-height: 1.55;
-  white-space: pre;
-  color: var(--tx-0);
-  background: var(--bg-1);
-}
-textarea.cp-body:focus {
-  outline: none;
-  box-shadow: none;
-}
-.cp-edited {
-  margin-left: 5px;
-  font-size: 8px;
-  vertical-align: middle;
-  color: var(--mod);
-}
+.merge-plabel.ours { color: var(--ac); background: var(--ac-glow); }
+.merge-plabel.theirs { color: var(--t-event); background: var(--t-event-bg); }
+.merge-plabel.result { color: var(--tx-1); background: var(--bg-2); }
 
-/* Resolved-result line highlights by origin (ours / theirs / both). */
+/* Side-pane change highlights by origin (subtle band + thin edge marker). */
 .merge-line-ours {
   background: var(--ac-glow);
-  box-shadow: inset 3px 0 0 var(--ac);
+  box-shadow: inset 2px 0 0 var(--ac);
 }
 .merge-line-theirs {
   background: var(--t-event-bg);
-  box-shadow: inset 3px 0 0 var(--t-event);
+  box-shadow: inset 2px 0 0 var(--t-event);
 }
-.merge-line-both {
+.merge-line-conflict {
+  background: var(--conflict-bg);
+  box-shadow: inset 2px 0 0 var(--conflict);
+}
+
+/* Ours (left) pane: push its vertical scrollbar to the OUTER (left) edge so it
+   stops colliding with the action chevrons on the inner-right edge. Monaco has
+   no left-scrollbar option, so override the rendered scrollbar element. */
+.merge-pane:first-child .monaco-scrollable-element > .scrollbar.vertical {
+  left: 0 !important;
+  right: auto !important;
+}
+
+/* Overlay action chevrons pinned to a side pane's inner edge. */
+.merge-edhost {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.mact-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  overflow: hidden;
+}
+.mact-row {
+  position: absolute;
+  display: flex;
+  gap: 0;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: rgba(13, 16, 23, 0.94);
+  border: 1px solid rgba(124, 140, 255, 0.1);
+  border-radius: 3px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  transform: translateY(-0.5px);
+}
+.mact-layer.ours .mact-row { right: 0; }
+.mact-layer.theirs .mact-row { left: 0; }
+.mact {
+  pointer-events: auto;
+  cursor: pointer;
+  width: 15px;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  border: none;
+  background: transparent;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.mact:not(:last-child) { border-right: 1px solid rgba(93, 107, 122, 0.3); }
+.mact:hover {
+  filter: brightness(1.5);
+  background: rgba(93, 107, 122, 0.2);
+  opacity: 1;
+}
+.mact.accept.ours { color: var(--ac); }
+.mact.accept.theirs { color: var(--t-event); }
+.mact.ignore {
+  color: var(--del);
+}
+
+/* Alignment spacer (a hunk that is shorter on this side than the others). */
+.merge-spacer {
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(120, 130, 150, 0.05),
+    rgba(120, 130, 150, 0.05) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+}
+/* A spacer inside a still-pending change carries that change's band colour, so
+   the aligned region reads as one continuous strip — no blank gap. */
+.merge-spacer.sp-ours {
+  background: var(--ac-glow);
+  box-shadow: inset 2px 0 0 var(--ac);
+}
+.merge-spacer.sp-theirs {
+  background: var(--t-event-bg);
+  box-shadow: inset 2px 0 0 var(--t-event);
+}
+.merge-spacer.sp-both {
   background: var(--add-bg);
-  box-shadow: inset 3px 0 0 var(--add);
+  box-shadow: inset 2px 0 0 var(--add);
 }
-.merge-gutter-ours { background: var(--ac); }
-.merge-gutter-theirs { background: var(--t-event); }
-.merge-gutter-both { background: var(--add); }
-.ctx-line {
-  font-family: var(--mono);
-  font-size: var(--fs-sm);
-  line-height: 1.55;
+.merge-spacer.sp-conflict {
+  background: var(--conflict-bg);
+  box-shadow: inset 2px 0 0 var(--conflict);
+}
+
+/* Result-pane line highlights by resolution state. */
+.merge-res-ours { background: var(--ac-glow); box-shadow: inset 2px 0 0 var(--ac); }
+.merge-res-theirs { background: var(--t-event-bg); box-shadow: inset 2px 0 0 var(--t-event); }
+.merge-res-both { background: var(--add-bg); box-shadow: inset 2px 0 0 var(--add); }
+.merge-res-conflict { background: var(--conflict-bg); box-shadow: inset 2px 0 0 var(--conflict); }
+.merge-res-base { background: transparent; }
+
+/* ---------- conflicts dialog (JetBrains style) ---------- */
+.cfl-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(820px, 92vw);
+  max-height: 80vh;
+  background: var(--bg-1);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-md);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.cfl-head {
+  padding: var(--s3);
+  border-bottom: 1px solid var(--line);
+}
+.cfl-head h3 { margin: 0 0 2px; }
+.cfl-sub { font-size: var(--fs-sm); color: var(--tx-2); }
+.cfl-sub b { color: var(--tx-0); }
+.cfl-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+.cfl-table {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+}
+.cfl-thead,
+.cfl-row {
+  display: grid;
+  grid-template-columns: 1fr 130px 130px;
+  align-items: center;
+  gap: var(--s2);
+  padding: 5px var(--s3);
+}
+.cfl-thead {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--tx-2);
-  padding: 1px var(--s3);
-  white-space: pre-wrap;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+.cfl-list { overflow: auto; direction: rtl; }
+.cfl-list > * { direction: ltr; }
+.cfl-group {
+  padding: 4px var(--s3);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--tx-2);
+  background: var(--bg-2);
+}
+.cfl-row { cursor: pointer; font-size: var(--fs-sm); }
+.cfl-row:hover { background: var(--bg-2); }
+.cfl-row.on { background: var(--ac-glow); }
+.cfl-name { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.cfl-base {
+  font-weight: 600;
+  color: var(--tx-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cfl-dir {
+  font-size: var(--fs-xs);
+  color: var(--tx-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cfl-stat { font-size: var(--fs-sm); color: var(--tx-1); }
+.cfl-stat.modified { color: var(--mod); }
+.cfl-stat.added { color: var(--add); }
+.cfl-stat.deleted { color: var(--del); }
+.cfl-empty { padding: var(--s4); text-align: center; color: var(--tx-2); }
+.cfl-side {
+  flex: none;
+  width: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3);
+}
+.cfl-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--s3);
+  border-top: 1px solid var(--line);
+}
+.cfl-check {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--fs-sm);
+  color: var(--tx-1);
 }
 
 .toast {

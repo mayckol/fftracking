@@ -5,6 +5,8 @@ import type {
   FileChange,
   GitFileChange,
   HunkInfo,
+  MergeBlock,
+  MergeState,
   MonitorRow,
   RefList,
   ReplaceMatchSpec,
@@ -122,6 +124,11 @@ export const api = {
   gitConflicts: (repoPath: string) => invoke<string[]>("git_conflicts", { repoPath }),
   gitResolveConflict: (repoPath: string, path: string, content: string) =>
     invoke<void>("git_resolve_conflict", { repoPath, path, content }),
+  gitMergeState: (repoPath: string) => invoke<MergeState>("git_merge_state", { repoPath }),
+  gitMergeBlocks: (repoPath: string, path: string) =>
+    invoke<MergeBlock[]>("git_merge_blocks", { repoPath, path }),
+  gitAcceptSide: (repoPath: string, path: string, side: "ours" | "theirs") =>
+    invoke<void>("git_accept_side", { repoPath, path, side }),
 
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   autostartEnabled: () => invoke<boolean>("autostart_enabled"),
