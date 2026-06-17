@@ -4,6 +4,25 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.8] — 2026-06-17
+
+### Added
+
+- **Go to Files shortcut** (⌘1). History moves to ⌘⇧1; the footer view tabs now
+  show their shortcut in the tooltip.
+
+### Changed
+
+- **Settings dropdowns use a themed control** instead of the native `<select>`, so
+  the popup list follows the app theme (no more OS white-on-white menu) and gains
+  keyboard navigation and font previews.
+
+### Fixed
+
+- **Terminal spacing above the status bar.** Restored a small bottom pad so the
+  prompt no longer glues to the footer when the panel height lands on a whole row
+  (the 1.0.7 flush change over-corrected into a cramped foot).
+
 ## [1.0.7] — 2026-06-17
 
 ### Added
