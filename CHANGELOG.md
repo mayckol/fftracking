@@ -4,6 +4,36 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.7] — 2026-06-17
+
+### Added
+
+- **Window transparency.** A slider in Settings → Interface lets the desktop show
+  through the whole window (Tauri transparent window + macOS private API); 100% is
+  fully opaque.
+- **Font weight pickers** for both the editor and the project tree, alongside the
+  existing family/size controls. The Interface section is now grouped into Theme &
+  colors / Fonts / Editor / Tabs & sidebar.
+- **Titlebar project context.** The selected project name and its branch show on the
+  left; the brand moved to the far right with the CPU/MEM meter beside it (now icons
+  instead of colored dots).
+- **Grouped branch/commit compare picker** in the Git tab: a searchable dropdown that
+  splits refs into Local branches, Origin branches (previously not shown), and Commits.
+- **Conflict resolver clarity.** The resolved result highlights each line by origin
+  (ours / theirs / both); hovering a choice shows an editable preview of its result;
+  the ours/theirs regions scroll and resize instead of cropping.
+
+### Changed
+
+- **Terminal clipboard follows the keymap style**, like the editor: ⌘C/⌘V/⌘A on
+  macOS, Ctrl+Shift+C/V/A elsewhere, and physical Alt under the mac-style-on-PC
+  keymap (so a bare Ctrl+C still reaches the shell as SIGINT).
+
+### Fixed
+
+- **Terminal sits flush with the status bar** — removed bottom padding that left a
+  dead band above the footer.
+
 ## [1.0.6] — 2026-06-16
 
 ### Fixed
