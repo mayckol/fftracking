@@ -187,6 +187,85 @@ select:focus {
   box-shadow: 0 0 0 3px var(--ac-glow);
 }
 
+/* ---------- custom dropdown (Select.tsx) ----------
+   Replaces native <select> so the trigger AND the popup list both follow the
+   theme; the OS-native option list (white-on-white in the webview) is gone. */
+.ff-select {
+  position: relative;
+  display: inline-block;
+}
+.ff-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  font-family: var(--ui);
+  font-size: var(--fs-sm);
+  color: var(--tx-0);
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.ff-select-trigger:hover {
+  border-color: var(--line-3);
+}
+.ff-select-trigger:focus-visible {
+  border-color: var(--ac-dim);
+  box-shadow: 0 0 0 3px var(--ac-glow);
+  outline: none;
+}
+.ff-select-cur {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ff-select-caret {
+  flex: none;
+  color: var(--tx-2);
+  font-size: 9px;
+}
+.ff-select-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 62;
+  display: flex;
+  flex-direction: column;
+  min-width: 100%;
+  max-height: 50vh;
+  padding: 4px;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+  overflow-y: auto;
+}
+.ff-select-opt {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  white-space: nowrap;
+  color: var(--tx-1);
+  cursor: pointer;
+}
+.ff-select-opt.active {
+  background: var(--bg-2);
+  color: var(--tx-0);
+}
+.ff-select-opt.on {
+  background: var(--ac-glow);
+  color: var(--tx-0);
+}
+
 /* ---------- shell ---------- */
 .app {
   display: grid;
@@ -681,10 +760,10 @@ select:focus {
   width: 100%;
   height: 100%;
   /* top | right | bottom | left — trimmed left so content sits closer to edge.
-     Bottom kept at 0: xterm fits whole rows and leaves sub-row slack at the
-     foot, so any bottom padding compounds into a visible dead band before the
-     status bar. */
-  padding: 8px 14px 0 8px;
+     FitAddon sizes rows from this element's content height, so the bottom pad is
+     real breathing room between the last row and the status bar; without it the
+     prompt glues to the footer whenever the panel height lands on a whole row. */
+  padding: 8px 14px 8px 8px;
   background: var(--bg-0);
 }
 .term-panel .splitter.y {

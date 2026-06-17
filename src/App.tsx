@@ -221,6 +221,7 @@ export default function App() {
   useShortcut("debug.stepOut", dbgStepOut, dbgStatus === "paused");
   useShortcut("debug.resume", dbgResume, dbgStatus === "paused");
   useShortcut("debug.stop", () => stopDebug(), dbgActive);
+  useShortcut("nav.files", () => setTab("files"));
   useShortcut("nav.history", () => setTab("history"));
   useShortcut("nav.git", () => setTab("git"));
   useShortcut("nav.settings", () => setTab("settings"));

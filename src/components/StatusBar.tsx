@@ -100,6 +100,16 @@ const TAB_LABEL: Record<string, string> = {
   settings: "Settings",
 };
 const TAB_ORDER = ["files", "git", "plugins", "settings"] as const;
+const TAB_ACTION: Record<string, string> = {
+  files: "nav.files",
+  git: "nav.git",
+  settings: "nav.settings",
+};
+function tabTitle(t: string): string {
+  const action = TAB_ACTION[t];
+  const combo = action ? formatCombo(comboFor(action)) : "";
+  return combo ? `${TAB_LABEL[t]} (${combo})` : TAB_LABEL[t];
+}
 
 interface Props {
   /** Primary view nav (files/git/plugins/settings), rendered as icon buttons. */
@@ -139,7 +149,7 @@ export default function StatusBar({ tabs = null, sidebar = null, workspace = nul
                 role="tab"
                 aria-selected={tabs.active === t}
                 className={`sb-tab${tabs.active === t ? " on" : ""}`}
-                title={TAB_LABEL[t]}
+                title={tabTitle(t)}
                 onClick={() => tabs.onSelect(t)}
               >
                 {TAB_ICONS[t]}

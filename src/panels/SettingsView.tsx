@@ -24,6 +24,7 @@ import {
 import { comboFor, formatCombo, IS_MAC } from "../lib/shortcuts";
 import { THEMES } from "../lib/themes";
 import { ICON_PACKS } from "../lib/iconPacks";
+import Select from "../components/Select";
 
 // Representative shortcuts shown as a live preview under the keyboard-style picker.
 const KEYMAP_PREVIEW = [
@@ -333,13 +334,13 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
             Theme
             <span className="hint">Colors for the whole app: panels, chrome, editor and diff.</span>
           </label>
-          <select value={prefs.theme} onChange={(e) => setPref("theme", e.target.value)} style={{ width: 200 }}>
-            {THEMES.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.label}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={prefs.theme}
+            onChange={(v) => setPref("theme", v)}
+            width={200}
+            ariaLabel="Theme"
+            options={THEMES.map((t) => ({ value: t.id, label: t.label }))}
+          />
         </div>
 
         <div className="field">
@@ -347,13 +348,13 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
             File icons
             <span className="hint">Icon set for the project tree, tabs and search results.</span>
           </label>
-          <select value={prefs.iconPack} onChange={(e) => setPref("iconPack", e.target.value)} style={{ width: 200 }}>
-            {ICON_PACKS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={prefs.iconPack}
+            onChange={(v) => setPref("iconPack", v)}
+            width={200}
+            ariaLabel="File icons"
+            options={ICON_PACKS.map((p) => ({ value: p.id, label: p.label }))}
+          />
         </div>
 
         <div className="field">
@@ -374,20 +375,17 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
             Folder &amp; file font
             <span className="hint">Font family for folder and file names in the project tree.</span>
           </label>
-          <select
+          <Select
             value={prefs.treeFont}
-            onChange={(e) => setPref("treeFont", e.target.value)}
-            style={{ width: 200, fontFamily: prefs.treeFont }}
-          >
-            <option value="Archivo" style={{ fontFamily: "Archivo" }}>
-              Archivo (UI)
-            </option>
-            {FONT_CHOICES.map((f) => (
-              <option key={f} value={f} style={{ fontFamily: `${f}, monospace` }}>
-                {f}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setPref("treeFont", v)}
+            width={200}
+            ariaLabel="Folder & file font"
+            triggerStyle={{ fontFamily: prefs.treeFont }}
+            options={[
+              { value: "Archivo", label: "Archivo (UI)", optionStyle: { fontFamily: "Archivo" } },
+              ...FONT_CHOICES.map((f) => ({ value: f, label: f, optionStyle: { fontFamily: `${f}, monospace` } })),
+            ]}
+          />
         </div>
 
         <div className="field">
@@ -395,17 +393,14 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
             Folder &amp; file weight
             <span className="hint">Thickness of project-tree names. Folders render one step heavier.</span>
           </label>
-          <select
-            value={prefs.treeFontWeight}
-            onChange={(e) => setPref("treeFontWeight", +e.target.value)}
-            style={{ width: 200, fontFamily: prefs.treeFont, fontWeight: prefs.treeFontWeight }}
-          >
-            {WEIGHT_CHOICES.map((w) => (
-              <option key={w.value} value={w.value}>
-                {w.label}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={String(prefs.treeFontWeight)}
+            onChange={(v) => setPref("treeFontWeight", +v)}
+            width={200}
+            ariaLabel="Folder & file weight"
+            triggerStyle={{ fontFamily: prefs.treeFont, fontWeight: prefs.treeFontWeight }}
+            options={WEIGHT_CHOICES.map((w) => ({ value: String(w.value), label: w.label }))}
+          />
         </div>
 
         <div className="field">
@@ -429,17 +424,14 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
             Editor font
             <span className="hint">Font family for the file viewer and diff. Falls back to the system monospace.</span>
           </label>
-          <select
+          <Select
             value={prefs.fontFamily}
-            onChange={(e) => setPref("fontFamily", e.target.value)}
-            style={{ width: 200, fontFamily: `${prefs.fontFamily}, monospace` }}
-          >
-            {FONT_CHOICES.map((f) => (
-              <option key={f} value={f} style={{ fontFamily: `${f}, monospace` }}>
-                {f}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setPref("fontFamily", v)}
+            width={200}
+            ariaLabel="Editor font"
+            triggerStyle={{ fontFamily: `${prefs.fontFamily}, monospace` }}
+            options={FONT_CHOICES.map((f) => ({ value: f, label: f, optionStyle: { fontFamily: `${f}, monospace` } }))}
+          />
         </div>
 
         <div className="field">
@@ -447,17 +439,14 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
             Editor weight
             <span className="hint">Thickness of code in the file viewer and diff.</span>
           </label>
-          <select
-            value={prefs.fontWeight}
-            onChange={(e) => setPref("fontWeight", +e.target.value)}
-            style={{ width: 200, fontFamily: `${prefs.fontFamily}, monospace`, fontWeight: prefs.fontWeight }}
-          >
-            {WEIGHT_CHOICES.map((w) => (
-              <option key={w.value} value={w.value}>
-                {w.label}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={String(prefs.fontWeight)}
+            onChange={(v) => setPref("fontWeight", +v)}
+            width={200}
+            ariaLabel="Editor weight"
+            triggerStyle={{ fontFamily: `${prefs.fontFamily}, monospace`, fontWeight: prefs.fontWeight }}
+            options={WEIGHT_CHOICES.map((w) => ({ value: String(w.value), label: w.label }))}
+          />
         </div>
 
         <div className="field">
@@ -538,15 +527,17 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
               file's current layout; Flat keeps one alphabetical block.
             </span>
           </label>
-          <select
+          <Select
             value={prefs.goImportStyle}
-            onChange={(e) => setPref("goImportStyle", e.target.value as GoImportStyle)}
-            style={{ width: 200 }}
-          >
-            <option value="golangci">Follow .golangci.yml</option>
-            <option value="grouped">Match existing groups</option>
-            <option value="flat">Flat (alphabetical)</option>
-          </select>
+            onChange={(v) => setPref("goImportStyle", v as GoImportStyle)}
+            width={200}
+            ariaLabel="Go import grouping"
+            options={[
+              { value: "golangci", label: "Follow .golangci.yml" },
+              { value: "grouped", label: "Match existing groups" },
+              { value: "flat", label: "Flat (alphabetical)" },
+            ]}
+          />
           <label style={{ display: "inline-flex", gap: 8, alignItems: "center", marginTop: 6 }}>
             <input
               type="checkbox"
@@ -598,14 +589,16 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
               Close oldest drops the least-recently opened tab to make room; Block keeps your tabs and refuses to open more until you close one.
             </span>
           </label>
-          <select
+          <Select
             value={prefs.tabOverflow}
-            onChange={(e) => setPref("tabOverflow", e.target.value as TabOverflow)}
-            style={{ width: 200 }}
-          >
-            <option value="fifo">Close oldest (FIFO)</option>
-            <option value="block">Block new tabs</option>
-          </select>
+            onChange={(v) => setPref("tabOverflow", v as TabOverflow)}
+            width={200}
+            ariaLabel="When the tab limit is reached"
+            options={[
+              { value: "fifo", label: "Close oldest (FIFO)" },
+              { value: "block", label: "Block new tabs" },
+            ]}
+          />
         </div>
 
         <div className="section-title" id="set-shortcuts">Shortcuts</div>
@@ -619,15 +612,17 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
                 : "Native uses Ctrl (recommended on Linux). macOS style maps the key next to the spacebar (Alt) to ⌘ and Ctrl to ⌥ for mac muscle memory — but on Linux the window manager reserves many Alt shortcuts, so some won't reach the app."}
             </span>
           </label>
-          <select
+          <Select
             value={prefs.keymapStyle}
-            onChange={(e) => setKeymapStyle(e.target.value as KeymapStyle)}
-            style={{ width: 260 }}
-          >
-            <option value="native">Native ({IS_MAC ? "macOS" : "Windows / Linux"})</option>
-            <option value="mac">macOS style (⌘)</option>
-            <option value="pc">Windows / Linux style (Ctrl)</option>
-          </select>
+            onChange={(v) => setKeymapStyle(v as KeymapStyle)}
+            width={260}
+            ariaLabel="Keyboard style"
+            options={[
+              { value: "native", label: `Native (${IS_MAC ? "macOS" : "Windows / Linux"})` },
+              { value: "mac", label: "macOS style (⌘)" },
+              { value: "pc", label: "Windows / Linux style (Ctrl)" },
+            ]}
+          />
           <div className="keymap-preview" style={{ display: "flex", gap: 14, marginTop: 8, flexWrap: "wrap" }}>
             {KEYMAP_PREVIEW.map((p) => (
               <span key={p.id} className="changecount" style={{ display: "inline-flex", gap: 6 }}>
