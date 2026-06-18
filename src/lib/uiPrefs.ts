@@ -16,7 +16,6 @@ export type GoImportStyle = "golangci" | "grouped" | "flat";
 export type KeymapStyle = "native" | "mac" | "pc";
 
 export interface UIPrefs {
-  autohideSidebar: boolean;
   maxTabs: number;
   tabOverflow: TabOverflow;
   autoSave: boolean;
@@ -43,7 +42,6 @@ export interface UIPrefs {
 }
 
 const DEFAULTS: UIPrefs = {
-  autohideSidebar: false,
   maxTabs: 8,
   tabOverflow: "fifo",
   autoSave: true,

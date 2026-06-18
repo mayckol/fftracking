@@ -548,24 +548,7 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
           </label>
         </div>
 
-        <div className="subsection-title">Tabs &amp; sidebar</div>
-
-        <div className="field">
-          <label>
-            Auto-hide monitored sidebar
-            <span className="hint">
-              Hide the projects sidebar; reveal it by moving the pointer to the left edge (like the macOS menu bar).
-            </span>
-          </label>
-          <label style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-            <input
-              type="checkbox"
-              checked={prefs.autohideSidebar}
-              onChange={(e) => setPref("autohideSidebar", e.target.checked)}
-            />
-            <span className="changecount">{prefs.autohideSidebar ? "Auto-hide on" : "Always visible"}</span>
-          </label>
-        </div>
+        <div className="subsection-title">Tabs</div>
 
         <div className="field">
           <label>

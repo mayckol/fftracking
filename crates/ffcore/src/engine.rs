@@ -82,6 +82,11 @@ impl Engine {
         self.with_db(|db| db.add_monitor(&root.to_string_lossy(), interval_secs, source, now()))
     }
 
+    /// Records a monitor without starting capture (see [`crate::db::Db::discover_monitor`]).
+    pub fn discover_monitor(&self, root: &Path, interval_secs: i64, source: &str) -> Result<i64> {
+        self.with_db(|db| db.discover_monitor(&root.to_string_lossy(), interval_secs, source, now()))
+    }
+
     /// Builds a manifest of the monitor's tree and records a snapshot, then
     /// prunes. Returns `Ok(None)` when the tree is unchanged since the last one.
     pub fn snapshot_now(&self, monitor_id: i64, trigger: &str) -> Result<Option<i64>> {

@@ -4,7 +4,6 @@ mod lsp;
 mod run;
 mod terminal;
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -68,10 +67,20 @@ pub fn run() {
                 let _ = tree_handle.emit("tree-changed", monitor_id);
             });
 
-            // Resume watching monitors that were active in a previous session.
+            // Exclusive monitoring: resume at most one active monitor. Older
+            // databases may carry several active rows; keep the first and clear
+            // the rest so capture stays single-project even before the window
+            // opens. The UI re-selects the last project on launch.
+            let mut resumed = false;
             for m in engine.list_monitors()? {
-                if m.active {
+                if !m.active {
+                    continue;
+                }
+                if !resumed {
                     let _ = manager.start(m.id, &PathBuf::from(&m.root_path), m.interval_secs);
+                    resumed = true;
+                } else {
+                    let _ = engine.deactivate_monitor(m.id);
                 }
             }
 
@@ -87,7 +96,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             setup_app_menu(app.handle())?;
             setup_tray(app.handle())?;
-            spawn_detect_daemon(engine, manager);
+            spawn_detect_daemon(engine);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -95,6 +104,7 @@ pub fn run() {
             commands::list_monitors,
             commands::start_monitor,
             commands::stop_monitor,
+            commands::set_active_monitor,
             commands::remove_monitor,
             commands::snapshot_now,
             commands::delete_snapshot,
@@ -254,39 +264,20 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Polls for running editors and reconciles the set of editor-sourced monitors:
-/// newly focused folders start watching, folders whose editor closed stop.
-fn spawn_detect_daemon(engine: Arc<Engine>, manager: Arc<MonitorManager>) {
-    std::thread::spawn(move || {
-        let mut active: HashMap<String, i64> = HashMap::new();
-        loop {
-            std::thread::sleep(DETECT_INTERVAL);
-            let interval = engine.get_settings().map(|s| s.default_interval_secs).unwrap_or(900);
-            let detected = detect_workspaces();
-            let seen: Vec<String> = detected.iter().map(|d| d.path.clone()).collect();
-
-            for ws in detected {
-                if active.contains_key(&ws.path) {
-                    continue;
-                }
-                let root = PathBuf::from(&ws.path);
-                if !root.is_dir() {
-                    continue;
-                }
-                if let Ok(id) = engine.add_monitor(&root, interval, &ws.source) {
-                    let _ = engine.snapshot_now(id, "manual");
-                    let _ = manager.start(id, &root, interval);
-                    active.insert(ws.path, id);
-                }
+/// Polls for running editors and registers their workspaces as monitors so they
+/// surface in the project picker. Discovery only: nothing is captured until the
+/// user selects a project (exclusive monitoring), so the daemon never starts or
+/// stops capture itself.
+fn spawn_detect_daemon(engine: Arc<Engine>) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(DETECT_INTERVAL);
+        let interval = engine.get_settings().map(|s| s.default_interval_secs).unwrap_or(900);
+        for ws in detect_workspaces() {
+            let root = PathBuf::from(&ws.path);
+            if !root.is_dir() {
+                continue;
             }
-
-            let gone: Vec<String> = active.keys().filter(|p| !seen.contains(p)).cloned().collect();
-            for path in gone {
-                if let Some(id) = active.remove(&path) {
-                    manager.stop(id);
-                    let _ = engine.deactivate_monitor(id);
-                }
-            }
+            let _ = engine.discover_monitor(&root, interval, &ws.source);
         }
     });
 }

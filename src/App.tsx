@@ -29,12 +29,12 @@ import SearchPalette, { type PaletteMode } from "./components/SearchPalette";
 import SettingsPalette from "./components/SettingsPalette";
 import ShortcutsModal from "./components/ShortcutsModal";
 import RefPicker from "./components/RefPicker";
+import ProjectPicker from "./components/ProjectPicker";
 import type { MonitorRow, RefList, ResourceUsage } from "./lib/types";
 import GitView from "./panels/GitView";
 import HistoryView from "./panels/HistoryView";
 import SettingsView from "./panels/SettingsView";
 import PluginsView from "./panels/PluginsView";
-import Sidebar from "./panels/Sidebar";
 import StatusBar from "./components/StatusBar";
 import TerminalPanel from "./panels/TerminalPanel";
 import DebugPanel from "./panels/DebugPanel";
@@ -85,7 +85,6 @@ export default function App() {
     n: number;
   } | null>(null);
   const [termH, setTermH] = useState(280);
-  const [sideOpen, setSideOpen] = useState(false);
   // Manual show/hide of the project file tree, toggled from the bottom status bar.
   const [treeHidden, setTreeHidden] = useState(false);
   // Unresolved merge conflicts in the selected repo: marks the status-bar git icon
@@ -186,6 +185,19 @@ export default function App() {
     if (selected != null) localStorage.setItem(LAST_PROJECT_KEY, String(selected));
   }, [selected]);
 
+  // Exclusive monitoring: the selected project is the only one captured.
+  // Whenever the selection changes (picker, add, delete fallback, restore on
+  // launch) the backend stops every other monitor and starts this one, so just
+  // one project is ever tracked at a time. The list refresh repaints the live
+  // dots to match.
+  useEffect(() => {
+    if (selected == null) return;
+    api
+      .setActiveMonitor(selected)
+      .then(loadMonitors)
+      .catch((e) => notify(String(e), true));
+  }, [selected, loadMonitors, notify]);
+
   useEffect(() => {
     loadMonitors();
     return pollWhileVisible(loadMonitors, 4000); // reflect daemon-added folders
@@ -200,17 +212,6 @@ export default function App() {
       await loadMonitors();
       setSelected(id);
       notify("Now tracking " + path);
-    } catch (e) {
-      notify(String(e), true);
-    }
-  }
-
-  async function toggleFolder(m: MonitorRow) {
-    try {
-      if (m.active) await api.stopMonitor(m.id);
-      else await api.startMonitor(m.id);
-      await loadMonitors();
-      notify(m.active ? "Stopped tracking (history kept)" : "Tracking resumed");
     } catch (e) {
       notify(String(e), true);
     }
@@ -249,7 +250,6 @@ export default function App() {
   }
 
   const selectedMonitor = monitors.find((m) => m.id === selected) ?? null;
-  const projectName = selectedMonitor?.root_path.replace(/\/+$/, "").split("/").pop() ?? null;
 
   const repoPath = selectedMonitor?.root_path ?? null;
   useEffect(() => {
@@ -404,27 +404,37 @@ export default function App() {
   return (
     <div className="app">
       <header className="titlebar">
-        <div className="project-id" title={selectedMonitor?.root_path ?? undefined}>
-          {projectName ? (
-            <>
-              <span className="project-name">{projectName}</span>
-              {branch &&
-                (repoRoot ? (
-                  <div className="branch-switch">
-                    <RefPicker
-                      refs={branchRefs}
-                      value={branch}
-                      onChange={switchBranch}
-                      includeWorkdir={false}
-                    />
-                  </div>
-                ) : (
-                  <span className="project-branch">{branch}</span>
-                ))}
-            </>
-          ) : (
-            <span className="project-none">No project selected</span>
-          )}
+        <div className="project-id">
+          <ProjectPicker
+            monitors={monitors}
+            selected={selected}
+            deletingId={deletingId}
+            onSelect={setSelected}
+            onRemove={askDelete}
+          />
+          <button className="tbtn proj-add" onClick={addFolder} title="Track a folder" aria-label="Track a folder">
+            <svg
+              className="btn-ic"
+              viewBox="0 0 16 16"
+              width="13"
+              height="13"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.6}
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M8 3.5v9M3.5 8h9" />
+            </svg>
+          </button>
+          {branch &&
+            (repoRoot ? (
+              <div className="branch-switch">
+                <RefPicker refs={branchRefs} value={branch} onChange={switchBranch} includeWorkdir={false} />
+              </div>
+            ) : (
+              <span className="project-branch">{branch}</span>
+            ))}
         </div>
         <div className="spacer" />
         <div className="split-btn">
@@ -529,37 +539,7 @@ export default function App() {
       </header>
 
       {(tab === "files" || tab === "history") && (
-        <div
-          className="work"
-          style={{ gridTemplateColumns: prefs.autohideSidebar ? "minmax(0, 1fr)" : "232px minmax(0, 1fr)" }}
-        >
-          {prefs.autohideSidebar ? (
-            <div
-              className={`side-float${sideOpen ? " open" : ""}`}
-              onMouseEnter={() => setSideOpen(true)}
-              onMouseLeave={() => setSideOpen(false)}
-            >
-              <Sidebar
-                monitors={monitors}
-                selected={selected}
-                deletingId={deletingId}
-                onSelect={setSelected}
-                onAdd={addFolder}
-                onToggle={toggleFolder}
-                onDelete={askDelete}
-              />
-            </div>
-          ) : (
-            <Sidebar
-              monitors={monitors}
-              selected={selected}
-              deletingId={deletingId}
-              onSelect={setSelected}
-              onAdd={addFolder}
-              onToggle={toggleFolder}
-              onDelete={askDelete}
-            />
-          )}
+        <div className="work" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
           {selected != null ? (
             <HistoryView
               key={selected}
@@ -689,7 +669,8 @@ export default function App() {
           message={
             <>
               Permanently delete all breaking points for <b>{confirmDel.root_path}</b> and stop tracking
-              it? This cannot be undone. To pause without losing history, use <b>⏸ Stop</b> instead.
+              it? This cannot be undone. To stop tracking without losing history, switch to a different
+              project instead.
             </>
           }
           confirmLabel="Delete everything"

@@ -27,6 +27,18 @@ fn err<T>(r: ffcore::Result<T>) -> R<T> {
 pub fn add_monitor(state: State<AppState>, path: String, interval_secs: i64) -> R<i64> {
     let root = PathBuf::from(&path);
     let id = err(state.engine.add_monitor(&root, interval_secs, "manual"))?;
+    // Exclusive monitoring: the freshly added (or re-added) project becomes the
+    // only one captured. Stop every other monitor before this one starts, so
+    // there is never a window with two live capture threads.
+    for m in err(state.engine.list_monitors())? {
+        if m.id == id {
+            continue;
+        }
+        state.manager.stop(m.id);
+        if m.active {
+            err(state.engine.deactivate_monitor(m.id))?;
+        }
+    }
     err(state.engine.snapshot_now(id, "manual"))?;
     err(state.manager.start(id, &root, interval_secs))?;
     Ok(id)
@@ -51,6 +63,27 @@ pub fn start_monitor(state: State<AppState>, monitor_id: i64) -> R<()> {
 pub fn stop_monitor(state: State<AppState>, monitor_id: i64) -> R<()> {
     state.manager.stop(monitor_id);
     err(state.engine.deactivate_monitor(monitor_id))
+}
+
+// Exclusive monitoring: only the selected project captures. Stops every other
+// running monitor (and clears its active flag) before starting the chosen one,
+// so the invariant "at most one active monitor" holds across selection, add,
+// delete, and restart. `manager.start` is a no-op if already running.
+#[tauri::command]
+pub fn set_active_monitor(state: State<AppState>, monitor_id: i64) -> R<()> {
+    let interval = err(state.engine.get_settings())?.default_interval_secs;
+    for m in err(state.engine.list_monitors())? {
+        if m.id == monitor_id {
+            continue;
+        }
+        state.manager.stop(m.id);
+        if m.active {
+            err(state.engine.deactivate_monitor(m.id))?;
+        }
+    }
+    let root = PathBuf::from(err(state.engine.monitor_root_path(monitor_id))?);
+    err(state.manager.start(monitor_id, &root, interval))?;
+    err(state.engine.set_monitor_active(monitor_id, true))
 }
 
 #[tauri::command]

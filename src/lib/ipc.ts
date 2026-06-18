@@ -28,6 +28,7 @@ export const api = {
   listMonitors: () => invoke<MonitorRow[]>("list_monitors"),
   startMonitor: (monitorId: number) => invoke<void>("start_monitor", { monitorId }),
   stopMonitor: (monitorId: number) => invoke<void>("stop_monitor", { monitorId }),
+  setActiveMonitor: (monitorId: number) => invoke<void>("set_active_monitor", { monitorId }),
   removeMonitor: (monitorId: number) => invoke<void>("remove_monitor", { monitorId }),
   snapshotNow: (monitorId: number) => invoke<number | null>("snapshot_now", { monitorId }),
   deleteSnapshot: (snapshotId: number) => invoke<void>("delete_snapshot", { snapshotId }),

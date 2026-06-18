@@ -142,6 +142,25 @@ impl Db {
         )?;
         Ok(id)
     }
+
+    /// Records a monitor without activating it: detected editor projects appear
+    /// in the picker but stay inactive until the user selects one (exclusive
+    /// monitoring). A pre-existing row keeps its `active` flag, so discovery
+    /// never steals capture from the currently selected project.
+    pub fn discover_monitor(&self, root_path: &str, interval_secs: i64, source: &str, created_at: i64) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO monitors(root_path, interval_secs, source, active, created_at)
+             VALUES (?1, ?2, ?3, 0, ?4)
+             ON CONFLICT(root_path) DO UPDATE SET source = excluded.source",
+            (root_path, interval_secs, source, created_at),
+        )?;
+        let id = self.conn.query_row(
+            "SELECT id FROM monitors WHERE root_path = ?1",
+            [root_path],
+            |r| r.get(0),
+        )?;
+        Ok(id)
+    }
 }
 
 const SCHEMA: &str = r#"
