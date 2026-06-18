@@ -279,7 +279,18 @@ export default function App() {
   useShortcut("nav.settings", () => setTab("settings"));
   useShortcut("nav.plugins", () => setTab("plugins"));
   const inWorkspace = tab === "files" || tab === "history";
-  useShortcut("nav.toggleTree", () => setTreeHidden((v) => !v), inWorkspace);
+  // Toggle works from any tab: inside the workspace it just shows/hides the
+  // tree; from git/plugins/settings it jumps back to the files workspace with
+  // the tree shown, so the control is always a one-click route to the tree.
+  const toggleTree = () => {
+    if (inWorkspace) {
+      setTreeHidden((v) => !v);
+    } else {
+      setTab("files");
+      setTreeHidden(false);
+    }
+  };
+  useShortcut("nav.toggleTree", toggleTree);
   useShortcut("capture.snapshot", snapshotNow, inWorkspace && selected != null);
   useShortcut("terminal.toggle", () => toggleBottom("terminal"));
   useShortcut("run.toggle", () => toggleBottom("run"));
@@ -521,7 +532,7 @@ export default function App() {
 
       <StatusBar
         tabs={{ active: tab === "history" ? "files" : tab, onSelect: (t) => setTab(t as Tab) }}
-        sidebar={inWorkspace ? { hidden: treeHidden, onToggle: () => setTreeHidden((v) => !v) } : null}
+        sidebar={{ hidden: !inWorkspace || treeHidden, onToggle: toggleTree }}
         workspace={inWorkspace ? { historyOn: tab === "history", onToggle: () => setTab(tab === "history" ? "files" : "history") } : null}
         conflicts={mergeConflicts}
         onShowConflicts={() => {

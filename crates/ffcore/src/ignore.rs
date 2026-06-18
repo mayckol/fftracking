@@ -1,8 +1,9 @@
 use std::path::{Path, MAIN_SEPARATOR};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::overrides::{Override, OverrideBuilder};
-use ignore::{Match, WalkBuilder};
+use ignore::{Match, WalkBuilder, WalkState};
 
 use crate::store::{BlobStore, Manifest};
 use crate::Result;
@@ -133,6 +134,71 @@ pub fn list_paths(root: &Path, extra_globs: &[String], respect_gitignore: bool) 
         }
     }
     Ok(paths)
+}
+
+/// Order-independent fingerprint of the eligible working-tree files, hashing
+/// each path plus its size and mtime (and, on Unix, ctime) but never its
+/// contents. Changes when a file is added, removed, renamed, or edited, so a
+/// poll can cheaply tell whether the project tree drifted from disk — including
+/// changes an external terminal or AI agent made that the OS filesystem watcher
+/// didn't deliver.
+///
+/// The walk runs in parallel and folds each file's digest into the result with
+/// XOR, which is commutative and associative — so the fingerprint is
+/// independent of which thread visits which file and in what order. Unreadable
+/// or vanished entries are skipped rather than aborting the whole fingerprint:
+/// a tool churning files races readdir↔stat exactly when a refresh matters
+/// most, so a missing entry simply drops out of this tick and the next clean
+/// tick reflects the true state.
+pub fn tree_signature(root: &Path, extra_globs: &[String], respect_gitignore: bool) -> Result<[u8; 32]> {
+    let lanes: [AtomicU64; 4] = [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
+    configure(root, extra_globs, respect_gitignore)?
+        .threads(std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(12))
+        .build_parallel()
+        .run(|| {
+            let lanes = &lanes;
+            Box::new(move |entry| {
+                let Ok(entry) = entry else {
+                    return WalkState::Continue;
+                };
+                if let Some((rel, meta)) = eligible(root, &entry) {
+                    for (lane, chunk) in lanes.iter().zip(file_digest(&rel, &meta).chunks_exact(8)) {
+                        lane.fetch_xor(u64::from_le_bytes(chunk.try_into().unwrap()), Ordering::Relaxed);
+                    }
+                }
+                WalkState::Continue
+            })
+        });
+
+    let mut acc = [0u8; 32];
+    for (out, lane) in acc.chunks_exact_mut(8).zip(&lanes) {
+        out.copy_from_slice(&lane.load(Ordering::Relaxed).to_le_bytes());
+    }
+    Ok(acc)
+}
+
+/// Per-file digest for [`tree_signature`]: path identity plus the cheap stat
+/// fields that move on a change. ctime is included on Unix because — unlike
+/// mtime — `cp -p`, `rsync --times`, and `touch -r` can't restore it, so it
+/// catches same-length, timestamp-preserving edits.
+fn file_digest(rel: &str, meta: &std::fs::Metadata) -> [u8; 32] {
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0u128, |d| d.as_nanos());
+    let mut h = blake3::Hasher::new();
+    h.update(rel.as_bytes());
+    h.update(&[0]);
+    h.update(&meta.len().to_le_bytes());
+    h.update(&mtime.to_le_bytes());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        h.update(&meta.ctime().to_le_bytes());
+        h.update(&meta.ctime_nsec().to_le_bytes());
+    }
+    *h.finalize().as_bytes()
 }
 
 fn eligible(root: &Path, entry: &ignore::DirEntry) -> Option<(String, std::fs::Metadata)> {

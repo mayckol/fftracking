@@ -644,19 +644,33 @@ export default function HistoryView({
     }
   }, [baseInfo, root, monitorId, latestSnap]);
 
-  // The backend watcher emits this on every debounced filesystem change for the
-  // monitor (touch, branch switch, external edit). Re-walk the tree, refresh the
-  // green tint (so a new file is marked at once), and re-sync the open file so
-  // the view tracks disk in near real time without polling.
+  // Two backend signals, same response: re-walk the tree, refresh the green
+  // tint (so a new file is marked at once), and re-sync the open file so the
+  // view tracks disk in near real time. "monitor-changed" is the OS-watcher
+  // path (touch, branch switch, local edit); "tree-changed" is the poll path
+  // that catches adds/removes/edits the watcher missed or delayed — e.g. files
+  // written by an external terminal or an AI agent.
   useEffect(() => {
-    const un = listen<number>("monitor-changed", (e) => {
+    // Both events can fire for the same change (the watcher hit AND the poll
+    // tick), so coalesce into one refresh per quiet window — collapses the
+    // duplicate re-walk/re-render rather than running it twice.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = (e: { payload: number }) => {
       if (e.payload !== monitorId) return;
-      loadFiles();
-      refreshChanged();
-      resyncDisk();
-    });
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        loadFiles();
+        refreshChanged();
+        resyncDisk();
+      }, 200);
+    };
+    const uns = [
+      listen<number>("monitor-changed", schedule),
+      listen<number>("tree-changed", schedule),
+    ];
     return () => {
-      un.then((f) => f());
+      clearTimeout(timer);
+      uns.forEach((un) => un.then((f) => f()));
     };
   }, [monitorId, loadFiles, refreshChanged, resyncDisk]);
 

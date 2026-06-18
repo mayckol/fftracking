@@ -58,6 +58,16 @@ pub fn run() {
                 let _ = change_handle.emit("monitor-changed", monitor_id);
             });
 
+            // "tree-changed" is the poll-driven counterpart: it fires when the
+            // working tree drifts from disk regardless of the OS watcher, so
+            // files/folders an external terminal or AI agent adds, removes, or
+            // edits still refresh the project tree. Breaking-point capture is
+            // untouched — this only nudges the UI to re-list.
+            let tree_handle = app.handle().clone();
+            manager.set_tree_change_listener(move |monitor_id| {
+                let _ = tree_handle.emit("tree-changed", monitor_id);
+            });
+
             // Resume watching monitors that were active in a previous session.
             for m in engine.list_monitors()? {
                 if m.active {

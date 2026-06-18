@@ -168,12 +168,26 @@ impl Engine {
         Ok(changes.into_iter().filter(|c| !filter.ignored(&c.path)).collect())
     }
 
-    /// Every live working-tree path under the monitor's capture rules — the full
-    /// on-disk file list (not just changes), for the project tree view.
+    /// The full on-disk file list (not just changes) for the project tree view.
+    /// The user's ignore globs are deliberately NOT applied here: those globs
+    /// only suppress history capture, so a glob-ignored file still shows in the
+    /// tree (untracked, never a breaking point). Built-in heavy dirs and, when
+    /// enabled, .gitignore still trim the listing.
     pub fn monitor_files(&self, monitor_id: i64) -> Result<Vec<String>> {
         let s = self.get_settings()?;
         let root = self.with_db(|db| monitor_root(db, monitor_id))?;
-        crate::ignore::list_paths(&root, &s.ignore_globs, s.respect_gitignore)
+        crate::ignore::list_paths(&root, &[], s.respect_gitignore)
+    }
+
+    /// Cheap fingerprint of the monitor's live working tree, used by the
+    /// tree-refresh poll to detect drift (added/removed/renamed/edited files)
+    /// independently of snapshots and the OS filesystem watcher. Mirrors
+    /// [`Self::monitor_files`] exclusion rules (ignore globs not applied) so the
+    /// poll also fires when a glob-ignored file the tree shows changes.
+    pub fn tree_signature(&self, monitor_id: i64) -> Result<[u8; 32]> {
+        let s = self.get_settings()?;
+        let root = self.with_db(|db| monitor_root(db, monitor_id))?;
+        crate::ignore::tree_signature(&root, &[], s.respect_gitignore)
     }
 
     /// Full-text search over the monitor's working tree, under the same

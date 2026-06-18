@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use ffcore::ignore::build_manifest;
+use ffcore::ignore::{build_manifest, tree_signature};
 use ffcore::runner::MonitorManager;
 use ffcore::store::BlobStore;
 use ffcore::Engine;
@@ -92,4 +92,60 @@ fn manager_event_watch_snapshots_on_change() {
     assert!(count(&engine) >= 2, "event watcher should record a snapshot after a change");
 
     mgr.stop_all();
+}
+
+#[test]
+fn tree_signature_tracks_adds_edits_removes_and_is_stable() {
+    let proj = tempfile::tempdir().unwrap();
+    let root = proj.path();
+    write(root, "src/main.rs", "fn main() {}");
+    write(root, "README.md", "# hi");
+
+    let sig = || tree_signature(root, &[], false).unwrap();
+    let base = sig();
+    assert_eq!(base, sig(), "unchanged tree -> stable fingerprint");
+
+    write(root, "src/new.rs", "fn new() {}");
+    let added = sig();
+    assert_ne!(base, added, "added file changes fingerprint");
+
+    write(root, "src/new.rs", "fn new() { todo!() }");
+    assert_ne!(added, sig(), "edited content changes fingerprint");
+
+    fs::rename(root.join("src/new.rs"), root.join("src/renamed.rs")).unwrap();
+    let renamed = sig();
+    assert_ne!(added, renamed, "rename changes fingerprint");
+
+    fs::remove_file(root.join("src/renamed.rs")).unwrap();
+    assert_eq!(base, sig(), "removing the added file restores the original fingerprint");
+}
+
+#[test]
+fn tree_signature_excludes_builtin_dirs() {
+    let proj = tempfile::tempdir().unwrap();
+    let root = proj.path();
+    write(root, "src/main.rs", "fn main() {}");
+    let base = tree_signature(root, &[], false).unwrap();
+
+    write(root, "node_modules/dep/index.js", "x");
+    write(root, "target/debug/app", "binary");
+    assert_eq!(base, tree_signature(root, &[], false).unwrap(), "ignored dirs don't affect the fingerprint");
+}
+
+#[test]
+fn monitor_files_shows_glob_ignored_files() {
+    let data = tempfile::tempdir().unwrap();
+    let proj = tempfile::tempdir().unwrap();
+    let engine = Engine::open(data.path()).unwrap();
+    write(proj.path(), "src/main.rs", "fn main() {}");
+    write(proj.path(), "debug.log", "noise");
+    write(proj.path(), "node_modules/dep/index.js", "x");
+    let mid = engine.add_monitor(proj.path(), 900, "manual").unwrap();
+
+    engine.with_db(|db| db.set_setting("ignore_globs", "*.log")).unwrap();
+
+    let files = engine.monitor_files(mid).unwrap();
+    assert!(files.contains(&"src/main.rs".to_string()));
+    assert!(files.contains(&"debug.log".to_string()), "glob-ignored file still shows in the project tree");
+    assert!(!files.iter().any(|f| f.starts_with("node_modules/")), "built-in dirs stay excluded from the tree");
 }
