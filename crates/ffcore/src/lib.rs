@@ -10,7 +10,6 @@ pub mod runner;
 pub mod search;
 pub mod store;
 pub mod sysmon;
-pub mod watcher;
 
 pub use db::Db;
 pub use engine::Engine;

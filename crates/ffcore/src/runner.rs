@@ -5,10 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crate::watcher::{self, FsWatcher};
 use crate::{Engine, Result};
 
-const DEBOUNCE: Duration = Duration::from_millis(750);
 const TICK: Duration = Duration::from_secs(1);
 /// How often the tree-refresh poll fingerprints the working tree. The OS
 /// filesystem watcher drives breaking-point capture; this poll only keeps the
@@ -27,8 +25,7 @@ type ChangeCb = Arc<dyn Fn(i64) + Send + Sync>;
 struct Handle {
     stop: Arc<AtomicBool>,
     interval_thread: Option<JoinHandle<()>>,
-    tree_thread: Option<JoinHandle<()>>,
-    _watcher: FsWatcher,
+    poll_thread: Option<JoinHandle<()>>,
 }
 
 impl Drop for Handle {
@@ -37,15 +34,21 @@ impl Drop for Handle {
         if let Some(t) = self.interval_thread.take() {
             let _ = t.join();
         }
-        if let Some(t) = self.tree_thread.take() {
+        if let Some(t) = self.poll_thread.take() {
             let _ = t.join();
         }
     }
 }
 
-/// Drives live monitoring: each started monitor gets a debounced filesystem
-/// watcher (event-triggered snapshots) plus an interval thread (timed
+/// Drives live monitoring: each started monitor gets a change-detection poll
+/// (snapshots when the working tree drifts) plus an interval thread (timed
 /// snapshots). Both funnel through [`Engine::snapshot_now`].
+///
+/// Change detection is poll-based rather than an OS FSEvents watcher on purpose:
+/// the `notify` FSEvents callback aborts the whole process when macOS hands it a
+/// stream flag it doesn't recognize (newer macOS releases add flags `notify`
+/// then panics on). The poll reuses the gitignore-aware tree fingerprint, so it
+/// also skips heavy churn directories (`.git`, `node_modules`).
 pub struct MonitorManager {
     engine: Arc<Engine>,
     handles: Mutex<HashMap<i64, Handle>>,
@@ -78,31 +81,25 @@ impl MonitorManager {
         *self.tree_cb.lock().expect("manager mutex poisoned") = Some(Arc::new(f));
     }
 
-    pub fn start(&self, monitor_id: i64, root: &Path, interval_secs: i64) -> Result<()> {
+    pub fn start(&self, monitor_id: i64, _root: &Path, interval_secs: i64) -> Result<()> {
         let mut handles = self.handles.lock().expect("manager mutex poisoned");
         if handles.contains_key(&monitor_id) {
             return Ok(());
         }
 
-        let eng = self.engine.clone();
         let throttle = Arc::new(Mutex::new(EventThrottle::default()));
-        // Snapshots are throttled to one per gap (default 20s), but the UI needs
-        // to learn about added/removed/edited files right away — notify on every
-        // debounced watcher tick instead of waiting for the next snapshot.
         let change_cb = self.change_cb.lock().expect("manager mutex poisoned").clone();
-        let watcher = watcher::spawn(root, DEBOUNCE, move || {
-            fire_event(&eng, monitor_id, &throttle);
-            if let Some(cb) = &change_cb {
-                cb(monitor_id);
-            }
-        })?;
+        let tree_cb = self.tree_cb.lock().expect("manager mutex poisoned").clone();
 
         let stop = Arc::new(AtomicBool::new(false));
         let interval_thread = spawn_interval(self.engine.clone(), monitor_id, interval_secs, stop.clone());
-
-        let tree_cb = self.tree_cb.lock().expect("manager mutex poisoned").clone();
-        let tree_thread = tree_cb.map(|cb| {
-            spawn_tree_poll(TreePoll { engine: self.engine.clone(), monitor_id, cb, stop: stop.clone() })
+        let poll_thread = spawn_change_poll(ChangePoll {
+            engine: self.engine.clone(),
+            monitor_id,
+            throttle,
+            change_cb,
+            tree_cb,
+            stop: stop.clone(),
         });
 
         handles.insert(
@@ -110,8 +107,7 @@ impl MonitorManager {
             Handle {
                 stop,
                 interval_thread: Some(interval_thread),
-                tree_thread,
-                _watcher: watcher,
+                poll_thread: Some(poll_thread),
             },
         );
         Ok(())
@@ -169,21 +165,23 @@ fn fire_event(engine: &Arc<Engine>, monitor_id: i64, throttle: &Arc<Mutex<EventT
     }
 }
 
-struct TreePoll {
+struct ChangePoll {
     engine: Arc<Engine>,
     monitor_id: i64,
-    cb: ChangeCb,
+    throttle: Arc<Mutex<EventThrottle>>,
+    change_cb: Option<ChangeCb>,
+    tree_cb: Option<ChangeCb>,
     stop: Arc<AtomicBool>,
 }
 
-/// Polls a cheap working-tree fingerprint and fires `cb` whenever it changes,
-/// so the project tree refreshes for changes the OS watcher missed (external
-/// terminal, AI agent). The first successful fingerprint seeds the baseline
-/// silently — the callback fires only on subsequent drift, even if the very
-/// first attempt errored. Independent of snapshot capture: this never writes a
-/// breaking point.
-fn spawn_tree_poll(p: TreePoll) -> JoinHandle<()> {
-    let TreePoll { engine, monitor_id, cb, stop } = p;
+/// Polls a cheap, gitignore-aware working-tree fingerprint and, whenever it
+/// drifts, captures a breaking point (throttled) and nudges the UI. Replaces the
+/// OS FSEvents watcher (which aborts on macOS' unknown stream flags) while
+/// staying cheap on big trees — `.git`/`node_modules` churn is excluded by the
+/// same rules the file list uses. The first successful fingerprint seeds the
+/// baseline silently so a failed first attempt isn't mistaken for a change.
+fn spawn_change_poll(p: ChangePoll) -> JoinHandle<()> {
+    let ChangePoll { engine, monitor_id, throttle, change_cb, tree_cb, stop } = p;
     thread::spawn(move || {
         let mut last = engine.tree_signature(monitor_id).ok();
         let mut elapsed = Duration::ZERO;
@@ -196,12 +194,16 @@ fn spawn_tree_poll(p: TreePoll) -> JoinHandle<()> {
             elapsed = Duration::ZERO;
             if let Ok(sig) = engine.tree_signature(monitor_id) {
                 match &last {
-                    // Seed silently when the baseline never computed, so a failed
-                    // first attempt doesn't masquerade as a change.
                     None => last = Some(sig),
                     Some(prev) if *prev != sig => {
                         last = Some(sig);
-                        cb(monitor_id);
+                        fire_event(&engine, monitor_id, &throttle);
+                        if let Some(cb) = &change_cb {
+                            cb(monitor_id);
+                        }
+                        if let Some(cb) = &tree_cb {
+                            cb(monitor_id);
+                        }
                     }
                     _ => {}
                 }
