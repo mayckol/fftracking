@@ -193,6 +193,152 @@ pub fn delete_path(state: State<AppState>, monitor_id: i64, path: String) -> R<(
     trash::delete(&canon_target).map_err(|e| e.to_string())
 }
 
+/// Resolves a *relative* working-tree path that may not exist yet, refusing
+/// anything that escapes the monitor root (`..`, absolute paths, symlink
+/// breakouts). The parent dir must already resolve inside the root.
+fn safe_new_path(root: &std::path::Path, rel: &str) -> R<PathBuf> {
+    let rel = rel.trim().trim_start_matches('/');
+    if rel.is_empty() {
+        return Err("name cannot be empty".into());
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    for part in rel.split('/') {
+        match part {
+            "" | "." => continue,
+            ".." => return Err("path cannot contain '..'".into()),
+            _ => parts.push(part),
+        }
+    }
+    if parts.is_empty() {
+        return Err("name cannot be empty".into());
+    }
+    let canon_root = root.canonicalize().map_err(|e| e.to_string())?;
+    let target = canon_root.join(parts.join("/"));
+    // Walk the deepest existing ancestor and confirm it stays under the root.
+    let mut probe = target.clone();
+    while !probe.exists() {
+        match probe.parent() {
+            Some(p) => probe = p.to_path_buf(),
+            None => break,
+        }
+    }
+    let canon_probe = probe.canonicalize().map_err(|e| e.to_string())?;
+    if !canon_probe.starts_with(&canon_root) {
+        return Err("refusing to write outside the tracked folder".into());
+    }
+    Ok(target)
+}
+
+/// Creates an empty file at `path` (relative to the monitor root), making any
+/// intermediate folders. `path` may contain `/` so a folder context menu can
+/// spawn a whole nested chain (e.g. `database/config/con.go`).
+#[tauri::command]
+pub fn create_file(state: State<AppState>, monitor_id: i64, path: String) -> R<()> {
+    let root = PathBuf::from(err(state.engine.monitor_root_path(monitor_id))?);
+    let target = safe_new_path(&root, &path)?;
+    if target.exists() {
+        return Err(format!("{} already exists", target.display()));
+    }
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::File::create(&target).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Creates an empty folder at `path` (relative to the monitor root).
+#[tauri::command]
+pub fn create_dir(state: State<AppState>, monitor_id: i64, path: String) -> R<()> {
+    let root = PathBuf::from(err(state.engine.monitor_root_path(monitor_id))?);
+    let target = safe_new_path(&root, &path)?;
+    if target.exists() {
+        return Err(format!("{} already exists", target.display()));
+    }
+    std::fs::create_dir_all(&target).map_err(|e| e.to_string())
+}
+
+/// Renames/moves a working-tree file or folder. `from` must exist inside the
+/// root; `to` is a relative path that also stays inside the root and whose
+/// parent dirs are created as needed.
+#[tauri::command]
+pub fn rename_path(state: State<AppState>, monitor_id: i64, from: String, to: String) -> R<()> {
+    let root = PathBuf::from(err(state.engine.monitor_root_path(monitor_id))?);
+    let canon_root = root.canonicalize().map_err(|e| e.to_string())?;
+    let src = root.join(&from).canonicalize().map_err(|e| e.to_string())?;
+    if src == canon_root || !src.starts_with(&canon_root) {
+        return Err("refusing to rename outside the tracked folder".into());
+    }
+    let dest = safe_new_path(&root, &to)?;
+    if dest.exists() {
+        return Err(format!("{} already exists", dest.display()));
+    }
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::rename(&src, &dest).map_err(|e| e.to_string())
+}
+
+/// Copies a file or folder beside the original under a non-colliding
+/// "<name> copy[ N]" name and returns the new path relative to the root.
+#[tauri::command]
+pub fn duplicate_path(state: State<AppState>, monitor_id: i64, path: String) -> R<String> {
+    let root = PathBuf::from(err(state.engine.monitor_root_path(monitor_id))?);
+    let canon_root = root.canonicalize().map_err(|e| e.to_string())?;
+    let src = root.join(&path).canonicalize().map_err(|e| e.to_string())?;
+    if src == canon_root || !src.starts_with(&canon_root) {
+        return Err("refusing to copy outside the tracked folder".into());
+    }
+    let parent = src.parent().ok_or("no parent directory")?;
+    let name = src.file_name().and_then(|n| n.to_str()).ok_or("bad file name")?;
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if i > 0 => (&name[..i], &name[i..]),
+        _ => (name, ""),
+    };
+    let mut dest = parent.join(format!("{stem} copy{ext}"));
+    let mut n = 2;
+    while dest.exists() {
+        dest = parent.join(format!("{stem} copy {n}{ext}"));
+        n += 1;
+    }
+    if src.is_dir() {
+        copy_dir_all(&src, &dest).map_err(|e| e.to_string())?;
+    } else {
+        std::fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+    }
+    let rel = dest.strip_prefix(&canon_root).unwrap_or(&dest);
+    Ok(rel.to_string_lossy().into_owned())
+}
+
+fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ft = entry.file_type()?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if ft.is_symlink() {
+            // Re-create the link rather than copying its (possibly outside-root)
+            // target's contents into the tracked tree.
+            let target = std::fs::read_link(&from)?;
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&target, &to)?;
+            #[cfg(windows)]
+            {
+                if from.is_dir() {
+                    std::os::windows::fs::symlink_dir(&target, &to)?;
+                } else {
+                    std::os::windows::fs::symlink_file(&target, &to)?;
+                }
+            }
+        } else if ft.is_dir() {
+            copy_dir_all(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn base_file(state: State<AppState>, monitor_id: i64, snapshot_id: i64, path: String) -> R<Option<String>> {
     Ok(err(state.engine.base_file(monitor_id, snapshot_id, &path))?
@@ -334,6 +480,11 @@ pub fn git_list_refs(repo_path: String) -> R<RefList> {
 #[tauri::command]
 pub fn git_changed_files(repo_path: String, from: String, to: String) -> R<Vec<GitFileChange>> {
     err(git::changed_files(&PathBuf::from(repo_path), &from, &to))
+}
+
+#[tauri::command]
+pub fn git_checkout_branch(repo_path: String, branch: String) -> R<()> {
+    err(git::checkout_branch(&PathBuf::from(repo_path), &branch))
 }
 
 #[tauri::command]

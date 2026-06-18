@@ -99,7 +99,9 @@ const TAB_LABEL: Record<string, string> = {
   plugins: "Plugins",
   settings: "Settings",
 };
-const TAB_ORDER = ["files", "git", "plugins", "settings"] as const;
+// "files" is intentionally absent: the project-tree toggle (and ⌘-shortcut)
+// already return to the Files view, so a dedicated Files tab is redundant.
+const TAB_ORDER = ["git", "plugins", "settings"] as const;
 const TAB_ACTION: Record<string, string> = {
   files: "nav.files",
   git: "nav.git",

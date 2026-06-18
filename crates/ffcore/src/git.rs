@@ -241,6 +241,26 @@ fn tree_at<'r>(repo: &'r Repository, rev: &str) -> Result<Tree<'r>> {
     Ok(obj.peel_to_tree()?)
 }
 
+/// Switches the working tree to `name` (a local branch, tag, or commit). Uses a
+/// safe checkout: it refuses rather than overwrite uncommitted local changes, so
+/// switching never silently discards work — the caller surfaces the error.
+pub fn checkout_branch(repo_path: &Path, name: &str) -> Result<()> {
+    let repo = open(repo_path)?;
+    let (object, reference) = repo
+        .revparse_ext(name)
+        .map_err(|e| Error::Msg(format!("resolve '{name}': {e}")))?;
+    let mut co = git2::build::CheckoutBuilder::new();
+    co.safe();
+    repo.checkout_tree(&object, Some(&mut co))
+        .map_err(|e| Error::Msg(format!("checkout '{name}': {e}")))?;
+    match reference.and_then(|r| r.name().map(str::to_string)) {
+        Some(ref_name) => repo.set_head(&ref_name),
+        None => repo.set_head_detached(object.id()),
+    }
+    .map_err(|e| Error::Msg(format!("set HEAD to '{name}': {e}")))?;
+    Ok(())
+}
+
 /// File-level changes between two revspecs. `to == WORKDIR` diffs the `from`
 /// commit against the current working tree (including the index).
 pub fn changed_files(repo_path: &Path, from: &str, to: &str) -> Result<Vec<GitFileChange>> {
@@ -282,6 +302,10 @@ pub struct WorkingStatus {
     pub branch: String,
     pub staged: Vec<GitFileChange>,
     pub unstaged: Vec<GitFileChange>,
+    /// Unmerged paths (a merge/rebase left conflict markers). git2 reports these
+    /// only as `CONFLICTED` — no INDEX_*/WT_* flag — so they belong in neither
+    /// staged nor unstaged and would otherwise vanish from every changed view.
+    pub conflicted: Vec<GitFileChange>,
 }
 
 fn index_status(s: git2::Status) -> Option<ChangeStatus> {
@@ -316,9 +340,14 @@ pub fn working_status(repo_path: &Path) -> Result<WorkingStatus> {
 
     let mut staged = Vec::new();
     let mut unstaged = Vec::new();
+    let mut conflicted = Vec::new();
     for entry in statuses.iter() {
         let Some(path) = entry.path().map(str::to_string) else { continue };
         let s = entry.status();
+        if s.contains(git2::Status::CONFLICTED) {
+            conflicted.push(GitFileChange { path, status: ChangeStatus::Modified });
+            continue;
+        }
         if let Some(status) = index_status(s) {
             staged.push(GitFileChange { path: path.clone(), status });
         }
@@ -328,13 +357,14 @@ pub fn working_status(repo_path: &Path) -> Result<WorkingStatus> {
     }
     staged.sort_by(|a, b| a.path.cmp(&b.path));
     unstaged.sort_by(|a, b| a.path.cmp(&b.path));
+    conflicted.sort_by(|a, b| a.path.cmp(&b.path));
 
     let branch = repo
         .head()
         .ok()
         .and_then(|h| h.shorthand().map(str::to_string))
         .unwrap_or_else(|| "HEAD".to_string());
-    Ok(WorkingStatus { branch, staged, unstaged })
+    Ok(WorkingStatus { branch, staged, unstaged, conflicted })
 }
 
 /// Stages each path: adds it to the index, or removes it from the index when the

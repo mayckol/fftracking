@@ -40,7 +40,11 @@ export default function Terminal({ cwd, active, onExit }: Props) {
 
   useEffect(() => {
     const term = new XTerm({
-      fontFamily: "JetBrains Mono, monospace",
+      // JetBrains Mono lacks powerline/Nerd-Font glyphs; the browser falls back
+      // per-glyph to whichever Nerd Font the user has installed (the same one
+      // their prompt already relies on in other terminals).
+      fontFamily:
+        '"JetBrains Mono", "JetBrainsMono Nerd Font", "MesloLGS NF", "Hack Nerd Font", "FiraCode Nerd Font", "Symbols Nerd Font", "Symbols Nerd Font Mono", "Apple Color Emoji", monospace',
       fontSize: 12.5,
       cursorBlink: true,
       allowProposedApi: true,

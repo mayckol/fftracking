@@ -318,17 +318,46 @@ select:focus {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.branch-switch {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+/* Compact the shared RefPicker down to a titlebar branch chip. */
+.branch-switch .refpick-trigger {
+  min-width: 0;
+  max-width: 240px;
+  height: 22px;
+  gap: 5px;
+  padding: 0 7px;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--ac);
+  background: var(--ac-glow);
+  border-color: transparent;
+}
+.branch-switch .refpick-trigger:hover {
+  background: var(--bg-3);
+  border-color: var(--ac-dim);
+}
+.branch-switch .refpick-cur {
+  font-family: var(--mono);
+}
 .project-branch {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   flex-shrink: 0;
   font-family: var(--mono);
   font-size: var(--fs-xs);
   font-weight: 500;
   color: var(--ac);
   background: var(--ac-glow);
+  border: 1px solid transparent;
   border-radius: var(--r-sm);
   padding: 1px 6px;
+  cursor: default;
+  transition: var(--dur) var(--ease);
 }
 .project-branch::before {
   content: "";
@@ -336,7 +365,7 @@ select:focus {
   height: 5px;
   border-radius: 50%;
   background: currentColor;
-  margin-right: 5px;
+  margin-right: 1px;
   opacity: 0.85;
 }
 .project-none {
@@ -415,6 +444,37 @@ select:focus {
 .tbtn.danger:hover {
   color: var(--del);
   border-color: var(--del);
+}
+
+/* Toolbar action glyphs carry the only color in an otherwise neutral bar:
+   green = run, amber = debug, indigo = terminal. */
+.btn-ic {
+  flex: none;
+}
+.tbtn .ic-run {
+  color: var(--add);
+}
+.tbtn .ic-debug {
+  color: var(--mod);
+}
+.tbtn .ic-term {
+  color: var(--ac);
+}
+/* Live process indicator — replaces the old " ●" text. Pulses while a run /
+   debug session is active (reduced-motion zeroes it via the global rule). */
+.live-dot {
+  width: 6px;
+  height: 6px;
+  margin-left: 1px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--add);
+  box-shadow: 0 0 6px var(--add);
+  animation: pulse 1.6s var(--ease) infinite;
+}
+.live-dot.amber {
+  background: var(--mod);
+  box-shadow: 0 0 6px var(--mod);
 }
 
 /* ---------- workspace columns ---------- */
@@ -690,39 +750,59 @@ select:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 30px;
-  padding: 0 6px 0 4px;
+  height: 32px;
+  padding: 0 6px 0 6px;
   background: var(--bg-0);
+  border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
 }
 .term-tabs {
   display: flex;
-  align-items: center;
-  gap: 2px;
+  align-items: stretch;
+  gap: 1px;
   min-width: 0;
+  height: 100%;
   overflow-x: auto;
 }
+/* Tabs sit on the bar's baseline; the active one is marked by an accent rail
+   along its foot — the same marker language the timeline uses for points. */
 .term-tab {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 6px 0 10px;
-  border-radius: 5px;
+  gap: 7px;
+  height: 100%;
+  padding: 0 5px 0 11px;
   cursor: pointer;
   white-space: nowrap;
   font-family: var(--mono);
   font-size: var(--fs-sm);
   color: var(--tx-2);
-  border: 1px solid transparent;
+  border-radius: 6px 6px 0 0;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
-.term-tab:hover {
-  background: var(--bg-2);
+.term-tab::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--ac);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.term-tab:hover:not(.on) {
+  color: var(--tx-1);
+  background: var(--bg-1);
 }
 .term-tab.on {
-  background: var(--bg-3);
+  background: var(--bg-2);
   color: var(--tx-0);
-  border-color: var(--line);
+}
+.term-tab.on::after {
+  opacity: 1;
 }
 .term-tab-x,
 .term-new,
@@ -735,6 +815,7 @@ select:focus {
   color: var(--tx-2);
   font-size: 12px;
   line-height: 1;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease), opacity var(--dur) var(--ease);
 }
 .term-tab-x:hover,
 .term-new:hover,
@@ -742,9 +823,26 @@ select:focus {
   background: var(--bg-3);
   color: var(--tx-0);
 }
+/* Close affordance stays out of the way until the tab is hovered or active.
+   Scoped to terminal tabs — the same class is reused (always visible) in debug
+   watch rows. */
+.term-tab .term-tab-x {
+  opacity: 0;
+}
+.term-tab:hover .term-tab-x,
+.term-tab.on .term-tab-x {
+  opacity: 1;
+}
+.term-tab-x:hover {
+  color: var(--del);
+}
 .term-new {
-  margin-left: 2px;
-  font-size: 13px;
+  align-self: center;
+  margin-left: 4px;
+  font-size: 14px;
+}
+.term-new:hover {
+  color: var(--ac);
 }
 .term-body {
   position: relative;
@@ -1187,6 +1285,15 @@ button.vs-tag:hover {
 }
 .trow:hover {
   background: var(--bg-2);
+}
+.trow.dir.root .dname {
+  color: var(--tx-0);
+}
+.tree-empty {
+  padding: 6px 12px 6px 0;
+  font-size: var(--fs-sm);
+  color: var(--tx-2);
+  line-height: 1.4;
 }
 .trow.file.on,
 .trow.dir.on {
@@ -1951,8 +2058,10 @@ button.vs-tag:hover {
 }
 
 /* Header action buttons (Run / Debug / Terminal): elevation via shadow rather
-   than an outline. */
+   than an outline. Active state is an accent rail along the foot — the same
+   marker the terminal tabs and timeline use. */
 .titlebar .tbtn {
+  position: relative;
   border-color: transparent;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
@@ -1963,7 +2072,45 @@ button.vs-tag:hover {
 .titlebar .tbtn.on {
   border-color: transparent;
   color: var(--ac);
-  box-shadow: 0 0 0 1px var(--ac), 0 2px 6px rgba(0, 0, 0, 0.5);
+  background: var(--bg-3);
+}
+
+/* The action + its recents caret read as one segmented control: a single
+   elevation on the wrapper, a hairline seam between the two halves. */
+.titlebar .split-btn {
+  border-radius: var(--r-sm);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  transition: box-shadow var(--dur) var(--ease);
+}
+.titlebar .split-btn:hover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.titlebar .split-btn .tbtn,
+.titlebar .split-btn .tbtn:hover {
+  box-shadow: none;
+  border-radius: 0;
+}
+.titlebar .split-btn .tbtn:first-child {
+  border-radius: var(--r-sm) 0 0 var(--r-sm);
+}
+.titlebar .split-btn .split-caret {
+  margin-left: 0;
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  border-left: 1px solid var(--line);
+  color: var(--tx-2);
+  font-size: 10px;
+}
+.titlebar .split-btn .split-caret.on {
+  background: var(--bg-3);
+  color: var(--ac);
+}
+.titlebar .split-btn .split-caret:hover {
+  color: var(--tx-0);
+}
+.tbtn:focus-visible,
+.term-tab:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 1px;
 }
 .exec-menu {
   position: absolute;

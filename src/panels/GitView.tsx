@@ -133,16 +133,32 @@ export default function GitView({
     return pollWhileVisible(() => reloadMerge().catch(() => {}), 3000);
   }, [repo, mode, reloadMerge]);
 
-  async function compare() {
-    if (!repo) return;
-    try {
-      const c = await api.gitChangedFiles(repo, from, to);
-      setChanges(c);
-      setFile(c[0]?.path ?? null);
-    } catch (e) {
-      toast(String(e), true);
-    }
-  }
+  const loadCompare = useCallback(
+    async (reset: boolean) => {
+      if (!repo) return;
+      try {
+        const c = await api.gitChangedFiles(repo, from, to);
+        setChanges(c);
+        // Keep the open file across a background refresh; only re-seed when the
+        // user explicitly hit Compare or the prior selection no longer differs.
+        setFile((cur) => (reset || !cur || !c.some((x) => x.path === cur) ? c[0]?.path ?? null : cur));
+      } catch (e) {
+        if (reset) toast(String(e), true);
+      }
+    },
+    [repo, from, to, toast],
+  );
+
+  const compare = () => loadCompare(true);
+
+  // Comparing against the live working tree (to === WORKDIR) is inherently live:
+  // refresh it on the same merge/edit signals commit mode uses so a merge done
+  // elsewhere (terminal, conflict resolve) reflects without re-hitting Compare.
+  useEffect(() => {
+    if (!repo || mode !== "compare" || to !== WORKDIR) return;
+    loadCompare(false);
+    return pollWhileVisible(() => loadCompare(false), 3000);
+  }, [repo, mode, to, reloadReq, loadCompare]);
 
   // Shared diff loader. In commit mode from/to are pinned to HEAD → working tree.
   useEffect(() => {

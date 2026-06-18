@@ -68,6 +68,12 @@ export const api = {
   openPath: (monitorId: number, path: string) => invoke<void>("open_path", { monitorId, path }),
   revealPath: (monitorId: number, path: string) => invoke<void>("reveal_path", { monitorId, path }),
   deletePath: (monitorId: number, path: string) => invoke<void>("delete_path", { monitorId, path }),
+  createFile: (monitorId: number, path: string) => invoke<void>("create_file", { monitorId, path }),
+  createDir: (monitorId: number, path: string) => invoke<void>("create_dir", { monitorId, path }),
+  renamePath: (monitorId: number, from: string, to: string) =>
+    invoke<void>("rename_path", { monitorId, from, to }),
+  duplicatePath: (monitorId: number, path: string) =>
+    invoke<string>("duplicate_path", { monitorId, path }),
   baseFile: (monitorId: number, snapshotId: number, path: string) =>
     invoke<string | null>("base_file", { monitorId, snapshotId, path }),
   snapshotSummaries: (monitorId: number) =>
@@ -105,6 +111,8 @@ export const api = {
   pickFolder: () => invoke<string | null>("pick_folder"),
 
   gitListRefs: (repoPath: string) => invoke<RefList>("git_list_refs", { repoPath }),
+  gitCheckoutBranch: (repoPath: string, branch: string) =>
+    invoke<void>("git_checkout_branch", { repoPath, branch }),
   gitChangedFiles: (repoPath: string, from: string, to: string) =>
     invoke<GitFileChange[]>("git_changed_files", { repoPath, from, to }),
   gitFile: (repoPath: string, rev: string, path: string) =>

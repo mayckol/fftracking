@@ -2,7 +2,7 @@ import { useMemo, useState, useRef, useImperativeHandle, forwardRef, useEffect }
 import { buildFileTree, type TreeNode } from "../lib/filetree";
 import { setScopeDir } from "../lib/searchScope";
 import { startRun } from "../lib/run";
-import { dirname } from "../lib/util";
+import { basename, dirname } from "../lib/util";
 import { FileTypeIcon, FolderTypeIcon } from "../components/FileTypeIcon";
 import { CtxShortcut } from "../components/CtxShortcut";
 
@@ -16,6 +16,8 @@ interface Menu {
 // Expanded folders survive unmount (switching the sidebar tab to git/plugins/
 // settings tears the tree down) — restored per project on remount.
 const expandedCache = new Map<string, Set<string>>();
+// Same survives-unmount contract for the root row's collapse state.
+const rootOpenCache = new Map<string, boolean>();
 
 interface Props {
   files: string[];
@@ -36,6 +38,10 @@ interface Props {
   onFindInFolder?: (prefix: string) => void;
   onReplaceInFolder?: (prefix: string) => void;
   onDelete?: (path: string, isDir: boolean) => void;
+  /** Create a file under `dir` (""=root); the name may contain `/` for nesting. */
+  onNewFile?: (dir: string) => void;
+  onRename?: (path: string, isDir: boolean) => void;
+  onDuplicate?: (path: string, isDir: boolean) => void;
 }
 
 export interface ProjectTreeHandle {
@@ -60,6 +66,9 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
   onFindInFolder,
   onReplaceInFolder,
   onDelete,
+  onNewFile,
+  onRename,
+  onDuplicate,
 }: Props, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const pendingScrollRef = useRef<string | null>(null);
@@ -67,16 +76,21 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(expandedCache.get(cacheKey)));
   const [hlDir, setHlDir] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [rootOpen, setRootOpen] = useState(() => rootOpenCache.get(cacheKey) ?? true);
 
   useEffect(() => {
     expandedCache.set(cacheKey, expanded);
   }, [cacheKey, expanded]);
+  useEffect(() => {
+    rootOpenCache.set(cacheKey, rootOpen);
+  }, [cacheKey, rootOpen]);
 
   const tree = useMemo(() => buildFileTree(files.map((path) => ({ path }))), [files]);
 
   useImperativeHandle(ref, () => ({
     focusInTree: () => {
       if (selected) {
+        setRootOpen(true);
         pendingScrollRef.current = selected;
         const parts = selected.split("/");
         setExpanded((prev) => {
@@ -102,6 +116,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
       };
       const row = findRow(tree);
       if (!row) return;
+      setRootOpen(true);
       const collectNested = (nodes: TreeNode[], into: Set<string>, under: boolean) => {
         for (const n of nodes) {
           if (n.kind !== "dir") continue;
@@ -151,14 +166,6 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
     return dirs;
   }, [changedFiles]);
 
-  if (files.length === 0) {
-    return (
-      <div ref={containerRef} className="empty" style={{ padding: "24px 20px" }}>
-        <p>No files tracked in this folder.</p>
-      </div>
-    );
-  }
-
   const toggle = (path: string) =>
     setExpanded((s) => {
       const n = new Set(s);
@@ -167,7 +174,11 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
     });
 
   const absPath = (path: string) =>
-    path.startsWith("/") || !rootPath ? path : `${rootPath.replace(/\/$/, "")}/${path}`;
+    path.startsWith("/") || !rootPath
+      ? path
+      : path === ""
+      ? rootPath.replace(/\/$/, "")
+      : `${rootPath.replace(/\/$/, "")}/${path}`;
 
   const copyButtons = (path: string) =>
     onCopyPath && (
@@ -175,7 +186,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
         <button onClick={() => { onCopyPath(absPath(path), "absolute path"); setMenu(null); }}>
           Copy path (absolute)<CtxShortcut id="file.copyPath" />
         </button>
-        <button onClick={() => { onCopyPath(path, "relative path"); setMenu(null); }}>
+        <button onClick={() => { onCopyPath(path || ".", "relative path"); setMenu(null); }}>
           Copy path (relative)
         </button>
       </>
@@ -201,7 +212,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
               setScopeDir(node.path);
             }}
             onContextMenu={(e) => {
-              if (!onReveal && !onIgnoreFolder && !onFindInFolder && !onReplaceInFolder && !onCopyPath && !onShowHistory && !onDelete) return;
+              if (!onReveal && !onIgnoreFolder && !onFindInFolder && !onReplaceInFolder && !onCopyPath && !onShowHistory && !onDelete && !onNewFile && !onRename && !onDuplicate) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "dir", path: node.path });
             }}
@@ -227,7 +238,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
               onSelect(node.path);
             }}
             onContextMenu={(e) => {
-              if (!onOpen && !onReveal && !onIgnoreFile && !onCopyPath && !onShowHistory && !onCompare && !onDelete) return;
+              if (!onOpen && !onReveal && !onIgnoreFile && !onCopyPath && !onShowHistory && !onCompare && !onDelete && !onRename && !onDuplicate) return;
               e.preventDefault();
               setMenu({ x: e.clientX, y: e.clientY, kind: "file", path: node.path });
             }}
@@ -241,7 +252,41 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
       }
     }
   };
-  walk(tree, 0);
+  const rootName = rootPath ? basename(rootPath) : "project";
+  const rootErr = (errorFiles?.size ?? 0) > 0;
+  const rootChg = !rootErr && (changedFiles?.size ?? 0) > 0;
+  rows.push(
+    <div
+      key="root"
+      data-path=""
+      className={`trow dir root${rootErr ? " err" : rootChg ? " chg" : ""}`}
+      style={{ paddingLeft: 8, fontWeight: 600 }}
+      onClick={() => {
+        setHlDir(null);
+        setRootOpen((o) => !o);
+        // Selecting the project root scopes find/replace to the whole tree.
+        setScopeDir("");
+      }}
+      onContextMenu={(e) => {
+        if (!onReveal && !onFindInFolder && !onReplaceInFolder && !onCopyPath && !onShowHistory && !onCompare && !onNewFile) return;
+        e.preventDefault();
+        setMenu({ x: e.clientX, y: e.clientY, kind: "dir", path: "" });
+      }}
+      title={rootPath ?? rootName}
+    >
+      <span className="chev">{rootOpen ? "▾" : "▸"}</span>
+      <FolderTypeIcon name={rootName} open={rootOpen} />
+      <span className="dname">{rootName}</span>
+    </div>,
+  );
+  if (rootOpen) walk(tree, 1);
+  if (rootOpen && files.length === 0) {
+    rows.push(
+      <div key="empty" className="tree-empty" style={{ paddingLeft: 30 }}>
+        No files tracked yet — right-click the folder to add one.
+      </div>,
+    );
+  }
 
   return (
     <div ref={containerRef}>
@@ -274,6 +319,12 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
                 ▶ Run go test (package)
               </button>
             )}
+            {menu.kind === "file" && onRename && (
+              <button onClick={() => { onRename(menu.path, false); setMenu(null); }}>Rename…</button>
+            )}
+            {menu.kind === "file" && onDuplicate && (
+              <button onClick={() => { onDuplicate(menu.path, false); setMenu(null); }}>Duplicate</button>
+            )}
             {menu.kind === "file" && copyButtons(menu.path)}
             {menu.kind === "file" && onIgnoreFile && (
               <button onClick={() => { onIgnoreFile(menu.path); setMenu(null); }}>
@@ -285,17 +336,22 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
                 Delete file…
               </button>
             )}
-            {menu.kind === "dir" && rootPath && (
-              <button
-                onClick={() => {
-                  const target = `./${menu.path}/...`;
-                  startRun({ cwd: rootPath, label: `go test ${target}`, program: "go", args: ["test", "-v", target] });
-                  setMenu(null);
-                }}
-              >
-                ▶ Run go test ./{menu.path}/...
-              </button>
+            {menu.kind === "dir" && onNewFile && (
+              <button onClick={() => { onNewFile(menu.path); setMenu(null); }}>New file…</button>
             )}
+            {menu.kind === "dir" && rootPath && (() => {
+              const target = menu.path ? `./${menu.path}/...` : "./...";
+              return (
+                <button
+                  onClick={() => {
+                    startRun({ cwd: rootPath, label: `go test ${target}`, program: "go", args: ["test", "-v", target] });
+                    setMenu(null);
+                  }}
+                >
+                  ▶ Run go test {target}
+                </button>
+              );
+            })()}
             {menu.kind === "dir" && onShowHistory && (
               <button onClick={() => { onShowHistory(menu.path, true); setMenu(null); }}>Show history for this folder</button>
             )}
@@ -311,13 +367,19 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
             {menu.kind === "dir" && onReveal && (
               <button onClick={() => { onReveal(menu.path); setMenu(null); }}>Reveal in Finder<CtxShortcut id="file.reveal" /></button>
             )}
+            {menu.kind === "dir" && menu.path !== "" && onRename && (
+              <button onClick={() => { onRename(menu.path, true); setMenu(null); }}>Rename…</button>
+            )}
+            {menu.kind === "dir" && menu.path !== "" && onDuplicate && (
+              <button onClick={() => { onDuplicate(menu.path, true); setMenu(null); }}>Duplicate</button>
+            )}
             {menu.kind === "dir" && copyButtons(menu.path)}
-            {menu.kind === "dir" && onIgnoreFolder && (
+            {menu.kind === "dir" && menu.path !== "" && onIgnoreFolder && (
               <button onClick={() => { onIgnoreFolder(menu.path); setMenu(null); }}>
                 Ignore history for this path (<code>{menu.path}/**</code>)
               </button>
             )}
-            {menu.kind === "dir" && onDelete && (
+            {menu.kind === "dir" && menu.path !== "" && onDelete && (
               <button className="danger" onClick={() => { onDelete(menu.path, true); setMenu(null); }}>
                 Delete folder…
               </button>

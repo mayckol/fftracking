@@ -28,7 +28,8 @@ import KeymapStyleModal from "./components/KeymapStyleModal";
 import SearchPalette, { type PaletteMode } from "./components/SearchPalette";
 import SettingsPalette from "./components/SettingsPalette";
 import ShortcutsModal from "./components/ShortcutsModal";
-import type { MonitorRow, ResourceUsage } from "./lib/types";
+import RefPicker from "./components/RefPicker";
+import type { MonitorRow, RefList, ResourceUsage } from "./lib/types";
 import GitView from "./panels/GitView";
 import HistoryView from "./panels/HistoryView";
 import SettingsView from "./panels/SettingsView";
@@ -102,19 +103,52 @@ export default function App() {
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
   }, []);
-  // Branch of the selected project, shown next to its name in the titlebar.
+  // Current branch + repo refs for the titlebar branch switcher (RefPicker).
+  // repoRoot is null for non-git monitors, which hides the switcher.
   const [branch, setBranch] = useState<string | null>(null);
+  const [repoRoot, setRepoRoot] = useState<string | null>(null);
+  const [branchRefs, setBranchRefs] = useState<RefList | null>(null);
   useEffect(() => {
-    if (selected == null) return setBranch(null);
+    if (selected == null) {
+      setBranch(null);
+      setRepoRoot(null);
+      setBranchRefs(null);
+      return;
+    }
     let alive = true;
     api
       .monitorBaseInfo(selected)
-      .then((b) => alive && setBranch(b.branch))
-      .catch(() => alive && setBranch(null));
+      .then(async (b) => {
+        if (!alive) return;
+        setBranch(b.branch);
+        const root = b.kind === "git" ? b.repo_root : null;
+        setRepoRoot(root);
+        setBranchRefs(root ? await api.gitListRefs(root).catch(() => null) : null);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setBranch(null);
+        setRepoRoot(null);
+        setBranchRefs(null);
+      });
     return () => {
       alive = false;
     };
   }, [selected]);
+
+  async function switchBranch(ref: string) {
+    if (!repoRoot || ref === branch) return;
+    try {
+      await api.gitCheckoutBranch(repoRoot, ref);
+      // Re-read so the label reflects the real HEAD (a commit/tag detaches it).
+      const info = await api.monitorBaseInfo(selected!);
+      setBranch(info.branch);
+      setBranchRefs(await api.gitListRefs(repoRoot).catch(() => branchRefs));
+      notify(`Switched to ${ref}`);
+    } catch (e) {
+      notify(String(e), true);
+    }
+  }
 
   // Suppress the webview's native right-click menu (the "Reload" popup);
   // our own context menus call preventDefault themselves where needed.
@@ -374,7 +408,19 @@ export default function App() {
           {projectName ? (
             <>
               <span className="project-name">{projectName}</span>
-              {branch && <span className="project-branch">{branch}</span>}
+              {branch &&
+                (repoRoot ? (
+                  <div className="branch-switch">
+                    <RefPicker
+                      refs={branchRefs}
+                      value={branch}
+                      onChange={switchBranch}
+                      includeWorkdir={false}
+                    />
+                  </div>
+                ) : (
+                  <span className="project-branch">{branch}</span>
+                ))}
             </>
           ) : (
             <span className="project-none">No project selected</span>
@@ -387,7 +433,11 @@ export default function App() {
             onClick={() => toggleBottom("run")}
             title={`${bottom === "run" ? "Hide" : "Show"} run panel (${formatCombo(comboFor("run.toggle"))})`}
           >
-            {runActive ? "▶ Run ●" : "▶ Run"}
+            <svg className="btn-ic ic-run" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+              <path d="M4.6 3.3a.6.6 0 0 1 .92-.5l6.8 4.2a.6.6 0 0 1 0 1.02l-6.8 4.2a.6.6 0 0 1-.92-.5z" fill="currentColor" />
+            </svg>
+            <span>Run</span>
+            {runActive && <span className="live-dot" title="Running" />}
           </button>
           <button
             className={`tbtn split-caret${execMenu === "run" ? " on" : ""}`}
@@ -404,7 +454,23 @@ export default function App() {
             onClick={() => toggleBottom("debug")}
             title={`${bottom === "debug" ? "Hide" : "Show"} debug panel (${formatCombo(comboFor("debug.panel"))})`}
           >
-            {dbgActive ? "🐞 Debug ●" : "🐞 Debug"}
+            <svg
+              className="btn-ic ic-debug"
+              viewBox="0 0 16 16"
+              width="13"
+              height="13"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.25}
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M6.4 4.4a1.6 1.6 0 0 1 3.2 0" />
+              <rect x="5" y="5.4" width="6" height="7" rx="3" />
+              <path d="M8 6.2v6M5 8.4H2.9M11 8.4h2.1M5.1 6.2 3.5 5M10.9 6.2 12.5 5M5.1 10.8 3.4 12M10.9 10.8 12.6 12" />
+            </svg>
+            <span>Debug</span>
+            {dbgActive && <span className="live-dot amber" title="Debugging" />}
           </button>
           <button
             className={`tbtn split-caret${execMenu === "debug" ? " on" : ""}`}
@@ -420,7 +486,22 @@ export default function App() {
           onClick={() => toggleBottom("terminal")}
           title={`${bottom === "terminal" ? "Hide" : "Show"} terminal (${formatCombo(comboFor("terminal.toggle"))})`}
         >
-          {">_ Terminal"}
+          <svg
+            className="btn-ic ic-term"
+            viewBox="0 0 16 16"
+            width="13"
+            height="13"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M3.5 4.5 6.5 8l-3 3.5" />
+            <path d="M8 11.5h4.5" />
+          </svg>
+          <span>Terminal</span>
         </button>
         {res && (
           <div className="res-meter" title="fftracking CPU and memory usage">

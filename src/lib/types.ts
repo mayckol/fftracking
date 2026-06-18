@@ -80,6 +80,7 @@ export interface WorkingStatus {
   branch: string;
   staged: GitFileChange[];
   unstaged: GitFileChange[];
+  conflicted: GitFileChange[];
 }
 
 export interface ConflictFile {

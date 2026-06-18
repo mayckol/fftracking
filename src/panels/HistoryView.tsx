@@ -297,6 +297,8 @@ export default function HistoryView({
     | { kind: "label"; id: number; value: string }
     | { kind: "folder"; prefix: string; remove: boolean }
     | { kind: "delete"; path: string; isDir: boolean }
+    | { kind: "newFile"; dir: string; value: string }
+    | { kind: "rename"; path: string; isDir: boolean; value: string }
     | null
   >(null);
 
@@ -631,7 +633,7 @@ export default function HistoryView({
         const st = await api.gitStatus(baseInfo.repo_root);
         const prefix = baseInfo.repo_root.endsWith("/") ? baseInfo.repo_root : `${baseInfo.repo_root}/`;
         const sub = root === baseInfo.repo_root ? "" : root.startsWith(prefix) ? `${root.slice(prefix.length)}/` : "";
-        paths = [...st.staged, ...st.unstaged]
+        paths = [...st.staged, ...st.unstaged, ...st.conflicted]
           .map((c) => c.path)
           .filter((p) => p.startsWith(sub))
           .map((p) => p.slice(sub.length));
@@ -879,10 +881,82 @@ export default function HistoryView({
     setDialog(null);
     try {
       await api.deletePath(monitorId, path);
-      // Close the open file if it (or its parent folder) was deleted.
-      if (file && (file === path || (isDir && file.startsWith(`${path}/`)))) setFile(null);
+      // Drop the tab(s) for the deleted file / everything under the folder.
+      closeTabsWhere((p) => p === path || (isDir && p.startsWith(`${path}/`)));
       setReload((n) => n + 1);
       toast(`Moved ${isDir ? "folder" : "file"} to trash`);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  async function applyNewFile() {
+    if (dialog?.kind !== "newFile") return;
+    const raw = dialog.value.trim();
+    if (/\/$/.test(raw)) return toast("Add a file name, e.g. config/con.go", true);
+    const name = raw.replace(/^\/+/, "");
+    if (!name) return toast("Name cannot be empty", true);
+    const rel = dialog.dir ? `${dialog.dir}/${name}` : name;
+    setDialog(null);
+    try {
+      await api.createFile(monitorId, rel);
+      setReload((n) => n + 1);
+      openFile(rel);
+      toast(`Created ${rel}`);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  async function applyRename() {
+    if (dialog?.kind !== "rename") return;
+    const { path, isDir, value } = dialog;
+    const name = value.trim().replace(/^\/+|\/+$/g, "");
+    if (!name) return toast("Name cannot be empty", true);
+    if (name === basename(path)) return setDialog(null);
+    const to = `${dirname(path)}${name}`;
+    setDialog(null);
+    try {
+      await api.renamePath(monitorId, path, to);
+      if (isDir) {
+        // No in-place remap for a folder rename: drop every tab under it.
+        closeTabsWhere((p) => p === path || p.startsWith(`${path}/`));
+      } else {
+        // Remap the renamed file's tab in place (functional update avoids the
+        // close-then-open race on a stale `tabs` snapshot).
+        setTabs((prev) => {
+          const seen = new Set<string>();
+          return prev
+            .map((t) => (t.path === path ? { ...t, path: to } : t))
+            .filter((t) => {
+              const k = `${t.kind}:${t.path}`;
+              if (seen.has(k)) return false;
+              seen.add(k);
+              return true;
+            });
+        });
+        setDirtyPaths((prev) => {
+          if (!prev.has(path)) return prev;
+          const out = new Set(prev);
+          out.delete(path);
+          out.add(to);
+          return out;
+        });
+        if (file === path) setFile(to);
+      }
+      setReload((n) => n + 1);
+      toast(`Renamed to ${name}`);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  async function duplicateEntry(path: string, isDir: boolean) {
+    try {
+      const created = await api.duplicatePath(monitorId, path);
+      setReload((n) => n + 1);
+      if (!isDir) openFile(created);
+      toast(`Duplicated to ${created}`);
     } catch (e) {
       toast(String(e), true);
     }
@@ -978,16 +1052,18 @@ export default function HistoryView({
       setBranchDiff({ path: target.path, ref, label });
       return;
     }
-    // Folder: list the files under it that differ from the chosen ref.
+    // Folder: list the files under it that differ from the chosen ref. An empty
+    // repo-relative scope (the project root) accepts every changed path.
     try {
-      const prefix = `${toRepoRel(target.path).replace(/\/$/, "")}/`;
+      const rel = toRepoRel(target.path).replace(/\/$/, "");
+      const prefix = rel ? `${rel}/` : "";
       const changed = await api.gitChangedFiles(repoRoot, ref, WORKDIR);
       const files = changed
         .map((c) => c.path)
-        .filter((p) => p.startsWith(prefix))
+        .filter((p) => prefix === "" || p.startsWith(prefix))
         .map(toMonitorRel)
         .sort();
-      if (!files.length) return toast(`No differences under ${target.path} vs ${label}`);
+      if (!files.length) return toast(`No differences${target.path ? ` under ${target.path}` : ""} vs ${label}`);
       setCompareFolder({ prefix: target.path, ref, label, files });
     } catch (e) {
       toast(String(e), true);
@@ -1162,6 +1238,9 @@ export default function HistoryView({
                   onFindInFolder={onSearchInFolder && ((p) => onSearchInFolder(p, false))}
                   onReplaceInFolder={onSearchInFolder && ((p) => onSearchInFolder(p, true))}
                   onDelete={(p, isDir) => setDialog({ kind: "delete", path: p, isDir })}
+                  onNewFile={(dir) => setDialog({ kind: "newFile", dir, value: "" })}
+                  onRename={(p, isDir) => setDialog({ kind: "rename", path: p, isDir, value: basename(p) })}
+                  onDuplicate={duplicateEntry}
                 />
               </div>
             )}
@@ -1487,6 +1566,62 @@ export default function HistoryView({
         />
       )}
 
+      {dialog?.kind === "newFile" && (
+        <div className="modal-overlay" onClick={() => setDialog(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>New file{dialog.dir ? ` in ${dialog.dir}/` : ""}</h3>
+            <input
+              autoFocus
+              value={dialog.value}
+              placeholder="name.ext — use / for subfolders (e.g. database/config/con.go)"
+              onChange={(e) => setDialog({ ...dialog, value: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applyNewFile();
+                if (e.key === "Escape") setDialog(null);
+              }}
+            />
+            <div className="modal-actions">
+              <button className="tbtn" onClick={() => setDialog(null)}>
+                Cancel
+              </button>
+              <button className="tbtn primary" onClick={applyNewFile}>
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dialog?.kind === "rename" && (
+        <div className="modal-overlay" onClick={() => setDialog(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Rename {dialog.isDir ? "folder" : "file"}</h3>
+            {dirname(dialog.path) && (
+              <p className="muted" style={{ margin: "0 0 6px", fontSize: 12, opacity: 0.7 }} title={dialog.path}>
+                in <code>{dirname(dialog.path)}</code> — only this segment is renamed
+              </p>
+            )}
+            <input
+              autoFocus
+              value={dialog.value}
+              onChange={(e) => setDialog({ ...dialog, value: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applyRename();
+                if (e.key === "Escape") setDialog(null);
+              }}
+            />
+            <div className="modal-actions">
+              <button className="tbtn" onClick={() => setDialog(null)}>
+                Cancel
+              </button>
+              <button className="tbtn primary" onClick={applyRename}>
+                Rename
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {revertAllId != null && (
         <ConfirmModal
           title="Revert everything to this point"
@@ -1589,7 +1724,7 @@ export default function HistoryView({
           <div className="modal branch-pick" onClick={(e) => e.stopPropagation()}>
             <h3>Files differing from {compareFolder.label}</h3>
             <p className="hint" style={{ margin: "0 0 8px" }}>
-              {compareFolder.prefix}/ · {compareFolder.files.length} file{compareFolder.files.length === 1 ? "" : "s"} → working tree
+              {compareFolder.prefix ? `${compareFolder.prefix}/` : "Whole project"} · {compareFolder.files.length} file{compareFolder.files.length === 1 ? "" : "s"} → working tree
             </p>
             <div className="branch-pick-list">
               {compareFolder.files.map((p) => (
