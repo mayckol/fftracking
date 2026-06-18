@@ -4,6 +4,22 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.13] — 2026-06-18
+
+### Changed
+
+- **Projects are now chosen from a titlebar picker** instead of a left sidebar.
+  The picker filters by name, shows a live dot on the project being tracked, and
+  lets you remove a project inline; an icon button next to it adds a folder.
+- **Only the selected project is monitored.** Switching projects stops the
+  previous one and starts the new one, so exactly one project is tracked at a
+  time. Editor-detected projects still appear in the picker but are not captured
+  until you select them.
+
+### Removed
+
+- The monitored sidebar and its auto-hide preference.
+
 ## [1.0.12] — 2026-06-17
 
 ### Fixed
