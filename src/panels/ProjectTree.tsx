@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, useImperativeHandle, forwardRef, useEffect } from "react";
+import { useMemo, useState, useRef, useImperativeHandle, forwardRef, useEffect, type DragEvent } from "react";
 import { buildFileTree, type TreeNode } from "../lib/filetree";
 import { setScopeDir } from "../lib/searchScope";
 import { startRun } from "../lib/run";
@@ -42,6 +42,8 @@ interface Props {
   onNewFile?: (dir: string) => void;
   onRename?: (path: string, isDir: boolean) => void;
   onDuplicate?: (path: string, isDir: boolean) => void;
+  /** Drag-and-drop move: `src` into folder `destDir` (""=root). */
+  onMove?: (src: string, destDir: string, isDir: boolean) => void;
 }
 
 export interface ProjectTreeHandle {
@@ -69,6 +71,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
   onNewFile,
   onRename,
   onDuplicate,
+  onMove,
 }: Props, ref) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const pendingScrollRef = useRef<string | null>(null);
@@ -77,6 +80,57 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
   const [hlDir, setHlDir] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [rootOpen, setRootOpen] = useState(() => rootOpenCache.get(cacheKey) ?? true);
+  // Drag-and-drop move. The dragged entry lives in a ref (survives re-renders
+  // mid-drag); `dropDir` is the folder currently highlighted as a valid target
+  // ("" = project root).
+  const dragRef = useRef<{ path: string; isDir: boolean } | null>(null);
+  const [dropDir, setDropDir] = useState<string | null>(null);
+
+  // A drop is valid unless it would be a no-op (same folder) or move a folder
+  // into itself or one of its descendants.
+  const canDrop = (destDir: string) => {
+    const s = dragRef.current;
+    if (!s) return false;
+    if (s.path === destDir) return false;
+    if (s.isDir && (destDir === s.path || destDir.startsWith(`${s.path}/`))) return false;
+    return dirname(s.path).replace(/\/$/, "") !== destDir;
+  };
+  const dragProps = (path: string, isDir: boolean) =>
+    onMove
+      ? {
+          draggable: true,
+          onDragStart: (e: DragEvent) => {
+            dragRef.current = { path, isDir };
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", path);
+          },
+          onDragEnd: () => {
+            dragRef.current = null;
+            setDropDir(null);
+          },
+        }
+      : {};
+  const dropProps = (destDir: string) =>
+    onMove
+      ? {
+          onDragOver: (e: DragEvent) => {
+            if (!canDrop(destDir)) {
+              setDropDir((d) => (d === destDir ? null : d));
+              return;
+            }
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            setDropDir(destDir);
+          },
+          onDrop: (e: DragEvent) => {
+            e.preventDefault();
+            const s = dragRef.current;
+            setDropDir(null);
+            if (s && canDrop(destDir)) onMove(s.path, destDir, s.isDir);
+            dragRef.current = null;
+          },
+        }
+      : {};
 
   useEffect(() => {
     expandedCache.set(cacheKey, expanded);
@@ -203,8 +257,10 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
           <div
             key={"d:" + node.path}
             data-path={node.path}
-            className={`trow dir${hlDir === node.path ? " on" : ""}${dErr ? " err" : changedDirs.has(node.path) ? " chg" : ""}`}
+            className={`trow dir${hlDir === node.path ? " on" : ""}${dropDir === node.path ? " drop" : ""}${dErr ? " err" : changedDirs.has(node.path) ? " chg" : ""}`}
             style={pad}
+            {...dragProps(node.path, true)}
+            {...dropProps(node.path)}
             onClick={() => {
               setHlDir(null);
               toggle(node.path);
@@ -232,6 +288,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
             data-path={node.path}
             className={`trow file${selected === node.path ? " on" : ""}${fErr ? " err" : changedFiles?.has(node.path) ? " chg" : ""}`}
             style={pad}
+            {...dragProps(node.path, false)}
             onClick={() => {
               setHlDir(null);
               setScopeDir(null);
@@ -259,8 +316,9 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
     <div
       key="root"
       data-path=""
-      className={`trow dir root${rootErr ? " err" : rootChg ? " chg" : ""}`}
+      className={`trow dir root${dropDir === "" ? " drop" : ""}${rootErr ? " err" : rootChg ? " chg" : ""}`}
       style={{ paddingLeft: 8, fontWeight: 600 }}
+      {...dropProps("")}
       onClick={() => {
         setHlDir(null);
         setRootOpen((o) => !o);

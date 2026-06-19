@@ -61,9 +61,15 @@ pub fn take_pending_open(state: State<AppState>) -> Option<i64> {
 #[tauri::command]
 pub fn install_cli() -> R<String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    // Background + detach so the terminal returns immediately; a second
-    // invocation while running is forwarded by the single-instance plugin.
-    let script = format!("#!/bin/sh\nnohup \"{}\" \"$@\" >/dev/null 2>&1 &\n", exe.display());
+    // Resolve the path argument to absolute in the shell, before launching: a
+    // Linux AppImage chdir's into its mount, so passing a relative path would
+    // resolve against /tmp/.mount_* instead of the terminal's directory. Then
+    // background + detach so the terminal returns; a second invocation while
+    // running is forwarded by the single-instance plugin.
+    let script = format!(
+        "#!/bin/sh\nd=\"${{1:-.}}\"\ncase \"$d\" in\n  /*) p=\"$d\" ;;\n  *) p=\"$(cd \"$d\" 2>/dev/null && pwd)\" || p=\"$(pwd)/$d\" ;;\nesac\nnohup \"{}\" \"$p\" >/dev/null 2>&1 &\n",
+        exe.display()
+    );
 
     let mut candidates: Vec<PathBuf> = vec![PathBuf::from("/usr/local/bin")];
     if let Some(home) = std::env::var_os("HOME") {

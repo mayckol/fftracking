@@ -144,10 +144,16 @@ pub fn run() {
             setup_tray(app.handle())?;
             spawn_detect_daemon(engine);
 
-            // Cold-start CLI launch: `fftrack <path>` opens that project. The id
-            // is queued in pending_open; the UI claims it on mount.
+            // Cold-start CLI launch: `fftracking <path>` opens that project. The
+            // id is queued in pending_open; the UI claims it on mount. Prefer the
+            // AppImage's $OWD (the directory the user launched from) over
+            // current_dir, which is the /tmp/.mount_* mount on Linux.
             let argv: Vec<String> = std::env::args().collect();
-            let cwd = std::env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+            let cwd = std::env::var("OWD")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .or_else(|| std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()))
+                .unwrap_or_default();
             open_project_from_argv(app.handle(), &argv, &cwd);
             Ok(())
         })

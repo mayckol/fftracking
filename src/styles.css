@@ -1317,6 +1317,12 @@ button.vs-tag:hover {
   background: var(--bg-3);
   border-left-color: var(--ac);
 }
+/* Drag-and-drop: the folder under the cursor accepting the dragged entry. */
+.trow.drop {
+  background: var(--ac-glow);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ac) 45%, transparent);
+  border-radius: 4px;
+}
 .trow .chev {
   width: 10px;
   flex-shrink: 0;

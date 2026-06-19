@@ -848,6 +848,21 @@ export default function HistoryView({
     }
   }
 
+  // Branch-compare counterpart: the right pane is the working tree, so its edits
+  // and per-block ⟲ (which adopts the branch's version of a block) persist to the
+  // working file. Refresh the diff hunks against the unchanged branch baseline.
+  async function persistBranchWorking(value: string) {
+    if (!branchDiff || branchDiff.path.startsWith("/")) return;
+    try {
+      await api.writeWorkingFile(monitorId, branchDiff.path, value);
+      setBranchRight(value);
+      api.textHunks(branchLeft, value).then(setBranchHunks).catch(() => {});
+      setReload((n) => n + 1);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
   async function revertPath(path: string) {
     if (snap == null) return;
     try {
@@ -918,6 +933,46 @@ export default function HistoryView({
       setReload((n) => n + 1);
       openFile(rel);
       toast(`Created ${rel}`);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
+  // Drag-and-drop move from the tree: relocate `src` into `destDir` (""=root),
+  // keeping its basename. Backend refuses moves outside the root or onto an
+  // existing path. Open tabs follow a moved file; tabs under a moved folder are
+  // dropped (their paths are now stale).
+  async function moveEntry(src: string, destDir: string, isDir: boolean) {
+    const name = basename(src);
+    const to = destDir ? `${destDir}/${name}` : name;
+    if (to === src) return;
+    try {
+      await api.renamePath(monitorId, src, to);
+      if (isDir) {
+        closeTabsWhere((p) => p === src || p.startsWith(`${src}/`));
+      } else {
+        setTabs((prev) => {
+          const seen = new Set<string>();
+          return prev
+            .map((t) => (t.path === src ? { ...t, path: to } : t))
+            .filter((t) => {
+              const k = `${t.kind}:${t.path}`;
+              if (seen.has(k)) return false;
+              seen.add(k);
+              return true;
+            });
+        });
+        setDirtyPaths((prev) => {
+          if (!prev.has(src)) return prev;
+          const out = new Set(prev);
+          out.delete(src);
+          out.add(to);
+          return out;
+        });
+        if (file === src) setFile(to);
+      }
+      setReload((n) => n + 1);
+      toast(`Moved ${name} to ${destDir || "project root"}`);
     } catch (e) {
       toast(String(e), true);
     }
@@ -1096,9 +1151,11 @@ export default function HistoryView({
   useShortcut("diff.nextChange", () => navDiff("next"), inAnyDiff);
   useShortcut("diff.prevChange", () => navDiff("prev"), inAnyDiff);
   useShortcut("diff.layout", () => setInline((v) => !v), inAnyDiff);
-  useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), inDiff);
-  useShortcut("diff.undo", () => diffApi.current?.undo(), inDiff);
-  useShortcut("diff.redo", () => diffApi.current?.redo(), inDiff);
+  // Block revert / undo / redo target whichever diff is mounted.
+  const activeDiff = () => (branchDiff ? branchDiffApi.current : diffApi.current);
+  useShortcut("diff.revertBlock", () => activeDiff()?.revertCurrent(), inAnyDiff);
+  useShortcut("diff.undo", () => activeDiff()?.undo(), inAnyDiff);
+  useShortcut("diff.redo", () => activeDiff()?.redo(), inAnyDiff);
   useShortcut("revert.file", revertFile, !!file);
   useShortcut("file.copyPath", () => file && copyToClipboard(file, "path"), !!file);
   useShortcut(
@@ -1256,6 +1313,7 @@ export default function HistoryView({
                   onNewFile={(dir) => setDialog({ kind: "newFile", dir, value: "" })}
                   onRename={(p, isDir) => setDialog({ kind: "rename", path: p, isDir, value: basename(p) })}
                   onDuplicate={duplicateEntry}
+                  onMove={moveEntry}
                 />
               </div>
             )}
@@ -1319,6 +1377,16 @@ export default function HistoryView({
               <button className="tbtn" title="Next change" onClick={() => navDiff("next")}>
                 ↓
               </button>
+              {!branchDiff.path.startsWith("/") && (
+                <>
+                  <button className="tbtn" title="Undo (in this diff)" onClick={() => branchDiffApi.current?.undo()}>
+                    ↶
+                  </button>
+                  <button className="tbtn" title="Redo (in this diff)" onClick={() => branchDiffApi.current?.redo()}>
+                    ↷
+                  </button>
+                </>
+              )}
               <span className="vs">{branchDiff.label} → working tree</span>
               {branchHunks.length > 0 && (
                 <span className="changecount">
@@ -1342,6 +1410,8 @@ export default function HistoryView({
               modified={branchRight}
               language={langOf(branchDiff.path)}
               inline={inline}
+              editable={!branchDiff.path.startsWith("/")}
+              onCommit={persistBranchWorking}
               hunks={branchHunks}
               ref={branchDiffApi}
             />
