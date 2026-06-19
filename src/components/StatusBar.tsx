@@ -35,8 +35,8 @@ const LSP_LABEL: Record<LspPhase, string> = {
 function SidebarIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
-      <line x1="6" y1="2.5" x2="6" y2="13.5" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.4" />
+      <line x1="6" y1="2.5" x2="6" y2="13.5" stroke="currentColor" strokeWidth="1.4" />
     </svg>
   );
 }
@@ -47,18 +47,18 @@ const TAB_ICONS: Record<string, ReactNode> = {
       <path
         d="M3.5 2.5h5L12 6v7.5H3.5z"
         stroke="currentColor"
-        strokeWidth="1.3"
+        strokeWidth="1.4"
         strokeLinejoin="round"
       />
-      <path d="M8.5 2.5V6H12" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d="M8.5 2.5V6H12" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
     </svg>
   ),
   git: (
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <circle cx="4" cy="3.5" r="1.7" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="4" cy="12.5" r="1.7" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="12" cy="6" r="1.7" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M4 5.2v5.6M4 8h4a2.3 2.3 0 0 0 2.3-2.3" stroke="currentColor" strokeWidth="1.3" />
+      <circle cx="4" cy="3.5" r="1.7" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="4" cy="12.5" r="1.7" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="12" cy="6" r="1.7" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M4 5.2v5.6M4 8h4a2.3 2.3 0 0 0 2.3-2.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   ),
   plugins: (
@@ -66,7 +66,7 @@ const TAB_ICONS: Record<string, ReactNode> = {
       <path
         d="M6 2.5a1.3 1.3 0 0 1 2.6 0v.9H11v2.4h.9a1.3 1.3 0 0 1 0 2.6H11v2.6H8.4v-.9a1.3 1.3 0 0 0-2.6 0v.9H3.2V8.4h.9a1.3 1.3 0 0 0 0-2.6h-.9V2.5z"
         stroke="currentColor"
-        strokeWidth="1.3"
+        strokeWidth="1.4"
         strokeLinejoin="round"
       />
     </svg>
@@ -76,10 +76,10 @@ const TAB_ICONS: Record<string, ReactNode> = {
       <path
         d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"
         stroke="currentColor"
-        strokeWidth="1.8"
+        strokeWidth="2"
         strokeLinejoin="round"
       />
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
     </svg>
   ),
 };
@@ -87,9 +87,18 @@ const TAB_ICONS: Record<string, ReactNode> = {
 function HistoryIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M3 3v5h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 3v5h5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function TerminalIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3.5 4.5 6.5 8l-3 3.5" />
+      <path d="M8 11.5h4.5" />
     </svg>
   );
 }
@@ -126,13 +135,15 @@ interface Props {
   sidebar?: { hidden: boolean; onToggle: () => void } | null;
   /** Files ⇄ History toggle, shown only on the workspace tab. */
   workspace?: { historyOn: boolean; onToggle: () => void } | null;
+  /** Terminal dock toggle, rendered as an icon button beside History. */
+  terminal?: { on: boolean; onToggle: () => void } | null;
   /** Unresolved merge conflicts: > 0 marks the git icon danger. */
   conflicts?: number;
   /** Clicking the git icon while conflicts exist opens the conflicts list. */
   onShowConflicts?: () => void;
 }
 
-export default function StatusBar({ tabs = null, sidebar = null, workspace = null, conflicts = 0, onShowConflicts }: Props) {
+export default function StatusBar({ tabs = null, sidebar = null, workspace = null, terminal = null, conflicts = 0, onShowConflicts }: Props) {
   const st = useEditorStatus();
   const zoomLevel = useZoomLevel();
 
@@ -175,7 +186,6 @@ export default function StatusBar({ tabs = null, sidebar = null, workspace = nul
             })}
           </div>
         )}
-        {workspace && <span className="sb-div" />}
         {workspace && (
           <button
             type="button"
@@ -188,6 +198,17 @@ export default function StatusBar({ tabs = null, sidebar = null, workspace = nul
             onClick={workspace.onToggle}
           >
             <HistoryIcon />
+          </button>
+        )}
+        {terminal && (
+          <button
+            type="button"
+            aria-pressed={terminal.on}
+            className={`sb-tab sb-tgl${terminal.on ? " on" : ""}`}
+            title={withCombo(terminal.on ? "Hide terminal" : "Show terminal", "terminal.toggle")}
+            onClick={terminal.onToggle}
+          >
+            <TerminalIcon />
           </button>
         )}
       </div>

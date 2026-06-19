@@ -9,6 +9,7 @@ import { getSelectedText } from "./lib/selection";
 import { foldAtCursor, resetZoom, unfoldAtCursor, zoomIn, zoomOut } from "./lib/editorActions";
 import { getScopeDir } from "./lib/searchScope";
 import { pollWhileVisible } from "./lib/poll";
+import { checkUpdate, runUpdate, type UpdateState } from "./lib/update";
 import { setTerminalOpener } from "./lib/runner";
 import { getRunSnapshot, setRunOpener, subscribeRun } from "./lib/run";
 import { restartLsp } from "./lib/lsp";
@@ -102,6 +103,15 @@ export default function App() {
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
   }, []);
+  // Newer release available? Checked on launch (then every 6h). The titlebar pill
+  // re-runs the installer in a terminal.
+  const [update, setUpdate] = useState<UpdateState | null>(null);
+  useEffect(() => {
+    const run = () => checkUpdate().then((u) => setUpdate(u && u.available ? u : null)).catch(() => {});
+    run();
+    const t = window.setInterval(run, 6 * 60 * 60 * 1000);
+    return () => window.clearInterval(t);
+  }, []);
   // Current branch + repo refs for the titlebar branch switcher (RefPicker).
   // repoRoot is null for non-git monitors, which hides the switcher.
   const [branch, setBranch] = useState<string | null>(null);
@@ -172,13 +182,26 @@ export default function App() {
   const loadMonitors = useCallback(async () => {
     const rows = await api.listMonitors();
     setMonitors(rows);
+    // A project queued by the CLI launcher (`fftrack <path>`) wins over the
+    // remembered/first one. Claimed once, then the backend returns null.
+    const pending = await api.takePendingOpen().catch(() => null);
     setSelected((cur) => {
+      if (pending && rows.some((r) => r.id === pending)) return pending;
       if (cur != null) return cur;
       const saved = Number(localStorage.getItem(LAST_PROJECT_KEY));
       if (saved && rows.some((r) => r.id === saved)) return saved;
       return rows[0]?.id ?? null;
     });
   }, []);
+
+  // `fftrack <path>` against an already-running instance: open that project.
+  useEffect(() => {
+    const un = listen<number>("open-project", (e) => {
+      setSelected(e.payload);
+      loadMonitors();
+    });
+    return () => void un.then((f) => f());
+  }, [loadMonitors]);
 
   // Remember the active project across restarts.
   useEffect(() => {
@@ -491,28 +514,6 @@ export default function App() {
           </button>
           {execMenu === "debug" && <ExecMenu kind="debug" onClose={() => setExecMenu(null)} />}
         </div>
-        <button
-          className={`tbtn${bottom === "terminal" ? " on" : ""}`}
-          onClick={() => toggleBottom("terminal")}
-          title={`${bottom === "terminal" ? "Hide" : "Show"} terminal (${formatCombo(comboFor("terminal.toggle"))})`}
-        >
-          <svg
-            className="btn-ic ic-term"
-            viewBox="0 0 16 16"
-            width="13"
-            height="13"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M3.5 4.5 6.5 8l-3 3.5" />
-            <path d="M8 11.5h4.5" />
-          </svg>
-          <span>Terminal</span>
-        </button>
         {res && (
           <div className="res-meter" title="fftracking CPU and memory usage">
             <span title="CPU">
@@ -535,6 +536,22 @@ export default function App() {
           <span className="dot" />
           fftracking
           {appVersion && <small>v{appVersion}</small>}
+          {update && (
+            <button
+              className="update-pill"
+              title={`Update to v${update.latest} (re-runs the installer in a terminal)`}
+              onClick={async () => {
+                try {
+                  await runUpdate();
+                  notify("Updater opened in a terminal — reopen fftracking when it finishes");
+                } catch (e) {
+                  notify(String(e), true);
+                }
+              }}
+            >
+              ↑ v{update.latest}
+            </button>
+          )}
         </div>
       </header>
 
@@ -595,6 +612,7 @@ export default function App() {
         tabs={{ active: tab === "history" ? "files" : tab, onSelect: (t) => setTab(t as Tab) }}
         sidebar={{ hidden: !inWorkspace || treeHidden, onToggle: toggleTree }}
         workspace={inWorkspace ? { historyOn: tab === "history", onToggle: () => setTab(tab === "history" ? "files" : "history") } : null}
+        terminal={{ on: bottom === "terminal", onToggle: () => toggleBottom("terminal") }}
         conflicts={mergeConflicts}
         onShowConflicts={() => {
           setTab("git");

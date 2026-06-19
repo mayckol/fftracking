@@ -4,11 +4,17 @@
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/mayckol/fftracking/main/scripts/install.sh | sh
 #   curl -fsSL .../install.sh | FFTRACKING_VERSION=v0.1.0 sh
+#   curl -fsSL .../install.sh | sh -s -- --uninstall   # remove app + CLIs (keeps history)
 #
 # Env:
 #   FFTRACKING_VERSION  tag to install (default: latest release)
 #   FFTRACKING_PREFIX   Linux install prefix; AppImage goes to $PREFIX/bin (default: $HOME/.local)
 #   FFTRACKING_REPO     override repo slug (default: mayckol/fftracking)
+#
+# Flags:
+#   --uninstall, --purge   remove the app, the `fft` and `fftrack` CLIs, and the
+#                          Linux desktop entry/icon. Tracked history (the app
+#                          data dir) is left untouched.
 #
 # macOS: installs fftracking.app to /Applications (Apple Silicon).
 # Linux: installs the AppImage to $PREFIX/bin/fftracking (x86_64) and registers a
@@ -21,6 +27,15 @@ REPO="${FFTRACKING_REPO:-mayckol/fftracking}"
 PREFIX="${FFTRACKING_PREFIX:-$HOME/.local}"
 VERSION="${FFTRACKING_VERSION:-}"
 
+ACTION=install
+for a in "$@"; do
+  case "$a" in
+    --uninstall|--purge|--remove) ACTION=uninstall ;;
+    -h|--help) printf 'fftracking installer: pass --uninstall to remove.\n'; exit 0 ;;
+    *) printf 'warning: ignoring unknown flag: %s\n' "$a" >&2 ;;
+  esac
+done
+
 log()  { printf '==> %s\n' "$*" >&2; }
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
@@ -28,6 +43,29 @@ if command -v curl >/dev/null 2>&1; then DL='curl -fsSL'; else
   command -v wget >/dev/null 2>&1 || fail "need curl or wget"; DL='wget -qO-'; fi
 
 os_raw="$(uname -s)"; arch_raw="$(uname -m)"
+
+# Remove the app + both CLIs (and Linux desktop integration), leaving the
+# tracked-history data dir in place. Missing items are skipped quietly.
+uninstall() {
+  log "uninstalling fftracking ($os_raw)"
+  rm -f "$HOME/.local/bin/fft" "$HOME/.local/bin/fftrack" "/usr/local/bin/fftrack" 2>/dev/null || true
+  case "$os_raw" in
+    Darwin)
+      rm -rf "/Applications/fftracking.app" 2>/dev/null || true
+      ;;
+    Linux)
+      rm -f "$PREFIX/bin/fftracking" 2>/dev/null || true
+      rm -f "$PREFIX/share/applications/fftracking.desktop" 2>/dev/null || true
+      rm -f "$PREFIX/share/icons/hicolor/256x256/apps/fftracking.png" 2>/dev/null || true
+      command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$PREFIX/share/applications" >/dev/null 2>&1 || true
+      command -v gtk-update-icon-cache  >/dev/null 2>&1 && gtk-update-icon-cache -f "$PREFIX/share/icons/hicolor" >/dev/null 2>&1 || true
+      ;;
+  esac
+  log "removed app + CLIs. Tracked history was kept (delete the app data dir to purge it)."
+  exit 0
+}
+
+[ "$ACTION" = uninstall ] && uninstall
 
 if [ -z "$VERSION" ]; then
   log "resolving latest release for $REPO"

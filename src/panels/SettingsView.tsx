@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/ipc";
+import { checkUpdate, runUpdate } from "../lib/update";
 import type { Settings } from "../lib/types";
 import {
   TRANSFER_SECTIONS,
@@ -97,6 +98,9 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
   const [imported, setImported] = useState<{ bundle: SettingsBundle; available: string[] } | null>(null);
   const [importSel, setImportSel] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const UNINSTALL_CMD =
+    "curl -fsSL https://raw.githubusercontent.com/mayckol/fftracking/main/scripts/install.sh | sh -s -- --uninstall";
 
   const toggle = (id: string, set: (fn: (p: Set<string>) => Set<string>) => void) =>
     set((prev) => {
@@ -323,6 +327,75 @@ export default function SettingsView({ toast, onOpenShortcuts, scrollTo }: Props
             <input type="checkbox" checked={autostart} onChange={(e) => toggleAutostart(e.target.checked)} />
             <span className="changecount">{autostart ? "Enabled" : "Disabled"}</span>
           </label>
+        </div>
+
+        <div className="field">
+          <label>
+            Terminal command
+            <span className="hint">Install <code>fftrack</code> on your PATH so <code>fftrack ~/project</code> opens it here, like VSCode's <code>code</code>.</span>
+          </label>
+          <button
+            className="tbtn"
+            onClick={async () => {
+              try {
+                const dest = await api.installCli();
+                toast(`Installed: ${dest}`);
+              } catch (e) {
+                toast(String(e), true);
+              }
+            }}
+          >
+            Install <code>fftrack</code> command
+          </button>
+        </div>
+
+        <div className="field">
+          <label>
+            Updates
+            <span className="hint">Check GitHub for a newer release and update in place (re-runs the installer in a terminal).</span>
+          </label>
+          <button
+            className="tbtn"
+            disabled={checkingUpdate}
+            onClick={async () => {
+              setCheckingUpdate(true);
+              try {
+                const u = await checkUpdate();
+                if (!u) toast("Update check unavailable for this build");
+                else if (!u.available) toast(`Up to date (v${u.current})`);
+                else if (confirm(`Update v${u.current} → v${u.latest}?`)) {
+                  await runUpdate();
+                  toast("Updater opened in a terminal — reopen fftracking when it finishes");
+                }
+              } catch (e) {
+                toast(String(e), true);
+              } finally {
+                setCheckingUpdate(false);
+              }
+            }}
+          >
+            {checkingUpdate ? "Checking…" : "Check for updates"}
+          </button>
+        </div>
+
+        <div className="field">
+          <label>
+            Uninstall
+            <span className="hint">Removes the app + <code>fft</code>/<code>fftrack</code> CLIs. Tracked history is kept.</span>
+          </label>
+          <button
+            className="tbtn"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(UNINSTALL_CMD);
+                toast("Uninstall command copied — paste it in a terminal");
+              } catch (e) {
+                toast(String(e), true);
+              }
+            }}
+          >
+            Copy uninstall command
+          </button>
         </div>
 
         <div className="section-title" id="set-interface">Interface</div>

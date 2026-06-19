@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, MAIN_SEPARATOR};
 
-use git2::{Delta, ObjectType, Repository, Tree, TreeWalkMode, TreeWalkResult};
+use git2::{Delta, DiffOptions, ObjectType, Repository, Tree, TreeWalkMode, TreeWalkResult};
 use serde::Serialize;
 
 use crate::query::ChangeStatus;
@@ -268,7 +268,12 @@ pub fn changed_files(repo_path: &Path, from: &str, to: &str) -> Result<Vec<GitFi
     let from_tree = tree_at(&repo, from)?;
 
     let diff = if to == WORKDIR {
-        repo.diff_tree_to_workdir_with_index(Some(&from_tree), None)?
+        // Untracked, non-ignored files count as additions — match the commit
+        // panel's status, which lists them. Without this they're silently
+        // dropped and HEAD → working tree reports zero changes.
+        let mut opts = DiffOptions::new();
+        opts.include_untracked(true).recurse_untracked_dirs(true);
+        repo.diff_tree_to_workdir_with_index(Some(&from_tree), Some(&mut opts))?
     } else {
         let to_tree = tree_at(&repo, to)?;
         repo.diff_tree_to_tree(Some(&from_tree), Some(&to_tree), None)?

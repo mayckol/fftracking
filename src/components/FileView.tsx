@@ -132,6 +132,9 @@ interface Props {
   // Editor context-menu "Compare with branch or commit…": host picks a ref and
   // opens the diff (this file vs the ref's version).
   onCompareBranch?: () => void;
+  // Editor context-menu "Revert file to current branch": host discards the
+  // working changes, restoring the file to its committed (HEAD) version.
+  onRevertToBranch?: () => void;
 }
 
 type LspState = "off" | "starting" | "ready" | "error";
@@ -160,7 +163,7 @@ function MdIcon({ kind }: { kind: "raw" | "both" | "read" }) {
 }
 
 const FileView = forwardRef<FileHandle, Props>(function FileView(
-  { content, language, onSave, onDirtyChange, onEnter, path, root, gotoPos, onCursorClick, diffBase, onCopyText, onCompareBranch },
+  { content, language, onSave, onDirtyChange, onEnter, path, root, gotoPos, onCursorClick, diffBase, onCopyText, onCompareBranch, onRevertToBranch },
   ref,
 ) {
   const prefs = useUIPrefs();
@@ -217,6 +220,8 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   onCopyTextRef.current = onCopyText;
   const onCompareBranchRef = useRef(onCompareBranch);
   onCompareBranchRef.current = onCompareBranch;
+  const onRevertToBranchRef = useRef(onRevertToBranch);
+  onRevertToBranchRef.current = onRevertToBranch;
 
   // VCS-style gutter change stripes vs `diffBase`. Hunk sides: old_* indexes
   // the editor content, new_* the baseline (text_hunks swaps its args).
@@ -519,6 +524,34 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     bind("editor.shrinkSelection", () => run("editor.action.smartSelect.shrink"));
     bind("editor.jumpBracket", () => run("editor.action.jumpToBracket"));
     bind("editor.commentLine", () => run("editor.action.commentLine"));
+    // Move up/down. A multi-line selection moves as a block already. With just a
+    // caret on a foldable block header (func / if / for …), select the whole
+    // enclosing region first so the entire block travels, not the lone header
+    // line — JetBrains' "Move Statement" behaviour. Plain lines fall through to
+    // Monaco's default single-line move.
+    const moveLines = async (dir: "up" | "down") => {
+      const action = dir === "up" ? "editor.action.moveLinesUpAction" : "editor.action.moveLinesDownAction";
+      const sel = editor.getSelection();
+      const line = editor.getPosition()?.lineNumber;
+      const model = editor.getModel();
+      if (sel && sel.startLineNumber === sel.endLineNumber && line && model) {
+        const ctrl = editor.getContribution("editor.contrib.folding") as {
+          getFoldingModel?: () => Promise<{
+            getAllRegionsAtLine: (line: number) => { startLineNumber: number; endLineNumber: number }[];
+          } | null> | null;
+        } | null;
+        const fm = await ctrl?.getFoldingModel?.();
+        const block = fm?.getAllRegionsAtLine(line).find((r) => r.startLineNumber === line);
+        if (block) {
+          editor.setSelection(
+            new monaco.Range(block.startLineNumber, 1, block.endLineNumber, model.getLineMaxColumn(block.endLineNumber)),
+          );
+        }
+      }
+      run(action);
+    };
+    bind("editor.moveLineUp", () => void moveLines("up"));
+    bind("editor.moveLineDown", () => void moveLines("down"));
     bind("editor.gotoFileStart", () => editor.trigger("ff", "cursorTop", null));
     bind("editor.gotoFileEnd", () => editor.trigger("ff", "cursorBottom", null));
 
@@ -551,6 +584,13 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
         contextMenuGroupId: "navigation",
         contextMenuOrder: 5,
         run: () => onCompareBranchRef.current?.(),
+      });
+      editor.addAction({
+        id: "ff.revertToBranch",
+        label: "Revert file to current branch",
+        contextMenuGroupId: "navigation",
+        contextMenuOrder: 6,
+        run: () => onRevertToBranchRef.current?.(),
       });
     }
 

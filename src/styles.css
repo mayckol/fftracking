@@ -302,6 +302,20 @@ select:focus {
   color: var(--tx-2);
   font-weight: 500;
 }
+.update-pill {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ac);
+  background: color-mix(in srgb, var(--ac) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ac) 45%, transparent);
+  border-radius: 999px;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+.update-pill:hover {
+  background: color-mix(in srgb, var(--ac) 26%, transparent);
+}
 
 /* Selected project + branch, far left of the titlebar. */
 .project-id {
@@ -2508,40 +2522,47 @@ button.vs-tag:hover {
 .statusbar .sb-nav {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 6px;
 }
 .statusbar .sb-tabs {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 6px;
 }
 .statusbar .sb-div {
   width: 1px;
-  height: 14px;
-  margin: 0 4px;
-  background: var(--line-2);
+  height: 12px;
+  margin: 0;
+  background: var(--line);
 }
 .statusbar .sb-tab {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 19px;
+  width: 22px;
+  height: 20px;
   padding: 0;
   border: none;
-  border-radius: 5px;
+  border-radius: 6px;
   background: none;
   color: var(--tx-2);
   cursor: pointer;
-  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.statusbar .sb-tab > svg {
+  display: block;
 }
 .statusbar .sb-tab:hover {
   color: var(--tx-0);
   background: var(--bg-3);
 }
+/* Active view tab: the one accent moment in the rail — tinted fill plus a crisp
+   inset hairline so it reads as selected, not merely hovered. */
 .statusbar .sb-tab.on {
   color: var(--ac);
   background: var(--ac-glow);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ac) 32%, transparent);
 }
 /* Unresolved merge conflicts — git icon turns danger, with a count badge. */
 .statusbar .sb-tab.danger {
@@ -2574,11 +2595,13 @@ button.vs-tag:hover {
   background: var(--del);
   border-radius: 7px;
 }
-/* Toggles (project tree, history) — pressed state is subtler than the accent
-   used to mark the active view tab, so a shown tree doesn't read as "selected". */
+/* Toggles (project tree, history, terminal) — a soft pressed pill with a hairline
+   ring reads as "held down" without borrowing the accent the active view tab owns,
+   so a shown panel doesn't masquerade as the selected tab. */
 .statusbar .sb-tgl.on {
   color: var(--tx-0);
   background: var(--bg-3);
+  box-shadow: inset 0 0 0 1px var(--line-2);
 }
 .statusbar .sb-pos {
   font-variant-numeric: tabular-nums;

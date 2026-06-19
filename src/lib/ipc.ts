@@ -26,6 +26,10 @@ export const api = {
   addMonitor: (path: string, intervalSecs: number) =>
     invoke<number>("add_monitor", { path, intervalSecs }),
   listMonitors: () => invoke<MonitorRow[]>("list_monitors"),
+  takePendingOpen: () => invoke<number | null>("take_pending_open"),
+  installCli: () => invoke<string>("install_cli"),
+  installMethod: () => invoke<string>("install_method"),
+  runUpdate: () => invoke<void>("run_update"),
   startMonitor: (monitorId: number) => invoke<void>("start_monitor", { monitorId }),
   stopMonitor: (monitorId: number) => invoke<void>("stop_monitor", { monitorId }),
   setActiveMonitor: (monitorId: number) => invoke<void>("set_active_monitor", { monitorId }),

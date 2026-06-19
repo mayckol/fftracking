@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use ffcore::db::Settings;
 use ffcore::detect::{detect_workspaces, DetectedWorkspace};
@@ -23,25 +23,139 @@ fn err<T>(r: ffcore::Result<T>) -> R<T> {
     r.map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub fn add_monitor(state: State<AppState>, path: String, interval_secs: i64) -> R<i64> {
-    let root = PathBuf::from(&path);
-    let id = err(state.engine.add_monitor(&root, interval_secs, "manual"))?;
+// Adds (or re-activates) a monitor for `root` and makes it the sole captured
+// project, returning its id. Shared by the `add_monitor` command and the CLI
+// launcher (`fftrack <path>`).
+pub fn activate_monitor(state: &AppState, root: &Path, interval_secs: i64) -> ffcore::Result<i64> {
+    let id = state.engine.add_monitor(root, interval_secs, "manual")?;
     // Exclusive monitoring: the freshly added (or re-added) project becomes the
     // only one captured. Stop every other monitor before this one starts, so
     // there is never a window with two live capture threads.
-    for m in err(state.engine.list_monitors())? {
+    for m in state.engine.list_monitors()? {
         if m.id == id {
             continue;
         }
         state.manager.stop(m.id);
         if m.active {
-            err(state.engine.deactivate_monitor(m.id))?;
+            state.engine.deactivate_monitor(m.id)?;
         }
     }
-    err(state.engine.snapshot_now(id, "manual"))?;
-    err(state.manager.start(id, &root, interval_secs))?;
+    state.engine.snapshot_now(id, "manual")?;
+    state.manager.start(id, root, interval_secs)?;
     Ok(id)
+}
+
+#[tauri::command]
+pub fn add_monitor(state: State<AppState>, path: String, interval_secs: i64) -> R<i64> {
+    err(activate_monitor(&state, &PathBuf::from(&path), interval_secs))
+}
+
+#[tauri::command]
+pub fn take_pending_open(state: State<AppState>) -> Option<i64> {
+    state.pending_open.lock().ok().and_then(|mut g| g.take())
+}
+
+// Installs a `fftrack` shim on PATH so `fftrack <path>` opens that project,
+// VSCode-`code`-style. Writes to the first writable of /usr/local/bin or
+// ~/.local/bin and returns the script path.
+#[tauri::command]
+pub fn install_cli() -> R<String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    // Background + detach so the terminal returns immediately; a second
+    // invocation while running is forwarded by the single-instance plugin.
+    let script = format!("#!/bin/sh\nnohup \"{}\" \"$@\" >/dev/null 2>&1 &\n", exe.display());
+
+    let mut candidates: Vec<PathBuf> = vec![PathBuf::from("/usr/local/bin")];
+    if let Some(home) = std::env::var_os("HOME") {
+        candidates.push(PathBuf::from(home).join(".local/bin"));
+    }
+    let mut last_err = String::from("no writable bin directory found");
+    for dir in candidates {
+        if std::fs::create_dir_all(&dir).is_err() {
+            continue;
+        }
+        let dest = dir.join("fftrack");
+        match std::fs::write(&dest, &script) {
+            Ok(()) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755));
+                }
+                return Ok(dest.to_string_lossy().to_string());
+            }
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    Err(last_err)
+}
+
+// How this running build was installed, so the UI can offer the right update
+// path (and hide updates for dev builds).
+#[tauri::command]
+pub fn install_method() -> String {
+    let exe = std::env::current_exe().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    if exe.contains("/target/debug/") || exe.contains("/target/release/") {
+        "dev".into()
+    } else if exe.contains("/Applications/fftracking.app/") {
+        "dmg".into()
+    } else if exe.to_lowercase().ends_with(".appimage") || std::env::var_os("APPIMAGE").is_some() {
+        "appimage".into()
+    } else {
+        "unknown".into()
+    }
+}
+
+// Re-runs the curl installer in a visible terminal: it re-detects OS/arch and
+// replaces the app + CLIs in place. A terminal (not a silent spawn) so the user
+// sees progress and can authorize a privileged copy if /Applications needs it.
+#[tauri::command]
+pub fn run_update() -> R<()> {
+    if install_method() == "dev" {
+        return Err("This is a development build — update via your build toolchain.".into());
+    }
+    let cmd = "curl -fsSL https://raw.githubusercontent.com/mayckol/fftracking/main/scripts/install.sh | sh";
+
+    #[cfg(target_os = "macos")]
+    {
+        let osa = format!(
+            "tell application \"Terminal\"\n  activate\n  do script \"{cmd} && echo && echo 'Updated — reopen fftracking.'\"\nend tell"
+        );
+        std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(osa)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let inner =
+            format!("{cmd}; echo; echo 'Updated — reopen fftracking.'; echo 'Press Enter to close…'; read _");
+        // -e takes the command as separate args for most emulators; gnome-terminal
+        // wants it after `--`. Try each until one launches.
+        let attempts: [(&str, &[&str]); 4] = [
+            ("x-terminal-emulator", &["-e", "sh", "-c"]),
+            ("gnome-terminal", &["--", "sh", "-c"]),
+            ("konsole", &["-e", "sh", "-c"]),
+            ("xterm", &["-e", "sh", "-c"]),
+        ];
+        for (term, pre) in attempts {
+            let ok = std::process::Command::new(term)
+                .args(pre)
+                .arg(&inner)
+                .spawn()
+                .is_ok();
+            if ok {
+                return Ok(());
+            }
+        }
+        return Err("no terminal emulator found to run the updater".into());
+    }
+
+    #[allow(unreachable_code)]
+    Err("unsupported platform".into())
 }
 
 #[tauri::command]

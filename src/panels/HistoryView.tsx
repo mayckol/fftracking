@@ -807,6 +807,21 @@ export default function HistoryView({
     openFolder(dirname(file).replace(/\/$/, ""));
   }
 
+  // Discard the open file's working changes, restoring its committed (HEAD)
+  // version on the current branch. Bumps diskSync so the file view reloads the
+  // reverted content even when it carried unsaved edits.
+  async function revertToBranch() {
+    if (!repoRoot || !file || file.startsWith("/")) return;
+    try {
+      await api.gitDiscardFile(repoRoot, toRepoRel(file));
+      setDiskSync((n) => n + 1);
+      setReload((n) => n + 1);
+      toast(`Reverted ${basename(file)} to ${baseInfo?.branch ?? "current branch"}`);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
   async function deleteSnap(id: number) {
     try {
       await api.deleteSnapshot(id);
@@ -1366,6 +1381,7 @@ export default function HistoryView({
                   root={root ?? undefined}
                   onCopyText={copyToClipboard}
                   onCompareBranch={repoRoot && !file.startsWith("/") ? () => openCompare(file, "file") : undefined}
+                  onRevertToBranch={repoRoot && !file.startsWith("/") ? revertToBranch : undefined}
                   diffBase={!file.startsWith("/") && baseFor === file ? fileBase : undefined}
                   gotoPos={pendingGoto && pendingGoto.path === file ? { line: pendingGoto.line, col: pendingGoto.col } : undefined}
                   onSave={

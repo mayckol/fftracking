@@ -115,6 +115,8 @@ export const ACTIONS: ActionDef[] = [
   { id: "editor.gotoFileStart", label: "Go to first line", group: "Editor", default: "Mod+ArrowUp" },
   { id: "editor.gotoFileEnd", label: "Go to last line", group: "Editor", default: "Mod+ArrowDown" },
   { id: "editor.commentLine", label: "Toggle comment (line / selection)", group: "Editor", default: "Mod+/" },
+  { id: "editor.moveLineUp", label: "Move line / selection up", group: "Editor", default: "Mod+Shift+ArrowUp" },
+  { id: "editor.moveLineDown", label: "Move line / selection down", group: "Editor", default: "Mod+Shift+ArrowDown" },
   { id: "editor.implementations", label: "Go to implementations / specifications", group: "Editor", default: "Mod+U" },
   { id: "editor.implementIface", label: "Implement interface (generate stubs)", group: "Editor", default: "Ctrl+I" },
   // Run-test sits on the physical Ctrl key (T for test) so Linux WMs don't

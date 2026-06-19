@@ -21,12 +21,57 @@ pub struct AppState {
     pub engine: Arc<Engine>,
     pub manager: Arc<MonitorManager>,
     pub sysmon: Mutex<SelfMonitor>,
+    // A project id queued by the CLI launcher (`fftrack <path>`) on cold start,
+    // claimed once by the UI on mount so it opens that project.
+    pub pending_open: Mutex<Option<i64>>,
 }
 
 const DETECT_INTERVAL: Duration = Duration::from_secs(5);
 
+// Resolves the first non-flag CLI argument to an absolute directory, relative to
+// `cwd`. A file path resolves to its parent (the app is project/folder-based).
+fn project_arg(argv: &[String], cwd: &str) -> Option<PathBuf> {
+    let raw = argv.iter().skip(1).find(|a| !a.starts_with('-'))?;
+    let p = PathBuf::from(raw);
+    let abs = if p.is_absolute() { p } else { PathBuf::from(cwd).join(p) };
+    let abs = abs.canonicalize().unwrap_or(abs);
+    if abs.is_dir() {
+        Some(abs)
+    } else {
+        abs.parent().map(|x| x.to_path_buf())
+    }
+}
+
+// Opens the project named on the command line: adds/activates its monitor,
+// surfaces the window, and tells the UI to select it (via a queued id read on
+// mount plus an "open-project" event for an already-running instance).
+fn open_project_from_argv(app: &tauri::AppHandle, argv: &[String], cwd: &str) {
+    let Some(root) = project_arg(argv, cwd) else { return };
+    let state = app.state::<AppState>();
+    let interval = state.engine.get_settings().map(|s| s.default_interval_secs).unwrap_or(900);
+    match commands::activate_monitor(&state, &root, interval) {
+        Ok(id) => {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+            if let Ok(mut g) = state.pending_open.lock() {
+                *g = Some(id);
+            }
+            let _ = app.emit("open-project", id);
+        }
+        Err(e) => eprintln!("fftrack: could not open {}: {e}", root.display()),
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
+        // First plugin: a second `fftrack <path>` invocation forwards its argv
+        // here instead of spawning a rival instance on the same database.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            open_project_from_argv(app, &argv, &cwd);
+        }))
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets([
@@ -88,6 +133,7 @@ pub fn run() {
                 engine: engine.clone(),
                 manager: manager.clone(),
                 sysmon: Mutex::new(SelfMonitor::new()),
+                pending_open: Mutex::new(None),
             });
             app.manage(terminal::TerminalManager::default());
             app.manage(lsp::LspManager::default());
@@ -97,10 +143,20 @@ pub fn run() {
             setup_app_menu(app.handle())?;
             setup_tray(app.handle())?;
             spawn_detect_daemon(engine);
+
+            // Cold-start CLI launch: `fftrack <path>` opens that project. The id
+            // is queued in pending_open; the UI claims it on mount.
+            let argv: Vec<String> = std::env::args().collect();
+            let cwd = std::env::current_dir().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+            open_project_from_argv(app.handle(), &argv, &cwd);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::add_monitor,
+            commands::take_pending_open,
+            commands::install_cli,
+            commands::install_method,
+            commands::run_update,
             commands::list_monitors,
             commands::start_monitor,
             commands::stop_monitor,
