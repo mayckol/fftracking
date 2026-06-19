@@ -65,6 +65,22 @@ pub(crate) fn go_child_path(bin: &Path) -> String {
     dirs.join(":")
 }
 
+// Resolve a node-ecosystem launcher to an absolute path next to the system
+// Node, so a GUI app's stripped PATH doesn't break the JS run buttons. Returns
+// None for non-node programs (run uses them as-is) or when Node isn't found.
+fn resolve_node_tool(program: &str) -> Option<PathBuf> {
+    const TOOLS: &[&str] = &["node", "npm", "npx", "pnpm", "yarn", "bun", "bunx"];
+    if !TOOLS.contains(&program) {
+        return None;
+    }
+    let node = crate::lsp::find_node()?;
+    if program == "node" {
+        return Some(node);
+    }
+    let cand = node.parent()?.join(program);
+    cand.is_file().then_some(cand)
+}
+
 /// PATH for a child Node tool (vtsls): its own dir, then the inherited PATH.
 /// GUI-launched apps inherit a stripped PATH that omits the Node install, so
 /// vtsls's tsserver workers (and any `npm`/`node` it shells out to) would find
@@ -114,7 +130,10 @@ impl RunManager {
                 "go not found. Install Go and make sure it is on your PATH.".to_string()
             })?
         } else {
-            PathBuf::from(&program)
+            // Node-ecosystem launchers (node/npm/npx/pnpm/yarn/bun) sit in the
+            // Node install dir, which a GUI app's stripped PATH omits — resolve
+            // them to an absolute path so the run buttons work in a packaged app.
+            resolve_node_tool(&program).unwrap_or_else(|| PathBuf::from(&program))
         };
 
         let mut cmd = Command::new(&bin);

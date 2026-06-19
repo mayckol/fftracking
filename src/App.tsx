@@ -11,7 +11,7 @@ import { getScopeDir } from "./lib/searchScope";
 import { pollWhileVisible } from "./lib/poll";
 import { checkUpdate, runUpdate, type UpdateState } from "./lib/update";
 import { setTerminalOpener } from "./lib/runner";
-import { getRunSnapshot, setRunOpener, subscribeRun } from "./lib/run";
+import { getRunSnapshot, resetRun, setRunOpener, subscribeRun } from "./lib/run";
 import { restartLsp } from "./lib/lsp";
 import {
   dbgResume,
@@ -206,6 +206,12 @@ export default function App() {
   // Remember the active project across restarts.
   useEffect(() => {
     if (selected != null) localStorage.setItem(LAST_PROJECT_KEY, String(selected));
+  }, [selected]);
+
+  // A run belongs to the project it was started in — switching projects stops it
+  // and clears the panel so the new project never shows the old one's output.
+  useEffect(() => {
+    void resetRun();
   }, [selected]);
 
   // Exclusive monitoring: the selected project is the only one captured.

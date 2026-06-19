@@ -7,6 +7,7 @@
 export interface AnsiSpan {
   text: string;
   color?: string;
+  bg?: string;
   bold?: boolean;
   dim?: boolean;
   underline?: boolean;
@@ -28,6 +29,7 @@ const STRIP = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]|\x1b\[[0-9;?]*[A-
 export function parseAnsi(input: string): AnsiSpan[] {
   const spans: AnsiSpan[] = [];
   let color: string | undefined;
+  let bg: string | undefined;
   let bold = false;
   let dim = false;
   let underline = false;
@@ -38,21 +40,24 @@ export function parseAnsi(input: string): AnsiSpan[] {
     if (sgr) {
       const codes = sgr[1] === "" ? [0] : sgr[1].split(";").map(Number);
       for (const c of codes) {
-        if (c === 0) { color = undefined; bold = dim = underline = false; }
+        if (c === 0) { color = bg = undefined; bold = dim = underline = false; }
         else if (c === 1) bold = true;
         else if (c === 2) dim = true;
         else if (c === 4) underline = true;
         else if (c === 22) { bold = false; dim = false; }
         else if (c === 24) underline = false;
         else if (c === 39) color = undefined;
+        else if (c === 49) bg = undefined;
         else if (c in FG) color = FG[c];
+        // Background colours (40-47, 100-107) share the foreground palette.
+        else if (c - 10 in FG && ((c >= 40 && c <= 47) || (c >= 100 && c <= 107))) bg = FG[c - 10];
         // Bright a normal colour when bold is set, matching most terminals.
         if (bold && color && c >= 30 && c <= 37 && c + 60 in FG) color = FG[c + 60];
       }
       continue;
     }
     const text = part.replace(STRIP, "");
-    if (text) spans.push({ text, color, bold, dim, underline });
+    if (text) spans.push({ text, color, bg, bold, dim, underline });
   }
   return spans;
 }

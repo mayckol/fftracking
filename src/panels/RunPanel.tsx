@@ -65,11 +65,13 @@ export default function RunPanel({ height, onResize, onClose }: Props) {
             return (
               <span key={i} className={`dbg-line ${l.kind}`}>
                 {spans.map((sp, j) =>
-                  sp.color || sp.bold || sp.dim || sp.underline ? (
+                  sp.color || sp.bg || sp.bold || sp.dim || sp.underline ? (
                     <span
                       key={j}
                       style={{
                         color: sp.color,
+                        backgroundColor: sp.bg,
+                        borderRadius: sp.bg ? 3 : undefined,
                         fontWeight: sp.bold ? 600 : undefined,
                         opacity: sp.dim ? 0.65 : undefined,
                         textDecoration: sp.underline ? "underline" : undefined,

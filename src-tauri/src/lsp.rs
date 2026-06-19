@@ -89,8 +89,9 @@ fn parse_node_version(name: &str) -> Option<(u64, u64, u64)> {
 
 /// Locate the system Node binary. GUI-launched apps inherit a stripped PATH
 /// that omits Node, so probe absolute install locations (incl. version
-/// managers) before a PATH search. vtsls and its tsserver workers need Node.
-fn find_node() -> Option<PathBuf> {
+/// managers) before a PATH search. vtsls and its tsserver workers need Node;
+/// the run layer reuses this to resolve node/npm/npx/pnpm/yarn.
+pub(crate) fn find_node() -> Option<PathBuf> {
     let mut cands = vec![
         PathBuf::from("/opt/homebrew/bin/node"),
         PathBuf::from("/usr/local/bin/node"),

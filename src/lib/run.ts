@@ -65,6 +65,18 @@ export function clearRun() {
   emit();
 }
 
+/** Stop any running process and wipe the panel — the run is tied to a project,
+ *  so switching projects must not carry the previous one's output (or child)
+ *  over. */
+export async function resetRun() {
+  await stopRun();
+  lines = [];
+  state.status = "idle";
+  state.title = "";
+  state.exitCode = null;
+  emit();
+}
+
 function emit() {
   subs.forEach((cb) => cb());
 }

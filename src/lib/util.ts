@@ -46,9 +46,12 @@ const LANG: Record<string, string> = {
 };
 
 export function langOf(path: string): string {
+  // Plugins first so an enabled one can override the builtin id (JSX claims
+  // .tsx→typescriptreact / .jsx→javascriptreact; Vue claims .vue) and so plugin
+  // languages (.env, go.mod) still resolve. Disabled plugins claim nothing, so
+  // the builtin map below stays the default.
+  const plugin = languageForPath(path);
+  if (plugin) return plugin;
   const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  const builtin = LANG[ext];
-  if (builtin) return builtin;
-  // Unknown extension: an enabled plugin may claim it (e.g. dotenv for .env).
-  return languageForPath(path) ?? "plaintext";
+  return LANG[ext] ?? "plaintext";
 }

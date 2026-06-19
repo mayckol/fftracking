@@ -54,7 +54,7 @@ uninstall() {
       rm -rf "/Applications/fftracking.app" 2>/dev/null || true
       ;;
     Linux)
-      rm -f "$PREFIX/bin/fftracking" 2>/dev/null || true
+      rm -f "$PREFIX/bin/fftracking" "$PREFIX/bin/fftracking.AppImage" 2>/dev/null || true
       rm -f "$PREFIX/share/applications/fftracking.desktop" 2>/dev/null || true
       rm -f "$PREFIX/share/icons/hicolor/256x256/apps/fftracking.png" 2>/dev/null || true
       command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$PREFIX/share/applications" >/dev/null 2>&1 || true
@@ -131,15 +131,40 @@ case "$os_raw" in
     case "$arch_raw" in x86_64|amd64) : ;; *) fail "Linux build is x86_64 only; got $arch_raw" ;; esac
     ASSET="$(resolve_asset '_amd64\.AppImage')"; [ -n "$ASSET" ] || ASSET="fftracking_${VER_NUM}_amd64.AppImage"
     BIN_DIR="$PREFIX/bin"; mkdir -p "$BIN_DIR"
+    # The AppImage runtime keeps the terminal attached until the app quits, so
+    # `fftracking <path>` would block the shell. Install the AppImage under its
+    # own name and front it with a `fftracking` wrapper that detaches (nohup &),
+    # mirroring the in-app `fftrack` launcher.
+    APP="$BIN_DIR/fftracking.AppImage"
     BIN="$BIN_DIR/fftracking"
     log "downloading $ASSET"
     # Download to a sibling temp file and atomically rename over the old one, so
     # updating works while the app is running (writing a busy executable in place
     # fails with "text file busy" and would force a manual delete first).
-    $DL "$BASE/$ASSET" > "$BIN.new" || { rm -f "$BIN.new"; fail "download failed: $BASE/$ASSET"; }
+    $DL "$BASE/$ASSET" > "$APP.new" || { rm -f "$APP.new"; fail "download failed: $BASE/$ASSET"; }
+    chmod +x "$APP.new"
+    mv -f "$APP.new" "$APP"
+
+    # Wrapper: resolve a relative path to absolute before detaching (the AppImage
+    # chdir's into its mount, so a relative arg would resolve against /tmp/.mount_*
+    # instead of the shell's cwd). No arg → open the app with no project.
+    cat > "$BIN.new" <<WRAP
+#!/bin/sh
+app="$APP"
+if [ "\$#" -eq 0 ]; then
+  nohup "\$app" >/dev/null 2>&1 &
+else
+  d="\$1"
+  case "\$d" in
+    /*) p="\$d" ;;
+    *) p="\$(cd "\$d" 2>/dev/null && pwd)" || p="\$(pwd)/\$d" ;;
+  esac
+  nohup "\$app" "\$p" >/dev/null 2>&1 &
+fi
+WRAP
     chmod +x "$BIN.new"
     mv -f "$BIN.new" "$BIN"
-    log "installed: $BIN"
+    log "installed: $APP (launcher: $BIN)"
 
     # Desktop integration: a .desktop launcher + icon under XDG dirs so the app
     # shows in the application menu with an icon (the binary alone does not).
@@ -149,7 +174,7 @@ case "$os_raw" in
 
     # Pull the icon out of the AppImage (extraction needs no FUSE); fall back to
     # the repo's bundled icon if the runtime can't extract.
-    ( cd "$TMP" && "$BIN" --appimage-extract 'usr/share/icons/*' >/dev/null 2>&1 ) || true
+    ( cd "$TMP" && "$APP" --appimage-extract 'usr/share/icons/*' >/dev/null 2>&1 ) || true
     ICON_SRC="$(find "$TMP/squashfs-root" -name 'fftracking.png' -printf '%s %p\n' 2>/dev/null | sort -rn | head -n1 | cut -d' ' -f2-)"
     if [ -n "${ICON_SRC:-}" ] && [ -f "$ICON_SRC" ]; then
       cp "$ICON_SRC" "$ICON_DIR/fftracking.png"
@@ -164,7 +189,7 @@ case "$os_raw" in
 Type=Application
 Name=fftracking
 Comment=Local file-history & breaking-point tracker
-Exec="$BIN"
+Exec="$APP"
 Icon=fftracking
 Terminal=false
 Categories=Development;Utility;

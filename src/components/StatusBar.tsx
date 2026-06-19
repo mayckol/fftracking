@@ -9,6 +9,9 @@ const LANG_LABEL: Record<string, string> = {
   rust: "Rust",
   typescript: "TypeScript",
   javascript: "JavaScript",
+  typescriptreact: "TypeScript React",
+  javascriptreact: "JavaScript React",
+  vue: "Vue",
   python: "Python",
   ruby: "Ruby",
   java: "Java",
@@ -29,6 +32,8 @@ const LSP_SERVER: Record<string, string> = {
   go: "gopls",
   typescript: "vtsls",
   javascript: "vtsls",
+  typescriptreact: "vtsls",
+  javascriptreact: "vtsls",
 };
 function lspServerName(language: string): string {
   return LSP_SERVER[language] ?? "LSP";

@@ -20,6 +20,19 @@ import { buildStubs, packageNameOf } from "../lib/implement";
 import { applyImportGrouping, cachedGoImportsConfig, importPlanner } from "../lib/goimports";
 import { registerEditor } from "../lib/selection";
 import { startRun, type RunSpec } from "../lib/run";
+import { basename } from "../lib/util";
+import {
+  detectPm,
+  detectTestFramework,
+  fileRunSpec,
+  isJsTsTestFile,
+  isShellOrJsFile,
+  nearestPackageDir,
+  pkgScriptSpec,
+  testRunSpec,
+  type Pm,
+  type TestFramework,
+} from "../lib/jsRunner";
 import { breakpointLines, subscribeBreakpoints, toggleBreakpoint } from "../lib/breakpoints";
 import {
   getDebugSnapshot,
@@ -145,7 +158,8 @@ interface Props {
 type LspState = "off" | "starting" | "ready" | "error";
 
 // Languages that get a real language server (gopls / vtsls).
-const LSP_LANGS = new Set(["go", "typescript", "javascript"]);
+const TS_LANGS = ["typescript", "javascript", "typescriptreact", "javascriptreact"];
+const LSP_LANGS = new Set(["go", ...TS_LANGS]);
 
 function MdIcon({ kind }: { kind: "raw" | "both" | "read" }) {
   return (
@@ -988,6 +1002,191 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       }
     }
 
+    // package.json: a run glyph on each "scripts" entry → `<pm> run <name>` in
+    // the Run panel, from the package.json's own directory (package manager
+    // detected from the lockfile / packageManager field).
+    if (path && basename(path) === "package.json") {
+      const pkgModel = editor.getModel();
+      if (pkgModel) {
+        const dir = path.slice(0, path.lastIndexOf("/")) || "/";
+        let pm: Pm = "npm";
+        const scriptByLine = new Map<number, string>();
+        let pkgDecos: string[] = [];
+        const scanScripts = () => {
+          scriptByLine.clear();
+          const full = pkgModel.getValue();
+          const sm = /"scripts"\s*:\s*\{/.exec(full);
+          if (sm) {
+            // String-aware brace match so a `}` inside a script command doesn't
+            // end the block early.
+            const startBrace = sm.index + sm[0].length - 1;
+            let depth = 0;
+            let end = full.length;
+            let inStr = false;
+            let esc = false;
+            for (let p = startBrace; p < full.length; p++) {
+              const ch = full[p];
+              if (inStr) {
+                if (esc) esc = false;
+                else if (ch === "\\") esc = true;
+                else if (ch === '"') inStr = false;
+                continue;
+              }
+              if (ch === '"') inStr = true;
+              else if (ch === "{") depth++;
+              else if (ch === "}" && --depth === 0) {
+                end = p;
+                break;
+              }
+            }
+            const startLine = pkgModel.getPositionAt(startBrace).lineNumber;
+            const endLine = pkgModel.getPositionAt(end).lineNumber;
+            for (let i = startLine; i <= endLine; i++) {
+              const m = /^\s*"([^"]+)"\s*:\s*"/.exec(pkgModel.getLineContent(i));
+              if (m) scriptByLine.set(i, m[1]);
+            }
+          }
+          pkgDecos = editor.deltaDecorations(
+            pkgDecos,
+            [...scriptByLine.entries()].map(([line, name]) => ({
+              range: new monaco.Range(line, 1, line, 1),
+              options: {
+                glyphMarginClassName: "test-glyph test-fn",
+                glyphMarginHoverMessage: { value: `Run \`${pm} run ${name}\`` },
+              },
+            })),
+          );
+        };
+        scanScripts();
+        detectPm(dir).then((p) => {
+          pm = p;
+          if (!pkgModel.isDisposed()) scanScripts();
+        });
+        let pkgTimer = 0;
+        pkgModel.onDidChangeContent(() => {
+          window.clearTimeout(pkgTimer);
+          pkgTimer = window.setTimeout(scanScripts, 400);
+        });
+        editor.onMouseDown((e) => {
+          if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
+          const name = e.target.position ? scriptByLine.get(e.target.position.lineNumber) : undefined;
+          if (!name) return;
+          e.event.preventDefault();
+          startRun(pkgScriptSpec(dir, pm, name));
+        });
+        bind("test.run", () => {
+          const line = editor.getPosition()?.lineNumber ?? 1;
+          let best: string | null = null;
+          for (const [l, n] of scriptByLine) {
+            if (l > line) break;
+            best = n;
+          }
+          if (best) startRun(pkgScriptSpec(dir, pm, best));
+        });
+      }
+    }
+
+    // Standalone file run: a glyph on line 1 → `bash <file>` (shell, any
+    // project) or `node <file>` (plain JS). Test files are handled below instead.
+    if (path && isShellOrJsFile(path) && !isJsTsTestFile(path)) {
+      const fileModel = editor.getModel();
+      if (fileModel) {
+        let cwd = path.slice(0, path.lastIndexOf("/")) || "/";
+        // Node files resolve from the nearest project dir (its node_modules);
+        // shell scripts run from their own directory.
+        if (/\.(js|mjs|cjs)$/i.test(path)) {
+          nearestPackageDir(path, root ?? null).then((d) => {
+            cwd = d;
+          });
+        }
+        editor.deltaDecorations(
+          [],
+          [
+            {
+              range: new monaco.Range(1, 1, 1, 1),
+              options: {
+                glyphMarginClassName: "test-glyph test-fn",
+                glyphMarginHoverMessage: { value: `Run ${basename(path)}` },
+              },
+            },
+          ],
+        );
+        const run = () => {
+          const spec = fileRunSpec(path, cwd);
+          if (spec) startRun(spec);
+        };
+        editor.onMouseDown((e) => {
+          if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
+          if (e.target.position?.lineNumber !== 1) return;
+          e.event.preventDefault();
+          run();
+        });
+        bind("test.run", run);
+      }
+    }
+
+    // JS/TS tests: a run glyph on each describe()/it()/test() → run that test
+    // (name-filtered) with the project's framework (vitest / jest / mocha /
+    // node:test), package manager + framework detected from package.json.
+    if (path && root && isJsTsTestFile(path)) {
+      const tModel = editor.getModel();
+      if (tModel) {
+        let pm: Pm = "npm";
+        let framework: TestFramework | null = null;
+        let projectDir = path.slice(0, path.lastIndexOf("/")) || "/";
+        let relFile = basename(path);
+        const testByLine = new Map<number, { kind: "suite" | "test"; name: string }>();
+        let tDecos: string[] = [];
+        const scan = () => {
+          testByLine.clear();
+          for (let i = 1; i <= tModel.getLineCount(); i++) {
+            // describe / it / test, incl. .only / .skip / .each modifiers.
+            const m = /\b(describe|it|test)\s*(?:\.\w+)?\s*\(\s*(['"`])([^'"`]+)\2/.exec(tModel.getLineContent(i));
+            if (m) testByLine.set(i, { kind: m[1] === "describe" ? "suite" : "test", name: m[3] });
+          }
+          tDecos = editor.deltaDecorations(
+            tDecos,
+            [...testByLine.entries()].map(([line, t]) => ({
+              range: new monaco.Range(line, 1, line, 1),
+              options: {
+                glyphMarginClassName: `test-glyph ${t.kind === "suite" ? "test-pkg" : "test-fn"}`,
+                glyphMarginHoverMessage: { value: `Run test **${t.name}**` },
+              },
+            })),
+          );
+        };
+        scan();
+        void (async () => {
+          projectDir = await nearestPackageDir(path, root);
+          relFile = path.startsWith(`${projectDir}/`) ? path.slice(projectDir.length + 1) : basename(path);
+          [pm, framework] = await Promise.all([detectPm(projectDir), detectTestFramework(projectDir)]);
+        })();
+        let tTimer = 0;
+        tModel.onDidChangeContent(() => {
+          window.clearTimeout(tTimer);
+          tTimer = window.setTimeout(scan, 400);
+        });
+        const runTest = (name?: string) =>
+          startRun(testRunSpec({ projectDir, relFile, pm, framework, testName: name }));
+        editor.onMouseDown((e) => {
+          if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
+          const t = e.target.position ? testByLine.get(e.target.position.lineNumber) : undefined;
+          if (!t) return;
+          e.event.preventDefault();
+          runTest(t.name);
+        });
+        bind("test.run", () => {
+          const line = editor.getPosition()?.lineNumber ?? 1;
+          let best: { name: string } | null = null;
+          for (const [l, t] of testByLine) {
+            if (l > line) break;
+            best = t;
+          }
+          runTest(best?.name);
+        });
+      }
+    }
+
     // Breakpoints: click the line-number gutter (or empty glyph margin) to
     // toggle; while paused, the current execution line is highlighted.
     if (language === "go" && path && root) {
@@ -1270,7 +1469,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
 
     // JS/TS language server (vtsls). No glyph-margin / impl / breakpoint wiring —
     // those stay Go-only; this arm is diagnostics + the shared editor providers.
-    if ((language === "typescript" || language === "javascript") && path && root) {
+    if (TS_LANGS.includes(language) && path && root) {
       const model = editor.getModel();
       if (model) {
         setLsp("starting");
@@ -1448,10 +1647,14 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
         onMount={onMount}
         options={{
           // Go files own the glyph margin: implementation markers (LSP) and
-          // test-run icons live there. Makefiles use it for target run icons.
-          // Kept in this options object — it is re-applied on every render, so a
-          // one-off updateOptions would be silently reverted.
-          glyphMargin: language === "go" || language === "makefile",
+          // test-run icons live there. Makefiles, package.json scripts, shell/JS
+          // files and JS/TS tests use it for run icons. Kept in this options
+          // object — re-applied on every render, so a one-off updateOptions would
+          // be silently reverted.
+          glyphMargin:
+            language === "go" ||
+            language === "makefile" ||
+            (!!path && (basename(path) === "package.json" || isShellOrJsFile(path) || isJsTsTestFile(path))),
           // Off by default in Monaco; without it gopls semantic tokens are
           // requested but never painted.
           "semanticHighlighting.enabled": true,

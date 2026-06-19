@@ -93,7 +93,7 @@ export function activePlugins(): FFPlugin[] {
 // The Monaco language id an active plugin claims for this path, or null.
 export function languageForPath(path: string): string | null {
   for (const p of activePlugins()) {
-    if (p.language?.matches(path)) return p.language.id;
+    if (p.language?.matches(path)) return p.language.idForPath?.(path) ?? p.language.id;
   }
   return null;
 }

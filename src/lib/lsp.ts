@@ -393,7 +393,9 @@ const GO_PROFILE: LspProfile = {
 
 const TS_PROFILE: LspProfile = {
   server: "vtsls",
-  languageIds: ["typescript", "javascript"],
+  // The *react variants are the ids the JSX plugin routes .tsx/.jsx to; keep
+  // them here so vtsls providers + semantic tokens cover those models too.
+  languageIds: ["typescript", "javascript", "typescriptreact", "javascriptreact"],
   didOpenLanguageId: tsLanguageId,
   initializationOptions: { hostInfo: "fftracking" },
   settings: VTSLS_SETTINGS,
@@ -409,7 +411,7 @@ const PROFILES: Record<ServerId, LspProfile> = { gopls: GO_PROFILE, vtsls: TS_PR
 
 export function profileForLanguage(language: string): LspProfile | null {
   if (language === "go") return GO_PROFILE;
-  if (language === "typescript" || language === "javascript") return TS_PROFILE;
+  if (TS_PROFILE.languageIds.includes(language)) return TS_PROFILE;
   return null;
 }
 

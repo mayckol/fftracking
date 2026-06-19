@@ -24,6 +24,9 @@ export interface PluginLanguage {
   id: string;
   // Whether this plugin's language should drive the given file path.
   matches(path: string): boolean;
+  // When a plugin defines several ids (e.g. .tsx→typescriptreact, .jsx→
+  // javascriptreact), the per-path id; defaults to `id`.
+  idForPath?(path: string): string | null;
   // Register the language + grammar with a Monaco instance. Called at most once
   // per instance (the registry guards against duplicate registration).
   register(monaco: Monaco): void;
