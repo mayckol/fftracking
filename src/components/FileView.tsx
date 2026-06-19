@@ -135,6 +135,10 @@ interface Props {
   // Editor context-menu "Revert file to current branch": host discards the
   // working changes, restoring the file to its committed (HEAD) version.
   onRevertToBranch?: () => void;
+  // Editor context-menu "Split editor": open this file in a second pane beside
+  // ("right") or below ("down") the current one.
+  onSplitRight?: () => void;
+  onSplitDown?: () => void;
 }
 
 type LspState = "off" | "starting" | "ready" | "error";
@@ -163,7 +167,7 @@ function MdIcon({ kind }: { kind: "raw" | "both" | "read" }) {
 }
 
 const FileView = forwardRef<FileHandle, Props>(function FileView(
-  { content, language, onSave, onDirtyChange, onEnter, path, root, gotoPos, onCursorClick, diffBase, onCopyText, onCompareBranch, onRevertToBranch },
+  { content, language, onSave, onDirtyChange, onEnter, path, root, gotoPos, onCursorClick, diffBase, onCopyText, onCompareBranch, onRevertToBranch, onSplitRight, onSplitDown },
   ref,
 ) {
   const prefs = useUIPrefs();
@@ -222,6 +226,10 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   onCompareBranchRef.current = onCompareBranch;
   const onRevertToBranchRef = useRef(onRevertToBranch);
   onRevertToBranchRef.current = onRevertToBranch;
+  const onSplitRightRef = useRef(onSplitRight);
+  onSplitRightRef.current = onSplitRight;
+  const onSplitDownRef = useRef(onSplitDown);
+  onSplitDownRef.current = onSplitDown;
 
   // VCS-style gutter change stripes vs `diffBase`. Hunk sides: old_* indexes
   // the editor content, new_* the baseline (text_hunks swaps its args).
@@ -591,6 +599,20 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
         contextMenuGroupId: "navigation",
         contextMenuOrder: 6,
         run: () => onRevertToBranchRef.current?.(),
+      });
+      editor.addAction({
+        id: "ff.splitRight",
+        label: "Split editor right",
+        contextMenuGroupId: "1_split",
+        contextMenuOrder: 1,
+        run: () => onSplitRightRef.current?.(),
+      });
+      editor.addAction({
+        id: "ff.splitDown",
+        label: "Split editor down",
+        contextMenuGroupId: "1_split",
+        contextMenuOrder: 2,
+        run: () => onSplitDownRef.current?.(),
       });
     }
 

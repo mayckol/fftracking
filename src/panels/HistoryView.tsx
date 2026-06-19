@@ -14,9 +14,11 @@ import ConfirmModal from "../components/ConfirmModal";
 import ChangedTree from "./ChangedTree";
 import ProjectTree, { type ProjectTreeHandle } from "./ProjectTree";
 import FileView, { type FileHandle } from "../components/FileView";
+import EditorPane, { type EditorPaneHandle } from "./EditorPane";
 import Splitter from "../components/Splitter";
 import Timeline from "./Timeline";
 import { FileTypeIcon } from "../components/FileTypeIcon";
+import { CtxShortcut } from "../components/CtxShortcut";
 import { usePlugins } from "../lib/plugins/registry";
 
 interface Props {
@@ -80,6 +82,16 @@ export default function HistoryView({
   // Open editor tabs (path + which view). `file`/`openKind` point at the active
   // one; max count and overflow behaviour come from UI prefs.
   const [tabs, setTabs] = useState<EditorTab[]>([]);
+  // Split editor: a secondary pane beside ("v") or below ("h") the primary one,
+  // null = single pane. `activePane` is where tree/editor opens land; the second
+  // pane owns its own tabs via EditorPane.
+  const [split, setSplit] = useState<"v" | "h" | null>(null);
+  const [activePane, setActivePane] = useState<0 | 1>(0);
+  const [pane2Init, setPane2Init] = useState<string | null>(null);
+  const [pane2Px, setPane2Px] = useState(520);
+  const pane2Ref = useRef<EditorPaneHandle | null>(null);
+  // Right-click context menu on an editor tab.
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tab: EditorTab } | null>(null);
   // Paths with unsaved edits → render a dot in the tab. Reported by FileView.
   const [dirtyPaths, setDirtyPaths] = useState<Set<string>>(new Set());
   const markDirty = useCallback((path: string, dirty: boolean) => {
@@ -240,10 +252,42 @@ export default function HistoryView({
   };
 
   const openFile = (path: string) => {
+    // When the split's second pane holds focus, tree clicks land there.
+    if (split != null && activePane === 1) {
+      pane2Ref.current?.openFile(path);
+      return;
+    }
     recordNav({ path, line: 1, col: 1 });
     openTab(path, "file");
   };
   const openChange = (path: string) => openTab(path, "diff");
+
+  // Open `path` in the side pane (creating the split if needed) and focus it.
+  const openInPane2 = (path: string, dir: "v" | "h" = "v") => {
+    if (split == null) {
+      setPane2Init(path);
+      setSplit(dir);
+    } else {
+      setSplit(dir);
+      pane2Ref.current?.openFile(path);
+    }
+    setActivePane(1);
+  };
+  // Split the editor; seed the new pane with the primary's current file.
+  const splitActive = (dir: "v" | "h") => {
+    if (split == null) {
+      setPane2Init(openKind === "file" ? file : null);
+      setSplit(dir);
+      setActivePane(1);
+    } else {
+      setSplit(dir);
+    }
+  };
+  const closeSplit = () => {
+    setSplit(null);
+    setActivePane(0);
+    setPane2Init(null);
+  };
 
   const closeTab = (t: EditorTab) => {
     const idx = tabs.findIndex((x) => x.path === t.path && x.kind === t.kind);
@@ -1151,6 +1195,9 @@ export default function HistoryView({
   useShortcut("diff.nextChange", () => navDiff("next"), inAnyDiff);
   useShortcut("diff.prevChange", () => navDiff("prev"), inAnyDiff);
   useShortcut("diff.layout", () => setInline((v) => !v), inAnyDiff);
+  useShortcut("editor.splitRight", () => splitActive("v"));
+  useShortcut("editor.splitDown", () => splitActive("h"));
+  useShortcut("editor.closeSplit", () => closeSplit(), !!split);
   // Block revert / undo / redo target whichever diff is mounted.
   const activeDiff = () => (branchDiff ? branchDiffApi.current : diffApi.current);
   useShortcut("diff.revertBlock", () => activeDiff()?.revertCurrent(), inAnyDiff);
@@ -1296,6 +1343,7 @@ export default function HistoryView({
                   changedFiles={treeChanged}
                   rootPath={root}
                   onSelect={openFile}
+                  onOpenSide={openInPane2}
                   onOpen={(p) => api.openPath(monitorId, p).catch((e) => toast(String(e), true))}
                   onReveal={(p) => api.revealPath(monitorId, p).catch((e) => toast(String(e), true))}
                   onShowHistory={(p) => {
@@ -1324,7 +1372,8 @@ export default function HistoryView({
         </>
         )}
 
-      <div className="col main">
+      <div className={`editor-area${split ? ` split-${split}` : ""}`}>
+      <div className="col main" onMouseDown={() => setActivePane(0)}>
         {tabs.length > 0 && (
           <div className="tabbar">
             {tabs.map((t) => {
@@ -1337,6 +1386,10 @@ export default function HistoryView({
                   onClick={() => {
                     if (t.kind === "file") recordNav({ path: t.path, line: 1, col: 1 });
                     activate(t);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setTabMenu({ x: e.clientX, y: e.clientY, tab: t });
                   }}
                   onAuxClick={(e) => e.button === 1 && closeTab(t)}
                 >
@@ -1363,6 +1416,29 @@ export default function HistoryView({
                 </div>
               );
             })}
+            <span className="tab-actions">
+              <button
+                className="tab-act"
+                title="New file"
+                onClick={() => setDialog({ kind: "newFile", dir: "", value: "" })}
+              >
+                +
+              </button>
+              <button
+                className={`tab-act${split === "v" ? " on" : ""}`}
+                title="Split right (side by side)"
+                onClick={() => (split === "v" ? closeSplit() : splitActive("v"))}
+              >
+                ⊟
+              </button>
+              <button
+                className={`tab-act${split === "h" ? " on" : ""}`}
+                title="Split down (stacked)"
+                onClick={() => (split === "h" ? closeSplit() : splitActive("h"))}
+              >
+                ⊞
+              </button>
+            </span>
           </div>
         )}
         {branchDiff ? (
@@ -1452,6 +1528,8 @@ export default function HistoryView({
                   onCopyText={copyToClipboard}
                   onCompareBranch={repoRoot && !file.startsWith("/") ? () => openCompare(file, "file") : undefined}
                   onRevertToBranch={repoRoot && !file.startsWith("/") ? revertToBranch : undefined}
+                  onSplitRight={() => splitActive("v")}
+                  onSplitDown={() => splitActive("h")}
                   diffBase={!file.startsWith("/") && baseFor === file ? fileBase : undefined}
                   gotoPos={pendingGoto && pendingGoto.path === file ? { line: pendingGoto.line, col: pendingGoto.col } : undefined}
                   onSave={
@@ -1577,7 +1655,62 @@ export default function HistoryView({
         )}
         {bottom}
       </div>
+      {split && (
+        <>
+          <Splitter
+            dir={split === "v" ? "x" : "y"}
+            onDelta={(d) => setPane2Px((px) => Math.max(240, Math.min(1400, px - d)))}
+          />
+          <EditorPane
+            ref={pane2Ref}
+            monitorId={monitorId}
+            root={root ?? null}
+            baseInfo={baseInfo}
+            latestSnap={latestSnap}
+            initialFile={pane2Init}
+            dirtyPaths={dirtyPaths}
+            reloadKey={reload + diskSync}
+            onMarkDirty={markDirty}
+            onFocus={() => setActivePane(1)}
+            onClose={closeSplit}
+            onCopyText={copyToClipboard}
+            toast={toast}
+            style={{ flex: `0 0 ${pane2Px}px` }}
+          />
+        </>
+      )}
       </div>
+      </div>
+
+      {tabMenu && (
+        <>
+          <div className="ctx-backdrop" onClick={() => setTabMenu(null)} onContextMenu={(e) => { e.preventDefault(); setTabMenu(null); }} />
+          <div className="ctx-menu" style={{ left: tabMenu.x, top: tabMenu.y }}>
+            {tabMenu.tab.kind === "file" && (
+              <>
+                <button onClick={() => { openInPane2(tabMenu.tab.path, "v"); setTabMenu(null); }}>
+                  Split right<CtxShortcut id="editor.splitRight" />
+                </button>
+                <button onClick={() => { openInPane2(tabMenu.tab.path, "h"); setTabMenu(null); }}>
+                  Split down<CtxShortcut id="editor.splitDown" />
+                </button>
+                <div className="ctx-sep" />
+              </>
+            )}
+            <button onClick={() => { closeTab(tabMenu.tab); setTabMenu(null); }}>Close</button>
+            <button
+              onClick={() => {
+                setTabs((prev) => prev.filter((x) => x.path === tabMenu.tab.path && x.kind === tabMenu.tab.kind));
+                activate(tabMenu.tab);
+                setTabMenu(null);
+              }}
+            >
+              Close others
+            </button>
+            <button onClick={() => { setTabs([]); setFile(null); setTabMenu(null); }}>Close all</button>
+          </div>
+        </>
+      )}
 
       {dialog?.kind === "label" && (
         <div className="modal-overlay" onClick={() => setDialog(null)}>

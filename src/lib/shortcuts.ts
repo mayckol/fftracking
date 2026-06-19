@@ -119,6 +119,9 @@ export const ACTIONS: ActionDef[] = [
   { id: "editor.moveLineDown", label: "Move line / selection down", group: "Editor", default: "Mod+Shift+ArrowDown" },
   { id: "editor.implementations", label: "Go to implementations / specifications", group: "Editor", default: "Mod+U" },
   { id: "editor.implementIface", label: "Implement interface (generate stubs)", group: "Editor", default: "Ctrl+I" },
+  { id: "editor.splitRight", label: "Split editor right (side by side)", group: "Editor", default: "Mod+\\" },
+  { id: "editor.splitDown", label: "Split editor down (stacked)", group: "Editor", default: "Mod+Shift+\\" },
+  { id: "editor.closeSplit", label: "Close split pane", group: "Editor", default: "Mod+Alt+\\" },
   // Run-test sits on the physical Ctrl key (T for test) so Linux WMs don't
   // swallow it; moved off Shift+R so it no longer shares a physical chord with
   // search.replace (Mod+Shift+R) under the PC keymap, where Mod is physical Ctrl.

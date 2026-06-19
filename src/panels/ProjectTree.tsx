@@ -29,6 +29,7 @@ interface Props {
   rootPath?: string | null;
   onSelect: (path: string) => void;
   onOpen?: (path: string) => void;
+  onOpenSide?: (path: string) => void;
   onReveal?: (path: string) => void;
   onShowHistory?: (path: string, isDir: boolean) => void;
   onCompare?: (path: string, kind: "file" | "dir") => void;
@@ -59,6 +60,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
   rootPath,
   onSelect,
   onOpen,
+  onOpenSide,
   onReveal,
   onShowHistory,
   onCompare,
@@ -85,6 +87,14 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
   // ("" = project root).
   const dragRef = useRef<{ path: string; isDir: boolean } | null>(null);
   const [dropDir, setDropDir] = useState<string | null>(null);
+  // The entry currently being dragged — drives the dimmed `.dragging` source
+  // row and the tree-wide `grabbing` cursor while a move is in flight.
+  const [dragPath, setDragPath] = useState<string | null>(null);
+
+  // The folder a file row drops into is the file's parent dir (canonical form:
+  // no trailing slash; "" = project root), so hovering a file highlights the
+  // folder that will receive the move.
+  const parentDir = (path: string) => dirname(path).replace(/\/$/, "");
 
   // A drop is valid unless it would be a no-op (same folder) or move a folder
   // into itself or one of its descendants.
@@ -101,12 +111,14 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
           draggable: true,
           onDragStart: (e: DragEvent) => {
             dragRef.current = { path, isDir };
+            setDragPath(path);
             e.dataTransfer.effectAllowed = "move";
             e.dataTransfer.setData("text/plain", path);
           },
           onDragEnd: () => {
             dragRef.current = null;
             setDropDir(null);
+            setDragPath(null);
           },
         }
       : {};
@@ -126,6 +138,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
             e.preventDefault();
             const s = dragRef.current;
             setDropDir(null);
+            setDragPath(null);
             if (s && canDrop(destDir)) onMove(s.path, destDir, s.isDir);
             dragRef.current = null;
           },
@@ -257,7 +270,7 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
           <div
             key={"d:" + node.path}
             data-path={node.path}
-            className={`trow dir${hlDir === node.path ? " on" : ""}${dropDir === node.path ? " drop" : ""}${dErr ? " err" : changedDirs.has(node.path) ? " chg" : ""}`}
+            className={`trow dir${hlDir === node.path ? " on" : ""}${dropDir === node.path ? " drop" : ""}${dragPath === node.path ? " dragging" : ""}${dErr ? " err" : changedDirs.has(node.path) ? " chg" : ""}`}
             style={pad}
             {...dragProps(node.path, true)}
             {...dropProps(node.path)}
@@ -286,9 +299,10 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
           <div
             key={"f:" + node.path}
             data-path={node.path}
-            className={`trow file${selected === node.path ? " on" : ""}${fErr ? " err" : changedFiles?.has(node.path) ? " chg" : ""}`}
+            className={`trow file${selected === node.path ? " on" : ""}${dragPath === node.path ? " dragging" : ""}${fErr ? " err" : changedFiles?.has(node.path) ? " chg" : ""}`}
             style={pad}
             {...dragProps(node.path, false)}
+            {...dropProps(parentDir(node.path))}
             onClick={() => {
               setHlDir(null);
               setScopeDir(null);
@@ -346,8 +360,37 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
     );
   }
 
+  // The empty space below the rows also drops into the project root. Guard on
+  // target === currentTarget so dragging over a child row keeps that row's own
+  // (more specific) drop target.
+  const rootZone =
+    onMove && dragPath !== null
+      ? {
+          onDragOver: (e: DragEvent) => {
+            if (e.target !== e.currentTarget || !canDrop("")) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            setDropDir("");
+          },
+          onDrop: (e: DragEvent) => {
+            if (e.target !== e.currentTarget) return;
+            e.preventDefault();
+            const s = dragRef.current;
+            setDropDir(null);
+            setDragPath(null);
+            if (s && canDrop("")) onMove(s.path, "", s.isDir);
+            dragRef.current = null;
+          },
+        }
+      : {};
+
   return (
-    <div ref={containerRef}>
+    <div
+      ref={containerRef}
+      className={`${dragPath !== null ? "tree-dnd-active" : ""}${dropDir === "" ? " root-drop" : ""}`.trim() || undefined}
+      style={{ minHeight: "100%" }}
+      {...rootZone}
+    >
       {rows}
       {menu && (
         <>
@@ -355,6 +398,9 @@ const ProjectTree = forwardRef<ProjectTreeHandle, Props>(({
           <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
             {menu.kind === "file" && onOpen && (
               <button onClick={() => { onOpen(menu.path); setMenu(null); }}>Open file<CtxShortcut id="file.open" /></button>
+            )}
+            {menu.kind === "file" && onOpenSide && (
+              <button onClick={() => { onOpenSide(menu.path); setMenu(null); }}>Open to the side<CtxShortcut id="editor.splitRight" /></button>
             )}
             {menu.kind === "file" && onShowHistory && (
               <button onClick={() => { onShowHistory(menu.path, false); setMenu(null); }}>Show history for this file</button>
