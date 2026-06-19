@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.14] — 2026-06-19
+
+### Added
+
+- **Open a project from the terminal.** Install the `fftrack` command (Settings →
+  System) and run `fftrack ~/path/to/project` to open it, like VSCode's `code`.
+  A second invocation is forwarded to the running app instead of starting a new
+  one.
+- **In-app updates.** A titlebar pill appears when a newer release is published;
+  clicking it (or Settings → Updates) re-runs the installer in a terminal,
+  detecting how the app was installed. The installer also accepts `--uninstall`
+  to remove the app and CLIs.
+- **Revert a file to the current branch.** Right-click in the editor →
+  "Revert file to current branch" discards the file's working changes back to its
+  committed (HEAD) version.
+- **Move line or block up/down** with ⇧⌘↑/↓. On a foldable block header
+  (function, `if`, loop) the whole block moves as a unit.
+
+### Changed
+
+- The terminal toggle moved from the toolbar to the footer status bar, beside the
+  history toggle. Footer icons were normalized for even weight and clearer
+  active/pressed states.
+
+### Fixed
+
+- **Comparing HEAD → working tree now lists untracked files**, matching the commit
+  panel instead of reporting zero changes for a new file.
+
 ## [1.0.13] — 2026-06-18
 
 ### Changed
