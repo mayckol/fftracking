@@ -103,6 +103,16 @@ Download the artifact for your OS from the
 - **Linux** — `.AppImage` (`chmod +x` then run) or `.deb`
   (`sudo dpkg -i fftracking_<version>_amd64.deb`).
 
+### Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mayckol/fftracking/main/scripts/install.sh | sh -s -- --uninstall
+```
+
+Removes `fftracking.app` / the AppImage, the **`fft`** and **`fftrack`** CLIs, and
+the Linux desktop entry + icon. Your tracked history (the app data dir) is kept.
+Homebrew installs uninstall with `brew uninstall --cask fftracking`.
+
 ### From source
 
 **Requirements**
