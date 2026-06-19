@@ -4,6 +4,20 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.15] — 2026-06-19
+
+### Added
+
+- **Spell Check plugin.** Inline spell checking for EN-us and PT-br at once (a
+  word is accepted if valid in either), running in a Web Worker so the editor
+  stays responsive. Misspellings get a subtle squiggle with quick-fixes: replace
+  with a suggestion, add the word to your dictionary, or add every flagged word
+  in the file at once. Toggle it in Settings → Plugins.
+
+### Changed
+
+- License changed from MIT to a Coffeeware license.
+
 ## [1.0.14] — 2026-06-19
 
 ### Added
