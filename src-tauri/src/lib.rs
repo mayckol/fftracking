@@ -163,6 +163,7 @@ pub fn run() {
             commands::install_cli,
             commands::install_method,
             commands::run_update,
+            commands::quit_app,
             commands::list_monitors,
             commands::start_monitor,
             commands::stop_monitor,

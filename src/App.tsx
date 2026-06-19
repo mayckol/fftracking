@@ -352,6 +352,7 @@ export default function App() {
   useShortcut("terminal.toggle", () => toggleBottom("terminal"));
   useShortcut("run.toggle", () => toggleBottom("run"));
   useShortcut("settings.palette", () => setSettingsPalette((v) => !v));
+  useShortcut("app.quit", () => void api.quitApp());
   // Fold/zoom run on the focused editor. Registered globally (not via Monaco
   // keybindings) so number-row and numpad +/-/− both fire.
   useShortcut("editor.fold", foldAtCursor);

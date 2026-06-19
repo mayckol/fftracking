@@ -30,6 +30,7 @@ export const api = {
   installCli: () => invoke<string>("install_cli"),
   installMethod: () => invoke<string>("install_method"),
   runUpdate: () => invoke<void>("run_update"),
+  quitApp: () => invoke<void>("quit_app"),
   startMonitor: (monitorId: number) => invoke<void>("start_monitor", { monitorId }),
   stopMonitor: (monitorId: number) => invoke<void>("stop_monitor", { monitorId }),
   setActiveMonitor: (monitorId: number) => invoke<void>("set_active_monitor", { monitorId }),

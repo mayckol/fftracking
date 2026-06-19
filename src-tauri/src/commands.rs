@@ -164,6 +164,13 @@ pub fn run_update() -> R<()> {
     Err("unsupported platform".into())
 }
 
+// Fully exits the app (not just hiding the window to the tray, which is what
+// closing the window does).
+#[tauri::command]
+pub fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 #[tauri::command]
 pub fn list_monitors(state: State<AppState>) -> R<Vec<MonitorRow>> {
     err(state.engine.list_monitors())
