@@ -892,6 +892,62 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       }
     }
 
+    // Makefile: a run glyph on each target. Click → `make <target>` in the Run
+    // panel, from the Makefile's own directory.
+    if (language === "makefile" && path) {
+      const mkModel = editor.getModel();
+      if (mkModel) {
+        const dir = path.slice(0, path.lastIndexOf("/")) || "/";
+        const targetByLine = new Map<number, string>();
+        let mkDecos: string[] = [];
+        const scanTargets = () => {
+          targetByLine.clear();
+          for (let i = 1; i <= mkModel.getLineCount(); i++) {
+            const text = mkModel.getLineContent(i);
+            // A real target: a name (not a special `.PHONY`, pattern `%`, or a
+            // `:=` assignment) at column 0, followed by a single colon. Recipe
+            // lines start with a tab and are skipped.
+            if (text.startsWith("\t") || text.startsWith("#")) continue;
+            const m = /^([A-Za-z0-9_][A-Za-z0-9_./-]*)\s*:(?!=)/.exec(text);
+            if (m) targetByLine.set(i, m[1]);
+          }
+          mkDecos = editor.deltaDecorations(
+            mkDecos,
+            [...targetByLine.entries()].map(([line, t]) => ({
+              range: new monaco.Range(line, 1, line, 1),
+              options: {
+                glyphMarginClassName: "test-glyph test-fn",
+                glyphMarginHoverMessage: { value: `Run \`make ${t}\`` },
+              },
+            })),
+          );
+        };
+        const mkSpec = (t: string): RunSpec => ({ cwd: dir, label: `make ${t}`, program: "make", args: [t] });
+        scanTargets();
+        let mkTimer = 0;
+        mkModel.onDidChangeContent(() => {
+          window.clearTimeout(mkTimer);
+          mkTimer = window.setTimeout(scanTargets, 400);
+        });
+        editor.onMouseDown((e) => {
+          if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
+          const t = e.target.position ? targetByLine.get(e.target.position.lineNumber) : undefined;
+          if (!t) return;
+          e.event.preventDefault();
+          startRun(mkSpec(t));
+        });
+        bind("test.run", () => {
+          const line = editor.getPosition()?.lineNumber ?? 1;
+          let best: string | null = null;
+          for (const [l, t] of targetByLine) {
+            if (l > line) break;
+            best = t;
+          }
+          if (best) startRun(mkSpec(best));
+        });
+      }
+    }
+
     // Breakpoints: click the line-number gutter (or empty glyph margin) to
     // toggle; while paused, the current execution line is highlighted.
     if (language === "go" && path && root) {
@@ -1367,10 +1423,10 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
         onMount={onMount}
         options={{
           // Go files own the glyph margin: implementation markers (LSP) and
-          // test-run icons live there. Kept in this options object — it is
-          // re-applied on every render, so a one-off updateOptions would be
-          // silently reverted.
-          glyphMargin: language === "go",
+          // test-run icons live there. Makefiles use it for target run icons.
+          // Kept in this options object — it is re-applied on every render, so a
+          // one-off updateOptions would be silently reverted.
+          glyphMargin: language === "go" || language === "makefile",
           // Off by default in Monaco; without it gopls semantic tokens are
           // requested but never painted.
           "semanticHighlighting.enabled": true,
