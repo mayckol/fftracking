@@ -4,6 +4,28 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.16] — 2026-06-19
+
+### Added
+
+- **JSX & Vue highlighting.** React files get their own grammars
+  (`.tsx`, `.jsx`) and Vue single-file components highlight their `<template>`,
+  `<script>` and `<style>` blocks with the right language each. The vtsls
+  language server now also powers `.tsx`/`.jsx`, so completion, diagnostics and
+  hovers work there too.
+- **Run buttons for the JS/TS ecosystem.** Run glyphs appear on `package.json`
+  scripts, plain `.js`/`.sh` files and test files, launching the right tool
+  (npm/pnpm/yarn/bun, or vitest/jest/mocha/node) with coloured output. Works in
+  the packaged app even though it inherits a stripped PATH.
+
+### Changed
+
+- The Run panel resets when you switch projects, so a new project never shows
+  the previous one's output.
+- ANSI background colours now render in the Run panel.
+- The Linux installer fronts the AppImage with a small launcher so
+  `fftracking <path>` returns the shell immediately and resolves relative paths.
+
 ## [1.0.15] — 2026-06-19
 
 ### Added
