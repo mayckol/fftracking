@@ -62,9 +62,10 @@ export const api = {
   terminalResize: (id: number, cols: number, rows: number) =>
     invoke<void>("terminal_resize", { id, cols, rows }),
   terminalClose: (id: number) => invoke<void>("terminal_close", { id }),
-  lspStart: (root: string) => invoke<void>("lsp_start", { root }),
-  lspSend: (root: string, body: string) => invoke<void>("lsp_send", { root, body }),
-  lspStop: (root: string) => invoke<void>("lsp_stop", { root }),
+  lspStart: (root: string, server: string) => invoke<void>("lsp_start", { target: { root, server } }),
+  lspSend: (root: string, server: string, body: string) =>
+    invoke<void>("lsp_send", { target: { root, server }, body }),
+  lspStop: (root: string, server: string) => invoke<void>("lsp_stop", { target: { root, server } }),
   dapStart: (root: string) => invoke<number>("dap_start", { root }),
   dapSend: (id: number, body: string) => invoke<void>("dap_send", { id, body }),
   dapStop: (id: number) => invoke<void>("dap_stop", { id }),

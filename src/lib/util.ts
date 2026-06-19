@@ -36,7 +36,8 @@ export function fmtBytes(n: number): string {
 }
 
 const LANG: Record<string, string> = {
-  ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+  ts: "typescript", tsx: "typescript", mts: "typescript", cts: "typescript",
+  js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
   rs: "rust", go: "go", py: "python", rb: "ruby", java: "java", kt: "kotlin",
   c: "c", h: "c", cpp: "cpp", cc: "cpp", hpp: "cpp", cs: "csharp",
   json: "json", yaml: "yaml", yml: "yaml", toml: "ini", ini: "ini",

@@ -65,6 +65,22 @@ pub(crate) fn go_child_path(bin: &Path) -> String {
     dirs.join(":")
 }
 
+/// PATH for a child Node tool (vtsls): its own dir, then the inherited PATH.
+/// GUI-launched apps inherit a stripped PATH that omits the Node install, so
+/// vtsls's tsserver workers (and any `npm`/`node` it shells out to) would find
+/// nothing without splicing Node's dir back in.
+pub(crate) fn node_child_path(bin: &Path) -> String {
+    let mut dirs: Vec<String> = Vec::new();
+    if let Some(p) = bin.parent() {
+        dirs.push(p.display().to_string());
+    }
+    let cur = std::env::var("PATH").unwrap_or_default();
+    if !cur.is_empty() {
+        dirs.push(cur);
+    }
+    dirs.join(":")
+}
+
 #[derive(Default)]
 pub struct RunManager {
     children: Arc<Mutex<HashMap<u64, Child>>>,

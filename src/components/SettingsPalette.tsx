@@ -14,7 +14,7 @@ const ENTRIES: SettingsEntry[] = [
   { id: "sec:system", label: "System", hint: "Launch on login", keywords: "autostart login tray startup" },
   { id: "sec:interface", label: "Interface", hint: "Font, size, guides, tabs, formatting", keywords: "font size indent tabs format import sidebar theme" },
   { id: "plugins", label: "Plugins", hint: "Open the Plugins tab — add/remove, enable/disable", keywords: "plugin extension addon dotenv env highlight install enable disable marketplace" },
-  { id: "lsp:restart", label: "Restart Language Server", hint: "Restart gopls for the workspace", keywords: "gopls lsp language server restart reload go diagnostics" },
+  { id: "lsp:restart", label: "Restart Language Server", hint: "Restart the language server for the workspace", keywords: "gopls vtsls lsp language server restart reload go typescript javascript diagnostics" },
   { id: "reload", label: "Reload app", hint: "Restart the window", keywords: "reload restart refresh window" },
 ];
 

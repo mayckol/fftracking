@@ -7,7 +7,7 @@ import { basename, dayLabel, dirname, fmtTime, langOf } from "../lib/util";
 import { useShortcut } from "../lib/shortcuts";
 import { isConfirmSuppressed } from "../lib/confirmPrefs";
 import { getPrefs } from "../lib/uiPrefs";
-import { getErrorPaths, setNavHandler, subscribeDiagnostics } from "../lib/lsp";
+import { getErrorPaths, setNavHandler, setRenameWriter, subscribeDiagnostics } from "../lib/lsp";
 import { recordRecent } from "../lib/fuzzy";
 import { pollWhileVisible } from "../lib/poll";
 import ConfirmModal from "../components/ConfirmModal";
@@ -439,6 +439,18 @@ export default function HistoryView({
     }
   };
   useEffect(() => setNavHandler((a, l, c) => navRef.current(a, l, c)), []);
+
+  // Cross-file rename writes edits to files not open in any editor (the LSP
+  // client owns open models; the host owns the disk). Only files inside the
+  // workspace are writable — externals (node_modules, stdlib) are left untouched.
+  const renameWriteRef = useRef<(abs: string, content: string) => Promise<void>>(async () => {});
+  renameWriteRef.current = async (abs, content) => {
+    if (!root) return;
+    const prefix = root.endsWith("/") ? root : `${root}/`;
+    if (!abs.startsWith(prefix)) return;
+    await api.writeWorkingFile(monitorId, abs.slice(prefix.length), content);
+  };
+  useEffect(() => setRenameWriter((p, c) => renameWriteRef.current(p, c)), []);
 
   // Search-palette opens. The monitorId guard keeps a remount (folder switch)
   // from replaying a request that targeted another monitor.

@@ -3,6 +3,7 @@
 node_modules
 .playwright-mcp
 src-tauri/gen
+src-tauri/resources/vtsls
 node_modules/.tmp
 *.log
 .DS_Store

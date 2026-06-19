@@ -41,6 +41,27 @@ subscribePrefs(() => {
   getWorker: () => new editorWorker(),
 };
 loader.config({ monaco });
+
+// vtsls (a real, project-aware language server) owns TS/JS — so silence
+// Monaco's bundled in-browser TypeScript service, which otherwise registers its
+// own providers + a project-blind diagnostics worker on the same "typescript"/
+// "javascript" ids and stacks duplicate completions and bogus markers ("Cannot
+// find module …") under the real ones. Run at module-eval, before any TS/JS
+// model exists, so the built-in mode is configured off from the start. Monarch
+// colorization is a separate path and stays on. See src/lib/lsp.ts (vtsls).
+{
+  const noDiag = { noSemanticValidation: true, noSyntaxValidation: true, noSuggestionDiagnostics: true };
+  const noFeatures = {
+    completionItems: false, hovers: false, documentSymbols: false, definitions: false,
+    references: false, signatureHelp: false, codeActions: false, rename: false,
+    documentHighlights: false, onTypeFormattingEdits: false, diagnostics: false,
+    inlayHints: false, documentRangeFormattingEdits: false,
+  };
+  for (const d of [monaco.languages.typescript.typescriptDefaults, monaco.languages.typescript.javascriptDefaults]) {
+    d.setDiagnosticsOptions(noDiag);
+    d.setModeConfiguration(noFeatures);
+  }
+}
 // Define editor themes at startup, not just in editor beforeMount — already
 // mounted editors otherwise keep stale theme data across HMR/theme edits.
 defineAllThemes(monaco);

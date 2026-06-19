@@ -5,6 +5,7 @@ import { defineAllThemes, monacoThemeId } from "./monacoTheme";
 import { attachPluginsToEditor, initPluginsForMonaco } from "../lib/plugins/registry";
 import {
   attachGo,
+  attachTs,
   implementationAnnotations,
   implementationLocations,
   openLocation,
@@ -143,6 +144,9 @@ interface Props {
 
 type LspState = "off" | "starting" | "ready" | "error";
 
+// Languages that get a real language server (gopls / vtsls).
+const LSP_LANGS = new Set(["go", "typescript", "javascript"]);
+
 function MdIcon({ kind }: { kind: "raw" | "both" | "read" }) {
   return (
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -181,7 +185,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
 
   // Reflect restarts triggered elsewhere (command palette) for this root.
   useEffect(() => {
-    if (language !== "go" || !root) return;
+    if (!LSP_LANGS.has(language) || !root) return;
     return subscribeLspState((r, phase) => {
       if (r === root) setLsp(phase);
     });
@@ -435,7 +439,9 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     };
     const format = async () => {
       const m = editor.getModel();
-      if (m && language === "go") await organizeImports(m);
+      // organizeImports drives the LSP source.organizeImports action — valid for
+      // gopls and vtsls alike. groupImports is internally Go-only (no-op for TS).
+      if (m && LSP_LANGS.has(language)) await organizeImports(m);
       await groupImports();
       await editor.getAction("editor.action.formatDocument")?.run();
     };
@@ -623,6 +629,39 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     const addCmd = (combo: string, fn: () => void) => {
       const kb = toKeybinding(monaco, combo);
       if (kb) editor.addCommand(kb, fn);
+    };
+
+    // ⌘-hover affordance: underline + pointer on the word under the cursor (the
+    // webview doesn't reliably show Monaco's own link style). Shared by every
+    // LSP language arm.
+    const wireHoverLink = () => {
+      let linkDeco: string[] = [];
+      const clearLink = () => {
+        if (linkDeco.length) linkDeco = editor.deltaDecorations(linkDeco, []);
+      };
+      editor.onMouseMove((e) => {
+        const p = e.target.position;
+        if (
+          (e.event.metaKey || e.event.ctrlKey) &&
+          p &&
+          e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT
+        ) {
+          const word = editor.getModel()?.getWordAtPosition(p);
+          if (word) {
+            linkDeco = editor.deltaDecorations(linkDeco, [
+              {
+                range: new monaco.Range(p.lineNumber, word.startColumn, p.lineNumber, word.endColumn),
+                options: { inlineClassName: "goto-link-word" },
+              },
+            ]);
+            return;
+          }
+        }
+        clearLink();
+      });
+      // Releasing ⌘ (or leaving the editor) drops the link style.
+      editor.onKeyUp(() => clearLink());
+      editor.onMouseLeave(() => clearLink());
     };
 
     // WebKitGTK (the Linux Tauri webview) blocks the browser clipboard that
@@ -1225,35 +1264,20 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           })
           .catch(() => setLsp("error"));
 
-        // ⌘-hover affordance: underline + pointer on the word under the cursor
-        // (the webview doesn't reliably show Monaco's own link style).
-        let linkDeco: string[] = [];
-        const clearLink = () => {
-          if (linkDeco.length) linkDeco = editor.deltaDecorations(linkDeco, []);
-        };
-        editor.onMouseMove((e) => {
-          const pos = e.target.position;
-          if (
-            (e.event.metaKey || e.event.ctrlKey) &&
-            pos &&
-            e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT
-          ) {
-            const word = editor.getModel()?.getWordAtPosition(pos);
-            if (word) {
-              linkDeco = editor.deltaDecorations(linkDeco, [
-                {
-                  range: new monaco.Range(pos.lineNumber, word.startColumn, pos.lineNumber, word.endColumn),
-                  options: { inlineClassName: "goto-link-word" },
-                },
-              ]);
-              return;
-            }
-          }
-          clearLink();
-        });
-        // Releasing ⌘ (or leaving the editor) drops the link style.
-        editor.onKeyUp(() => clearLink());
-        editor.onMouseLeave(() => clearLink());
+        wireHoverLink();
+      }
+    }
+
+    // JS/TS language server (vtsls). No glyph-margin / impl / breakpoint wiring —
+    // those stay Go-only; this arm is diagnostics + the shared editor providers.
+    if ((language === "typescript" || language === "javascript") && path && root) {
+      const model = editor.getModel();
+      if (model) {
+        setLsp("starting");
+        attachTs({ monaco, model, root, path })
+          .then(() => setLsp("ready"))
+          .catch(() => setLsp("error"));
+        wireHoverLink();
       }
     }
 

@@ -25,12 +25,19 @@ const LANG_LABEL: Record<string, string> = {
 function langLabel(id: string): string {
   return LANG_LABEL[id] ?? (id ? id[0].toUpperCase() + id.slice(1) : "Plain Text");
 }
-const LSP_LABEL: Record<LspPhase, string> = {
-  off: "",
-  starting: "gopls starting…",
-  ready: "gopls ready",
-  error: "gopls unavailable",
+const LSP_SERVER: Record<string, string> = {
+  go: "gopls",
+  typescript: "vtsls",
+  javascript: "vtsls",
 };
+function lspServerName(language: string): string {
+  return LSP_SERVER[language] ?? "LSP";
+}
+function lspLabel(phase: LspPhase, language: string): string {
+  if (phase === "off") return "";
+  const s = lspServerName(language);
+  return phase === "starting" ? `${s} starting…` : phase === "ready" ? `${s} ready` : `${s} unavailable`;
+}
 
 function SidebarIcon() {
   return (
@@ -224,11 +231,11 @@ export default function StatusBar({ tabs = null, sidebar = null, workspace = nul
             <button
               type="button"
               className={`sb-lsp ${st.lsp}`}
-              title="Click to restart gopls"
+              title={`Click to restart ${lspServerName(st.language)}`}
               disabled={st.lsp === "starting" || !st.root}
               onClick={() => st.root && restartLsp(st.root)}
             >
-              ● {LSP_LABEL[st.lsp]}
+              ● {lspLabel(st.lsp, st.language)}
             </button>
           )}
           {zoomLevel !== 0 && (

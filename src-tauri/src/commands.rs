@@ -12,7 +12,7 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::dap::DapManager;
-use crate::lsp::LspManager;
+use crate::lsp::{LspManager, LspTarget};
 use crate::run::RunManager;
 use crate::terminal::TerminalManager;
 use crate::AppState;
@@ -775,18 +775,18 @@ pub fn terminal_close(term: State<TerminalManager>, id: u64) {
 }
 
 #[tauri::command]
-pub fn lsp_start(app: tauri::AppHandle, lsp: State<LspManager>, root: String) -> R<()> {
-    lsp.start(&app, root)
+pub fn lsp_start(app: tauri::AppHandle, lsp: State<LspManager>, target: LspTarget) -> R<()> {
+    lsp.start(&app, target)
 }
 
 #[tauri::command]
-pub fn lsp_send(lsp: State<LspManager>, root: String, body: String) -> R<()> {
-    lsp.send(&root, &body)
+pub fn lsp_send(lsp: State<LspManager>, target: LspTarget, body: String) -> R<()> {
+    lsp.send(&target, &body)
 }
 
 #[tauri::command]
-pub fn lsp_stop(lsp: State<LspManager>, root: String) {
-    lsp.stop(&root);
+pub fn lsp_stop(lsp: State<LspManager>, target: LspTarget) {
+    lsp.stop(&target);
 }
 
 // Async + spawn_blocking: start blocks until dlv prints its listen address; a
