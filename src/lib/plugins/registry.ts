@@ -5,6 +5,7 @@
 
 import { useEffect, useReducer } from "react";
 import type { Monaco } from "@monaco-editor/react";
+import type { editor as MEditor } from "monaco-editor";
 import { CATALOG, findPlugin } from "./catalog";
 import type { FFPlugin } from "./types";
 
@@ -139,3 +140,33 @@ export function initPluginsForMonaco(monaco: Monaco) {
 
 // A plugin enabled at runtime must register its grammar now, after mount.
 subscribePlugins(applyActive);
+
+// --- Per-editor wiring ---------------------------------------------------
+
+// Wires every active `editor`-capability plugin into a mounted editor, and
+// keeps that set in sync as plugins toggle: enabling attaches live, disabling
+// runs the plugin's disposer (e.g. clears its markers). Call once from onMount.
+export function attachPluginsToEditor(monaco: Monaco, editor: MEditor.ICodeEditor): void {
+  const attached = new Map<string, () => void>();
+
+  const sync = () => {
+    for (const p of CATALOG) {
+      if (!p.editor) continue;
+      const id = p.manifest.id;
+      const on = isEnabled(id);
+      if (on && !attached.has(id)) attached.set(id, p.editor.attach(monaco, editor));
+      else if (!on && attached.has(id)) {
+        attached.get(id)!();
+        attached.delete(id);
+      }
+    }
+  };
+
+  sync();
+  const unsub = subscribePlugins(sync);
+  editor.onDidDispose(() => {
+    unsub();
+    attached.forEach((dispose) => dispose());
+    attached.clear();
+  });
+}

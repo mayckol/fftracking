@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import { Editor, type Monaco, type OnMount } from "@monaco-editor/react";
 import type { editor as MEditor } from "monaco-editor";
 import { defineAllThemes, monacoThemeId } from "./monacoTheme";
-import { initPluginsForMonaco } from "../lib/plugins/registry";
+import { attachPluginsToEditor, initPluginsForMonaco } from "../lib/plugins/registry";
 import {
   attachGo,
   implementationAnnotations,
@@ -364,6 +364,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   const onMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     registerEditor(editor);
+    attachPluginsToEditor(monaco, editor);
 
     // A plain left-click is a deliberate caret jump → log a nav point. ⌘-click
     // goes through go-to-definition, which records its own point.

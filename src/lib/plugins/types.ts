@@ -29,9 +29,17 @@ export interface PluginLanguage {
   register(monaco: Monaco): void;
 }
 
+// A plugin's per-editor contribution: wired once for each mounted editor.
+// `attach` runs on mount and returns a disposer the registry calls when the
+// editor goes away or the plugin is disabled at runtime.
+export interface PluginEditor {
+  attach(monaco: Monaco, editor: import("monaco-editor").editor.ICodeEditor): () => void;
+}
+
 export interface FFPlugin {
   manifest: PluginManifest;
   // Optional capabilities. More contribution points (commands, themes, …) slot
   // in alongside this one without changing the registry contract.
   language?: PluginLanguage;
+  editor?: PluginEditor;
 }

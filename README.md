@@ -247,4 +247,5 @@ skips heavy dirs (`.git`, `node_modules`, `target`, `dist`, …) plus files > 5 
 
 ## License
 
-MIT
+[Coffeeware](LICENSE) — do whatever you want with it; if we meet and you think
+it's worth it, ☕ buy me a coffee. — [mayckol.dev](https://mayckol.dev)
