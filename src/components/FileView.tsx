@@ -640,9 +640,9 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     // Fold/unfold (⌘⇧±) and zoom (⌘±, ⌘0) are bound globally in App via the
     // shortcut registry — not here — so the numpad +/-/− keys work too.
 
-    const addCmd = (combo: string, fn: () => void) => {
+    const addCmd = (combo: string, fn: () => void, when?: string) => {
       const kb = toKeybinding(monaco, combo);
-      if (kb) editor.addCommand(kb, fn);
+      if (kb) editor.addCommand(kb, fn, when);
     };
 
     // ⌘-hover affordance: underline + pointer on the word under the cursor (the
@@ -723,10 +723,15 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     // Real-Mac and Windows-native keep Monaco's working built-ins. The "Mod" combo
     // resolves to the right physical key per scheme via toKeybinding (physical Ctrl
     // in pc/native, the physical Alt key in mac-emulation).
+    // editorTextFocus gates these to the code area only. The find/replace widget
+    // input lives inside .monaco-editor too; without the guard ⌘V/Ctrl+V there
+    // fires this command and pastes into the document (and refocuses the editor)
+    // instead of the search box. The widget owns its own clipboard (native paste,
+    // or the Tauri-plugin bridge in shortcuts.ts under mac-emulation).
     if (IS_LINUX || monacoModifiers().mod === "Alt") {
-      addCmd("Mod+C", () => void clipCopy(false));
-      addCmd("Mod+X", () => void clipCopy(true));
-      addCmd("Mod+V", () => void clipPaste());
+      addCmd("Mod+C", () => void clipCopy(false), "editorTextFocus");
+      addCmd("Mod+X", () => void clipCopy(true), "editorTextFocus");
+      addCmd("Mod+V", () => void clipPaste(), "editorTextFocus");
     }
 
     // mac-on-PC: ⌘ is the physical Alt key. Put the remaining ⌘ editor commands on
@@ -734,9 +739,9 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     // on a Mac ⌃ neither copies, selects-all, nor undoes. (C/X/V handled above.)
     if (monacoModifiers().mod === "Alt") {
       for (const key of ["C", "X", "V", "A", "Z"]) addCmd(`Ctrl+${key}`, () => {});
-      addCmd("Mod+A", () => editor.trigger("ff", "editor.action.selectAll", null));
-      addCmd("Mod+Z", () => editor.trigger("ff", "undo", null));
-      addCmd("Mod+Shift+Z", () => editor.trigger("ff", "redo", null));
+      addCmd("Mod+A", () => editor.trigger("ff", "editor.action.selectAll", null), "editorTextFocus");
+      addCmd("Mod+Z", () => editor.trigger("ff", "undo", null), "editorTextFocus");
+      addCmd("Mod+Shift+Z", () => editor.trigger("ff", "redo", null), "editorTextFocus");
       // ⌘F opens find; next/prev stay on F3 / Enter inside the widget.
       addCmd("Mod+F", () => run("actions.find"));
     }

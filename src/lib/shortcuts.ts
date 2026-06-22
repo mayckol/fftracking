@@ -545,7 +545,12 @@ function handleMacClipboard(combo: string): boolean {
       return true;
     }
   }
-  if (el?.closest(".monaco-editor") || el?.closest(".xterm")) return false;
+  // The find/replace widget lives inside .monaco-editor, but its inputs are plain
+  // DOM fields Monaco won't clipboard-bridge under mac-emulation (its ⌘V command
+  // pastes into the document instead). Handle those here; defer only the real code
+  // editor and the terminal to their own clipboard owners.
+  const inFindWidget = !!el?.closest(".find-widget");
+  if (!inFindWidget && (el?.closest(".monaco-editor") || el?.closest(".xterm"))) return false;
   if (op === "selectAll") {
     if (isInputLike(el)) el.select();
     else if (isEditable(el)) document.execCommand("selectAll");
