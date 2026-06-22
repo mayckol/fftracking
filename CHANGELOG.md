@@ -4,6 +4,32 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.19] — 2026-06-22
+
+### Added
+
+- **Filter the changes list.** A search box above the commit and compare file
+  lists filters staged, changed and unversioned files by name or path as you
+  type.
+- **Discard a whole folder.** Right-click a folder in the changes tree to discard
+  every change beneath it (restore to HEAD) in one action.
+
+### Changed
+
+- **Single apply arrow in the diff gutter.** The per-change gutter control is now
+  a quiet right arrow (→) that pushes the selected version into the working tree,
+  replacing the filled revert chip. Monaco's own gutter menu is turned off so
+  there's exactly one affordance.
+- **Cyclic change navigation.** Pressing ↑/↓ past the last change now wraps to the
+  first file (and vice-versa) instead of stopping at the edge of the list.
+
+### Fixed
+
+- **Git view tracks external changes.** A checkout, commit or edit made from a
+  terminal (or an AI agent) now refreshes the git view — open diffs, the file
+  list, current branch and merge state — on window refocus and on the backend's
+  filesystem signals, instead of leaving stale diff tabs open.
+
 ## [1.0.18] — 2026-06-22
 
 ### Added
