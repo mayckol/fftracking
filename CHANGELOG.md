@@ -4,6 +4,25 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.17] — 2026-06-22
+
+### Fixed
+
+- **Paste into the Find box.** With the find/replace widget focused, paste
+  (⌘V / Ctrl+V, or Alt+V under the Linux macOS-style keymap) went into the
+  document at the cursor and refocused the editor instead of the search field.
+  The editor's clipboard commands are now scoped to the code area, and under
+  mac-emulation copy/paste reach the widget input through the clipboard plugin.
+
+### Changed
+
+- **Language-server memory.** A `gopls` ran per project root and was never
+  stopped, so switching across projects stacked one process per project (each
+  loading its own module graph — several GB in total). Each `gopls` now caps its
+  heap via `GOMEMLIMIT` (default 2 GiB, override with `FFTRACKING_GOPLS_MEMLIMIT`),
+  and a project's language servers are released a short while after you switch
+  away from it — returning within the grace window keeps them warm.
+
 ## [1.0.16] — 2026-06-19
 
 ### Added
