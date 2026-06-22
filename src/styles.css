@@ -2393,14 +2393,33 @@ button.vs-tag:hover {
   flex: 0 1 auto;
   min-width: 0;
 }
+/* Middle zone absorbs slack so the tool group below stays pinned right —
+   button positions no longer track filename width. Secondary info truncates
+   before the buttons give up room. */
+.dh-meta {
+  flex: 1 100 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  overflow: hidden;
+}
+.dh-meta .changecount {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
 .diff-head .vs {
   font-family: var(--mono);
   font-size: var(--fs-xs);
   color: var(--tx-3);
+  flex-shrink: 0;
 }
-.diff-actions {
-  margin-left: auto;
+.dh-tools {
+  flex: 0 0 auto;
   display: flex;
+  align-items: center;
   gap: var(--s1);
 }
 .editor-wrap {
@@ -3745,7 +3764,8 @@ button.vs-tag:hover {
   font-size: var(--fs-sm);
   color: var(--tx-2);
 }
-.frow .stage-btn {
+.frow .stage-btn,
+.trow .stage-btn {
   margin-left: auto;
   width: 20px;
   height: 20px;
@@ -3762,10 +3782,13 @@ button.vs-tag:hover {
   opacity: 0;
 }
 .frow:hover .stage-btn,
-.frow.on .stage-btn {
+.frow.on .stage-btn,
+.trow:hover .stage-btn,
+.trow.on .stage-btn {
   opacity: 1;
 }
-.frow .stage-btn:hover {
+.frow .stage-btn:hover,
+.trow .stage-btn:hover {
   color: var(--tx-0);
   border-color: var(--ac);
   background: var(--bg-3);

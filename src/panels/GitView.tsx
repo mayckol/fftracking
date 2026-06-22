@@ -8,14 +8,13 @@ import ConfirmModal from "../components/ConfirmModal";
 import type { GitFileChange, HunkInfo, MergeState, RefList, WorkingStatus } from "../lib/types";
 import { basename, langOf } from "../lib/util";
 import ChangedTree from "./ChangedTree";
+import CommitTree from "./CommitTree";
 import ConflictsDialog from "./ConflictsDialog";
 import { openMergeWindow } from "../lib/mergeWindow";
 import { usePlugins } from "../lib/plugins/registry";
 import { pollWhileVisible } from "../lib/poll";
 
 type GitMode = "commit" | "compare";
-
-const GLYPH = { added: "A", modified: "M", deleted: "D" } as const;
 
 interface Props {
   initialRepo: string | null;
@@ -51,7 +50,7 @@ export default function GitView({
   const [right, setRight] = useState("");
   const [merge, setMerge] = useState<MergeState | null>(null);
   const [showConflicts, setShowConflicts] = useState(false);
-  const [collapsed, setCollapsed] = useState({ conflicts: false, staged: false, changes: false });
+  const [collapsed, setCollapsed] = useState({ conflicts: false, staged: false, changes: false, untracked: false });
   const [inline, setInline] = useState(false);
   const [hunks, setHunks] = useState<HunkInfo[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
@@ -200,7 +199,7 @@ export default function GitView({
   // file. Conflicts open the resolver (not the diff), so they're excluded.
   function orderedPaths(): string[] {
     if (mode === "compare") return changes.map((c) => c.path);
-    return [...(status?.staged ?? []), ...(status?.unstaged ?? [])].map((f) => f.path);
+    return [...(status?.staged ?? []), ...trackedChanges, ...untrackedChanges].map((f) => f.path);
   }
 
   function navDiff(dir: "next" | "prev") {
@@ -304,7 +303,11 @@ export default function GitView({
 
   const stagedCount = status?.staged.length ?? 0;
   const conflictCount = merge?.files.length ?? 0;
-  type Section = "conflicts" | "staged" | "changes";
+  // Untracked (git WT_NEW) surfaces in `unstaged` as status "added"; tracked
+  // edits/deletes are the rest. Split so new files get their own section.
+  const trackedChanges = status?.unstaged.filter((f) => f.status !== "added") ?? [];
+  const untrackedChanges = status?.unstaged.filter((f) => f.status === "added") ?? [];
+  type Section = "conflicts" | "staged" | "changes" | "untracked";
   const toggle = (k: Section) => setCollapsed((c) => ({ ...c, [k]: !c[k] }));
 
   // Collapsible root header for a commit-view section (Conflicts / Staged / Changes).
@@ -336,33 +339,6 @@ export default function GitView({
     >
       <span className="stat conflicted">!</span>
       <span className="fname">{c.path}</span>
-    </div>
-  );
-
-  const fileRow = (f: GitFileChange, staged: boolean) => (
-    <div
-      key={(staged ? "s:" : "u:") + f.path}
-      className={`frow${file === f.path ? " on" : ""}`}
-      onClick={() => openWorkingFile(f.path)}
-      onDoubleClick={() => onOpenFile?.(f.path)}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        setMenu({ x: e.clientX, y: e.clientY, path: f.path });
-      }}
-      title={f.path}
-    >
-      <span className={`stat ${f.status}`}>{GLYPH[f.status]}</span>
-      <span className="fname">{f.path}</span>
-      <button
-        className="stage-btn"
-        title={staged ? "Unstage" : "Stage"}
-        onClick={(e) => {
-          e.stopPropagation();
-          (staged ? unstage : stage)([f.path]);
-        }}
-      >
-        {staged ? "−" : "+"}
-      </button>
     </div>
   );
 
@@ -426,19 +402,58 @@ export default function GitView({
                 (stagedCount === 0 ? (
                   <div className="stage-empty">Nothing staged</div>
                 ) : (
-                  status?.staged.map((f) => fileRow(f, true))
+                  <CommitTree
+                    changes={status!.staged}
+                    staged
+                    selected={file}
+                    onSelect={openWorkingFile}
+                    onOpenFile={onOpenFile}
+                    onStage={stage}
+                    onUnstage={unstage}
+                    onContextMenu={(path, x, y) => setMenu({ x, y, path })}
+                  />
                 ))}
 
-              {sectionHead("changes", "Changes", status?.unstaged.length ?? 0, {
+              {sectionHead("changes", "Changes", trackedChanges.length, {
                 label: "Stage all",
-                onClick: () => stage(status!.unstaged.map((s) => s.path)),
+                onClick: () => stage(trackedChanges.map((s) => s.path)),
               })}
               {!collapsed.changes &&
-                ((status?.unstaged.length ?? 0) === 0 ? (
+                (trackedChanges.length === 0 ? (
                   <div className="stage-empty">No changes</div>
                 ) : (
-                  status?.unstaged.map((f) => fileRow(f, false))
+                  <CommitTree
+                    changes={trackedChanges}
+                    staged={false}
+                    selected={file}
+                    onSelect={openWorkingFile}
+                    onOpenFile={onOpenFile}
+                    onStage={stage}
+                    onUnstage={unstage}
+                    onContextMenu={(path, x, y) => setMenu({ x, y, path })}
+                  />
                 ))}
+
+              {untrackedChanges.length > 0 && (
+                <>
+                  {sectionHead("untracked", "Unversioned", untrackedChanges.length, {
+                    label: "Stage all",
+                    onClick: () => stage(untrackedChanges.map((s) => s.path)),
+                  })}
+                  {!collapsed.untracked && (
+                    <CommitTree
+                      changes={untrackedChanges}
+                      staged={false}
+                      selected={file}
+                      onSelect={openWorkingFile}
+                      onOpenFile={onOpenFile}
+                      onStage={stage}
+                      onUnstage={unstage}
+                      onContextMenu={(path, x, y) => setMenu({ x, y, path })}
+                    />
+                  )}
+                </>
+              )}
             </div>
 
             <div className="commit-box">
@@ -483,50 +498,52 @@ export default function GitView({
             <span className="file" title={file}>
               {file}
             </span>
-            <button className="tbtn" title="Previous change" onClick={() => navDiff("prev")}>
-              ↑
-            </button>
-            <button className="tbtn" title="Next change" onClick={() => navDiff("next")}>
-              ↓
-            </button>
-            {editable && (
-              <>
-                <button className="tbtn" title="Undo (in this diff)" onClick={() => diffApi.current?.undo()}>
-                  ↶
-                </button>
-                <button className="tbtn" title="Redo (in this diff)" onClick={() => diffApi.current?.redo()}>
-                  ↷
-                </button>
-              </>
-            )}
-            <span className="vs">
-              {from} → {to === WORKDIR ? "working tree" : to}
-            </span>
-            {mode === "compare" && to !== WORKDIR && (
-              <button
-                className="tbtn"
-                title={`Compare ${from} against your working tree so you can apply its blocks into it`}
-                onClick={() => setTo(WORKDIR)}
-              >
-                ↧ Apply against working tree
-              </button>
-            )}
-            {hunks.length > 0 && (
-              <span
-                className="changecount"
-                title={
-                  to === WORKDIR
-                    ? `Click ⟲ in the gutter to apply the ${from} version of a block to the working tree; ⌘Z / Ctrl+Z to undo`
-                    : "Both sides are read-only revisions. Switch the right side to your working tree (↧) to apply blocks."
-                }
-              >
-                {hunks.length} change{hunks.length === 1 ? "" : "s"}
-                {to === WORKDIR ? ` · ⟲ applies ${from} → working · ⌘Z undo` : " · read-only (↧ to apply)"}
+            <span className="dh-meta">
+              <span className="vs">
+                {from} → {to === WORKDIR ? "working tree" : to}
               </span>
-            )}
-            {mode === "commit" && file && (
-              <div className="diff-actions">
-                {status?.staged.some((s) => s.path === file) ? (
+              {hunks.length > 0 && (
+                <span
+                  className="changecount"
+                  title={
+                    to === WORKDIR
+                      ? `Click ⟲ in the gutter to apply the ${from} version of a block to the working tree; ⌘Z / Ctrl+Z to undo`
+                      : "Both sides are read-only revisions. Switch the right side to your working tree (↧) to apply blocks."
+                  }
+                >
+                  {hunks.length} change{hunks.length === 1 ? "" : "s"}
+                  {to === WORKDIR ? ` · ⟲ applies ${from} → working · ⌘Z undo` : " · read-only (↧ to apply)"}
+                </span>
+              )}
+            </span>
+            <div className="dh-tools">
+              <button className="tbtn" title="Previous change" onClick={() => navDiff("prev")}>
+                ↑
+              </button>
+              <button className="tbtn" title="Next change" onClick={() => navDiff("next")}>
+                ↓
+              </button>
+              {editable && (
+                <>
+                  <button className="tbtn" title="Undo (in this diff)" onClick={() => diffApi.current?.undo()}>
+                    ↶
+                  </button>
+                  <button className="tbtn" title="Redo (in this diff)" onClick={() => diffApi.current?.redo()}>
+                    ↷
+                  </button>
+                </>
+              )}
+              {mode === "compare" && to !== WORKDIR && (
+                <button
+                  className="tbtn"
+                  title={`Compare ${from} against your working tree so you can apply its blocks into it`}
+                  onClick={() => setTo(WORKDIR)}
+                >
+                  ↧ Apply against working tree
+                </button>
+              )}
+              {mode === "commit" && file && (
+                status?.staged.some((s) => s.path === file) ? (
                   <button className="tbtn" onClick={() => unstage([file])}>
                     − Unstage
                   </button>
@@ -534,27 +551,25 @@ export default function GitView({
                   <button className="tbtn" onClick={() => stage([file])}>
                     + Stage
                   </button>
-                )}
-              </div>
-            )}
-            {onOpenFile && (
+                )
+              )}
+              {onOpenFile && (
+                <button
+                  className="tbtn"
+                  onClick={() => onOpenFile(file)}
+                  title="Open this file in the editor (Files tab)"
+                >
+                  ↗ file
+                </button>
+              )}
               <button
                 className="tbtn"
-                style={{ marginLeft: mode === "commit" ? undefined : "auto" }}
-                onClick={() => onOpenFile(file)}
-                title="Open this file in the editor (Files tab)"
+                onClick={() => setInline(!inline)}
+                title="Diff layout: side-by-side or inline"
               >
-                ↗ file
+                {inline ? "≣ inline" : "⇆ split"}
               </button>
-            )}
-            <button
-              className="tbtn"
-              style={{ marginLeft: onOpenFile ? undefined : mode === "commit" ? undefined : "auto" }}
-              onClick={() => setInline(!inline)}
-              title="Diff layout: side-by-side or inline"
-            >
-              {inline ? "≣ inline" : "⇆ split"}
-            </button>
+            </div>
           </div>
           <DiffEditor
             original={left}
