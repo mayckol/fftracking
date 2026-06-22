@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
 import RefPicker from "../components/RefPicker";
 import { api, WORKDIR } from "../lib/ipc";
@@ -57,6 +58,10 @@ export default function GitView({
   const [menu, setMenu] = useState<{ x: number; y: number; paths: string[]; isDir: boolean; label: string } | null>(null);
   const [discardTarget, setDiscardTarget] = useState<{ paths: string[]; label: string; isDir: boolean } | null>(null);
   const [query, setQuery] = useState("");
+  // Bumped on any external-change signal (window refocus, backend watcher/poll
+  // event); pulls the open diff's blobs again since from/to/file don't change
+  // across an external `git checkout` but the underlying content does.
+  const [reloadKey, setReloadKey] = useState(0);
   const diffApi = useRef<DiffHandle>(null);
   const statusReq = useRef(0);
   // Set when ↑/↓ crossed a file boundary; the load effect then lands on the new
@@ -79,13 +84,13 @@ export default function GitView({
 
   // Drop a selection once its file no longer differs (e.g. an edit/revert made
   // it match HEAD), so we never leave an empty diff highlighting no list row.
-  const dropFileIfClean = (s: WorkingStatus | null) => {
+  const dropFileIfClean = useCallback((s: WorkingStatus | null) => {
     setFile((cur) =>
       cur && s && !s.staged.some((f) => f.path === cur) && !s.unstaged.some((f) => f.path === cur)
         ? null
         : cur,
     );
-  };
+  }, []);
 
   const loadRepo = useCallback(
     async (path: string) => {
@@ -161,6 +166,59 @@ export default function GitView({
     return pollWhileVisible(() => loadCompare(false), 3000);
   }, [repo, mode, to, reloadReq, loadCompare]);
 
+  // External git activity (a terminal checkout, an AI agent, another tool)
+  // leaves from/to/file unchanged, so the per-dependency effects above never
+  // re-run. Pull everything an outside change can move: refs/branch, the working
+  // status or compare list, merge state, and the open diff's blobs (reloadKey).
+  const refreshExternal = useCallback(async () => {
+    if (!repo) return;
+    try {
+      setRefs(await api.gitListRefs(repo));
+    } catch {
+      // repo vanished mid-op; the loaders below surface the failure
+    }
+    if (mode === "commit") {
+      dropFileIfClean(await loadStatus(repo));
+      api.gitMergeState(repo).then(setMerge).catch(() => {});
+    } else {
+      loadCompare(false).catch(() => {});
+    }
+    setReloadKey((k) => k + 1);
+  }, [repo, mode, loadStatus, loadCompare, dropFileIfClean]);
+
+  // The external op usually lands while the window is unfocused (user is in
+  // their terminal); refresh on return. Mirrors HistoryView's focus resync.
+  useEffect(() => {
+    const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      refreshExternal();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [refreshExternal]);
+
+  // Backend filesystem signals — the same pair HistoryView consumes — for when
+  // the change lands while the window stays focused (split layout, integrated
+  // terminal). Coalesced: both events can fire for one change. Not filtered by
+  // monitorId (GitView tracks a repo path, not a monitor); a spurious refresh
+  // just re-reads this repo's git state, which is cheap.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => refreshExternal(), 200);
+    };
+    const uns = [listen("monitor-changed", schedule), listen("tree-changed", schedule)];
+    return () => {
+      clearTimeout(timer);
+      uns.forEach((un) => un.then((f) => f()));
+    };
+  }, [refreshExternal]);
+
   // Shared diff loader. In commit mode from/to are pinned to HEAD → working tree.
   useEffect(() => {
     if (!repo || !file) {
@@ -182,7 +240,7 @@ export default function GitView({
     return () => {
       alive = false;
     };
-  }, [repo, file, from, to]);
+  }, [repo, file, from, to, reloadKey]);
 
   // Only fires on cross-file ↑/↓ (crossFocus set) — a plain file click keeps
   // its top-of-file position, matching the prior behaviour.
