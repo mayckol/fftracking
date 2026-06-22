@@ -26,7 +26,7 @@ interface Props {
   inline?: boolean;
   editable?: boolean;
   onCommit?: (value: string) => void;
-  /** Backend hunks; each gets an always-visible revert icon in the gutter. */
+  /** Backend hunks; each gets an always-visible apply (→) icon in the gutter. */
   hunks?: HunkInfo[];
   /** Which side the right/modified pane shows: false = current/working
    *  (hunk old_*), true = the target/point (hunk new_*). */
@@ -139,15 +139,15 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
     const monaco = monacoRef.current;
     if (!diff || !monaco) return;
     const me = diff.getModifiedEditor();
-    // The ⟲ block-revert only makes sense against the working tree (editable
+    // The → block-apply only makes sense against the working tree (editable
     // "vs now"); in read-only "vs before" the panes are two past snapshots, so
-    // show no revert glyphs there.
+    // show no apply glyphs there.
     const visible = editable ? hunksRef.current : [];
     const decos = visible.map((h) => ({
       range: new monaco.Range(lineOf(h), 1, lineOf(h), 1),
       options: {
         glyphMarginClassName: "ff-revert-glyph",
-        glyphMarginHoverMessage: { value: "Revert this change to the selected point" },
+        glyphMarginHoverMessage: { value: "Apply this change to the working tree" },
         stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
       },
     }));
@@ -221,8 +221,11 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
         readOnly: !editable,
         originalEditable: false,
         glyphMargin: true,
-        // Our own always-visible glyph replaces Monaco's hover-only arrow.
+        // Single apply affordance = our own → glyph in the left gutter. Kill
+        // BOTH of Monaco's: the old hover margin arrows (renderMarginRevertIcon)
+        // and the new 0.52 gutter menu (renderGutterMenu) with its →/+ controls.
         renderMarginRevertIcon: false,
+        renderGutterMenu: false,
         renderSideBySide: !inline,
         useInlineViewWhenSpaceIsLimited: false,
         automaticLayout: true,

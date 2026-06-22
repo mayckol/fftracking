@@ -2869,31 +2869,31 @@ button.vs-tag:hover {
   font-weight: 600;
 }
 
-/* always-visible per-change revert icon in the diff gutter (JetBrains-style) */
+/* per-change apply affordance in the diff gutter: a single right arrow that
+   pushes the point version into the working tree. Quiet by default, accent on
+   hover — no filled chip. */
 .ff-revert-glyph {
   cursor: pointer;
 }
 .ff-revert-glyph::after {
-  content: "⟲";
+  content: "→";
   display: flex;
   align-items: center;
   justify-content: center;
   width: 16px;
   height: 16px;
   margin-top: 1px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 700;
   line-height: 1;
-  /* Always high-contrast (not hover-only): solid accent chip, dark glyph. */
-  color: var(--bg-0);
-  background: var(--ac);
-  border: 1px solid var(--ac);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  color: var(--tx-2);
+  transition:
+    color 0.12s ease,
+    transform 0.12s ease;
 }
 .ff-revert-glyph:hover::after {
-  filter: brightness(1.18);
-  transform: scale(1.08);
+  color: var(--ac);
+  transform: translateX(1px);
 }
 
 /* JetBrains-style VCS gutter: change stripes in the editor + click popup */
