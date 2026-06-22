@@ -19,8 +19,15 @@ export interface TreeInput {
   status?: FileChange["status"];
 }
 
+// Map "." to a space so an extension dot ranks below other punctuation: this
+// keeps `pipeline.go` ahead of `pipeline_test.go` while staying numeric-aware
+// (file2 before file10) and case-insensitive; codepoint breaks exact ties.
+const collate = (a: string, b: string) =>
+  a.replace(/\./g, " ").localeCompare(b.replace(/\./g, " "), undefined, { numeric: true, sensitivity: "base" }) ||
+  (a < b ? -1 : a > b ? 1 : 0);
+
 const cmp = (a: TreeNode, b: TreeNode) =>
-  a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "dir" ? -1 : 1;
+  a.kind === b.kind ? collate(a.name, b.name) : a.kind === "dir" ? -1 : 1;
 
 // VSCode-style "compact folders": a directory whose only child is another
 // directory collapses into a single row (e.g. pkg/database/generated), so long
@@ -66,4 +73,15 @@ export function buildFileTree(items: TreeInput[]): TreeNode[] {
   sortRec(root);
   root.children.forEach((c) => c.kind === "dir" && compact(c));
   return root.children;
+}
+
+// File leaves in the order they render in the tree — so ↑/↓ row nav follows
+// what's on screen instead of the raw, unsorted change list.
+export function flattenTree(nodes: TreeNode[]): FileLeaf[] {
+  const out: FileLeaf[] = [];
+  const walk = (ns: TreeNode[]) => {
+    for (const n of ns) n.kind === "file" ? out.push(n) : walk(n.children);
+  };
+  walk(nodes);
+  return out;
 }

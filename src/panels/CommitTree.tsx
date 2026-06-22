@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GitFileChange } from "../lib/types";
 import { buildFileTree, type TreeNode } from "../lib/filetree";
 import { FolderTypeIcon } from "../components/FileTypeIcon";
@@ -13,7 +13,7 @@ interface Props {
   onOpenFile?: (path: string) => void;
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
-  onContextMenu: (path: string, x: number, y: number) => void;
+  onContextMenu: (ctx: { paths: string[]; isDir: boolean; label: string; x: number; y: number }) => void;
 }
 
 function filesUnder(node: TreeNode): string[] {
@@ -32,6 +32,13 @@ export default function CommitTree({
 }: Props) {
   const tree = useMemo(() => buildFileTree(changes), [changes]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const selRow = useRef<HTMLDivElement | null>(null);
+
+  // Keyboard ↑/↓ nav moves the selection across files; reveal the row so it
+  // tracks even when the diff spilled into an off-screen file.
+  useEffect(() => {
+    selRow.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
 
   const toggle = (path: string) =>
     setCollapsed((s) => {
@@ -51,7 +58,17 @@ export default function CommitTree({
       if (node.kind === "dir") {
         const open = !collapsed.has(node.path);
         rows.push(
-          <div key={"d:" + node.path} className="trow dir" style={pad} onClick={() => toggle(node.path)} title={node.path}>
+          <div
+            key={"d:" + node.path}
+            className="trow dir"
+            style={pad}
+            onClick={() => toggle(node.path)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              onContextMenu({ paths: filesUnder(node), isDir: true, label: node.name, x: e.clientX, y: e.clientY });
+            }}
+            title={node.path}
+          >
             <span className="chev">{open ? "▾" : "▸"}</span>
             <FolderTypeIcon name={node.name} open={open} />
             <span className="dname">{node.name}</span>
@@ -72,13 +89,14 @@ export default function CommitTree({
         rows.push(
           <div
             key={"f:" + node.path}
+            ref={selected === node.path ? selRow : undefined}
             className={`trow file${selected === node.path ? " on" : ""}`}
             style={pad}
             onClick={() => onSelect(node.path)}
             onDoubleClick={() => onOpenFile?.(node.path)}
             onContextMenu={(e) => {
               e.preventDefault();
-              onContextMenu(node.path, e.clientX, e.clientY);
+              onContextMenu({ paths: [node.path], isDir: false, label: node.name, x: e.clientX, y: e.clientY });
             }}
             title={node.path}
           >

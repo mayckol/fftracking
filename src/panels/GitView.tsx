@@ -7,6 +7,7 @@ import { isConfirmSuppressed } from "../lib/confirmPrefs";
 import ConfirmModal from "../components/ConfirmModal";
 import type { GitFileChange, HunkInfo, MergeState, RefList, WorkingStatus } from "../lib/types";
 import { basename, langOf } from "../lib/util";
+import { buildFileTree, flattenTree } from "../lib/filetree";
 import ChangedTree from "./ChangedTree";
 import CommitTree from "./CommitTree";
 import ConflictsDialog from "./ConflictsDialog";
@@ -53,8 +54,9 @@ export default function GitView({
   const [collapsed, setCollapsed] = useState({ conflicts: false, staged: false, changes: false, untracked: false });
   const [inline, setInline] = useState(false);
   const [hunks, setHunks] = useState<HunkInfo[]>([]);
-  const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
-  const [discardPath, setDiscardPath] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; paths: string[]; isDir: boolean; label: string } | null>(null);
+  const [discardTarget, setDiscardTarget] = useState<{ paths: string[]; label: string; isDir: boolean } | null>(null);
+  const [query, setQuery] = useState("");
   const diffApi = useRef<DiffHandle>(null);
   const statusReq = useRef(0);
   // Set when ↑/↓ crossed a file boundary; the load effect then lands on the new
@@ -198,16 +200,19 @@ export default function GitView({
   // The changed-file list as ordered on screen, so ↑/↓ spill into the adjacent
   // file. Conflicts open the resolver (not the diff), so they're excluded.
   function orderedPaths(): string[] {
-    if (mode === "compare") return changes.map((c) => c.path);
-    return [...(status?.staged ?? []), ...trackedChanges, ...untrackedChanges].map((f) => f.path);
+    const flat = (items: GitFileChange[]) => flattenTree(buildFileTree(items)).map((f) => f.path);
+    if (mode === "compare") return flat(compareChanges);
+    return [...flat(stagedList), ...flat(trackedChanges), ...flat(untrackedChanges)];
   }
 
   function navDiff(dir: "next" | "prev") {
     if (diffApi.current?.navigate(dir) !== "boundary") return;
     const paths = orderedPaths();
     const i = paths.indexOf(file ?? "");
-    const j = dir === "next" ? i + 1 : i - 1;
-    if (i < 0 || j < 0 || j >= paths.length) return;
+    if (i < 0 || paths.length === 0) return;
+    // Cycle through the list: down on the last row → first, up on the first → last.
+    const j = (i + (dir === "next" ? 1 : -1) + paths.length) % paths.length;
+    if (j === i) return;
     crossFocus.current = dir === "next" ? "first" : "last";
     if (mode === "commit") openWorkingFile(paths[j]);
     else {
@@ -279,13 +284,17 @@ export default function GitView({
     }
   }
 
-  async function discardFile(path: string) {
-    if (!repo) return;
+  async function discardFiles(paths: string[]) {
+    if (!repo || paths.length === 0) return;
     try {
-      await api.gitDiscardFile(repo, path);
-      toast(`Discarded changes in ${basename(path)}`);
+      for (const p of paths) await api.gitDiscardFile(repo, p);
+      toast(
+        paths.length === 1
+          ? `Discarded changes in ${basename(paths[0])}`
+          : `Discarded changes in ${paths.length} files`,
+      );
       dropFileIfClean(await loadStatus(repo));
-      if (file === path) setFile(null);
+      if (file && paths.includes(file)) setFile(null);
     } catch (e) {
       toast(String(e), true);
     }
@@ -301,12 +310,17 @@ export default function GitView({
   useShortcut("diff.undo", () => diffApi.current?.undo(), !!file && editable);
   useShortcut("diff.redo", () => diffApi.current?.redo(), !!file && editable);
 
-  const stagedCount = status?.staged.length ?? 0;
-  const conflictCount = merge?.files.length ?? 0;
+  const q = query.trim().toLowerCase();
+  const matchQ = (f: { path: string }) => !q || f.path.toLowerCase().includes(q);
+  const stagedList = (status?.staged ?? []).filter(matchQ);
+  const conflictFiles = (merge?.files ?? []).filter(matchQ);
+  const stagedCount = stagedList.length;
+  const conflictCount = conflictFiles.length;
   // Untracked (git WT_NEW) surfaces in `unstaged` as status "added"; tracked
   // edits/deletes are the rest. Split so new files get their own section.
-  const trackedChanges = status?.unstaged.filter((f) => f.status !== "added") ?? [];
-  const untrackedChanges = status?.unstaged.filter((f) => f.status === "added") ?? [];
+  const trackedChanges = (status?.unstaged.filter((f) => f.status !== "added") ?? []).filter(matchQ);
+  const untrackedChanges = (status?.unstaged.filter((f) => f.status === "added") ?? []).filter(matchQ);
+  const compareChanges = changes.filter(matchQ);
   type Section = "conflicts" | "staged" | "changes" | "untracked";
   const toggle = (k: Section) => setCollapsed((c) => ({ ...c, [k]: !c[k] }));
 
@@ -375,6 +389,23 @@ export default function GitView({
           )}
         </div>
 
+        {repo && (
+          <div className="git-search">
+            <span className="git-search-icon">⌕</span>
+            <input
+              className="git-search-input"
+              placeholder="Filter changes by name or path…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {query && (
+              <button className="git-search-clear" title="Clear filter" onClick={() => setQuery("")}>
+                ×
+              </button>
+            )}
+          </div>
+        )}
+
         {merge && merge.files.length > 0 && (
           <div className="conflict-banner" title="In-progress merge">
             Merging <b>{merge.theirs_label}</b> into <b>{merge.ours_label}</b>
@@ -390,27 +421,27 @@ export default function GitView({
                     label: "Resolve all…",
                     onClick: () => setShowConflicts(true),
                   })}
-                  {!collapsed.conflicts && merge!.files.map((c) => conflictRow(c))}
+                  {!collapsed.conflicts && conflictFiles.map((c) => conflictRow(c))}
                 </>
               )}
 
               {sectionHead("staged", "Staged", stagedCount, {
                 label: "Unstage all",
-                onClick: () => unstage(status!.staged.map((s) => s.path)),
+                onClick: () => unstage(stagedList.map((s) => s.path)),
               })}
               {!collapsed.staged &&
                 (stagedCount === 0 ? (
-                  <div className="stage-empty">Nothing staged</div>
+                  <div className="stage-empty">{q ? "No staged matches" : "Nothing staged"}</div>
                 ) : (
                   <CommitTree
-                    changes={status!.staged}
+                    changes={stagedList}
                     staged
                     selected={file}
                     onSelect={openWorkingFile}
                     onOpenFile={onOpenFile}
                     onStage={stage}
                     onUnstage={unstage}
-                    onContextMenu={(path, x, y) => setMenu({ x, y, path })}
+                    onContextMenu={setMenu}
                   />
                 ))}
 
@@ -430,7 +461,7 @@ export default function GitView({
                     onOpenFile={onOpenFile}
                     onStage={stage}
                     onUnstage={unstage}
-                    onContextMenu={(path, x, y) => setMenu({ x, y, path })}
+                    onContextMenu={setMenu}
                   />
                 ))}
 
@@ -449,7 +480,7 @@ export default function GitView({
                       onOpenFile={onOpenFile}
                       onStage={stage}
                       onUnstage={unstage}
-                      onContextMenu={(path, x, y) => setMenu({ x, y, path })}
+                      onContextMenu={setMenu}
                     />
                   )}
                 </>
@@ -478,11 +509,11 @@ export default function GitView({
           <>
             <div className="col-head">
               <h2>Changed Files</h2>
-              <span className="changecount">{changes.length}</span>
+              <span className="changecount">{compareChanges.length}</span>
             </div>
             <div className="col-scroll">
               <ChangedTree
-                changes={changes}
+                changes={compareChanges}
                 selected={file}
                 onSelect={(p) => setFile(p)}
                 onOpenFile={onOpenFile}
@@ -624,45 +655,58 @@ export default function GitView({
           <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
             <button
               onClick={() => {
-                const p = menu.path;
+                const t = { paths: menu.paths, label: menu.label, isDir: menu.isDir };
                 setMenu(null);
-                if (isConfirmSuppressed("discardFile")) discardFile(p);
-                else setDiscardPath(p);
+                if (isConfirmSuppressed("discardFile")) discardFiles(t.paths);
+                else setDiscardTarget(t);
               }}
             >
-              Discard changes (restore to HEAD)
+              {menu.isDir
+                ? `Discard all changes in ${menu.label}/ (restore to HEAD)`
+                : "Discard changes (restore to HEAD)"}
             </button>
-            <button
-              onClick={() => {
-                openWorkingFile(menu.path);
-                setMenu(null);
-              }}
-            >
-              Open diff
-            </button>
+            {!menu.isDir && (
+              <button
+                onClick={() => {
+                  openWorkingFile(menu.paths[0]);
+                  setMenu(null);
+                }}
+              >
+                Open diff
+              </button>
+            )}
           </div>
         </>
       )}
 
-      {discardPath && (
+      {discardTarget && (
         <ConfirmModal
           title="Discard changes"
           danger
           suppressId="discardFile"
           message={
-            <>
-              Restore <b>{discardPath}</b> to its committed (HEAD) version, discarding your working-tree
-              changes? An untracked file is removed. This is <b>git checkout</b> — it cannot be undone
-              from here.
-            </>
+            discardTarget.isDir ? (
+              <>
+                Restore the {discardTarget.paths.length} changed file
+                {discardTarget.paths.length === 1 ? "" : "s"} under <b>{discardTarget.label}/</b> to their
+                committed (HEAD) version, discarding your working-tree changes? Untracked files are removed.
+                This is <b>git checkout</b> — it cannot be undone from here.
+              </>
+            ) : (
+              <>
+                Restore <b>{discardTarget.paths[0]}</b> to its committed (HEAD) version, discarding your
+                working-tree changes? An untracked file is removed. This is <b>git checkout</b> — it cannot
+                be undone from here.
+              </>
+            )
           }
           confirmLabel="Discard changes"
           onConfirm={() => {
-            const p = discardPath;
-            setDiscardPath(null);
-            discardFile(p);
+            const t = discardTarget;
+            setDiscardTarget(null);
+            discardFiles(t.paths);
           }}
-          onCancel={() => setDiscardPath(null)}
+          onCancel={() => setDiscardTarget(null)}
         />
       )}
     </>
