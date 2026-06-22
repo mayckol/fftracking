@@ -56,6 +56,9 @@ interface Doc {
   connId: string;
   server: ServerId;
   profile: LspProfile;
+  /** Releases this doc's model listeners and drops it from `docs`. Set by
+   *  attach; called on model disposal and by shutdownLsp. */
+  detach?: () => void;
 }
 
 // A workspace root can host two servers (Go + TS in one repo), so connections
@@ -182,6 +185,31 @@ export async function restartLsp(root: string): Promise<void> {
     emitLspState(root, "error");
   } finally {
     keys.forEach((k) => restartingKeys.delete(k));
+  }
+}
+
+/** Stop every language server running under `root` and release its docs +
+ *  connections, freeing the server processes — used to reclaim memory once a
+ *  project is no longer the active one (see App's idle-teardown effect). Unlike
+ *  restartLsp it does NOT respawn: a later file open under `root` re-attaches and
+ *  starts a fresh server. No-op when nothing runs under `root`. */
+export async function shutdownLsp(root: string): Promise<void> {
+  const servers = new Set<ServerId>(
+    [...conns.values()].filter((c) => c.root === root).map((c) => c.server),
+  );
+  if (!servers.size) return;
+  // Leave a server restartLsp is mid-cycle on; it's reclaimed on the next switch.
+  if ([...servers].some((s) => restartingKeys.has(connKey(s, root)))) return;
+  // Detach docs first so a queued didChange can't race the stop, and so a later
+  // reopen re-attaches cleanly (attach early-returns on a still-registered doc).
+  for (const [path, d] of [...docs]) {
+    if (d.root !== root) continue;
+    if (d.detach) d.detach();
+    else docs.delete(path);
+  }
+  for (const server of servers) {
+    conns.delete(connKey(server, root));
+    await api.lspStop(root, server).catch(() => {});
   }
 }
 
@@ -1507,11 +1535,20 @@ async function attach({ monaco, model, root, path, profile }: AttachArgs & { pro
       contentChanges,
     });
   });
-  model.onWillDispose(() => {
+  // Tear down the doc-side listeners. `closed` true means the model itself is
+  // going away (send didClose); shutdownLsp passes false since it stops the whole
+  // server. Disposing both listeners keeps the per-path cached model (kept alive
+  // by keepCurrentModel so undo survives remounts) from accumulating stale subs.
+  let willDispose: Monaco.IDisposable | null = null;
+  const detach = (closed: boolean) => {
     sub.dispose();
-    notify(c, "textDocument/didClose", { textDocument: { uri } });
+    willDispose?.dispose();
+    if (closed) notify(c, "textDocument/didClose", { textDocument: { uri } });
     docs.delete(path);
-  });
+  };
+  willDispose = model.onWillDispose(() => detach(true));
+  const entry = docs.get(path);
+  if (entry) entry.detach = () => detach(false);
 }
 
 /** Open a Go file with gopls. Signature unchanged for existing callers. */

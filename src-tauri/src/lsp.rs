@@ -212,7 +212,18 @@ impl LspManager {
                 // (diagnostics, formatting, imports). A GUI-launched app has a
                 // stripped PATH without it, so splice the toolchain back in.
                 let mut c = Command::new(&bin);
-                c.current_dir(&root).env("PATH", crate::run::go_child_path(&bin));
+                // Bound the gopls heap via the Go runtime soft memory limit. One
+                // gopls runs per project root, so each must police itself (without
+                // a limit a large module can balloon to multiple GB). Honor a
+                // user-set GOMEMLIMIT; else default to a sane ceiling that
+                // FFTRACKING_GOPLS_MEMLIMIT can override. Soft limit: gopls GCs
+                // harder near it rather than crashing.
+                let memlimit = std::env::var("GOMEMLIMIT")
+                    .or_else(|_| std::env::var("FFTRACKING_GOPLS_MEMLIMIT"))
+                    .unwrap_or_else(|_| "2GiB".into());
+                c.current_dir(&root)
+                    .env("PATH", crate::run::go_child_path(&bin))
+                    .env("GOMEMLIMIT", &memlimit);
                 (c, Stdio::null())
             }
             Kind::Vtsls => {

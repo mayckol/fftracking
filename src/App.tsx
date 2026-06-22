@@ -12,7 +12,7 @@ import { pollWhileVisible } from "./lib/poll";
 import { checkUpdate, runUpdate, type UpdateState } from "./lib/update";
 import { setTerminalOpener } from "./lib/runner";
 import { getRunSnapshot, resetRun, setRunOpener, subscribeRun } from "./lib/run";
-import { restartLsp } from "./lib/lsp";
+import { restartLsp, shutdownLsp } from "./lib/lsp";
 import {
   dbgResume,
   dbgStepInto,
@@ -47,6 +47,11 @@ type Tab = "files" | "history" | "git" | "plugins" | "settings";
 // setup reopens where they left off (HistoryView then restores that project's
 // last file from ff.lastFile.<id>).
 const LAST_PROJECT_KEY = "ff.lastProject";
+
+// How long a project's language servers linger after you switch away before they
+// are torn down. A quick flip back within the window cancels the teardown, so
+// brief detours don't pay a cold gopls/vtsls restart.
+const LSP_IDLE_GRACE_MS = 45_000;
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("files");
@@ -297,6 +302,42 @@ export default function App() {
     tick();
     return pollWhileVisible(tick, 3000);
   }, [repoPath]);
+
+  // Idle-teardown: free a project's language servers once it stops being the
+  // active one. gopls/vtsls start per project root and otherwise live for the
+  // app's lifetime, so cycling across N projects stacks N server processes (each
+  // loading its own module graph). On switch-away the previous root's servers are
+  // scheduled for shutdown after a grace delay; returning within the window
+  // cancels it.
+  const prevRootRef = useRef<string | null>(null);
+  const lspIdleTimers = useRef(new Map<string, number>());
+  useEffect(() => {
+    const active = repoPath;
+    const timers = lspIdleTimers.current;
+    if (active) {
+      const pending = timers.get(active);
+      if (pending !== undefined) {
+        clearTimeout(pending);
+        timers.delete(active);
+      }
+    }
+    const prev = prevRootRef.current;
+    prevRootRef.current = active;
+    if (prev && prev !== active && !timers.has(prev)) {
+      const timer = window.setTimeout(() => {
+        timers.delete(prev);
+        if (prevRootRef.current !== prev) void shutdownLsp(prev);
+      }, LSP_IDLE_GRACE_MS);
+      timers.set(prev, timer);
+    }
+  }, [repoPath]);
+  useEffect(() => {
+    const timers = lspIdleTimers.current;
+    return () => {
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
 
   // A standalone merge window finished a file: refresh the count immediately and
   // tell GitView to reload so its conflicts list stays in sync.
