@@ -4,6 +4,25 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.18] — 2026-06-22
+
+### Added
+
+- **Folder tree in the commit view.** Staged and unstaged files now group into a
+  collapsible folder tree instead of a flat list of long paths, mirroring the
+  compare view. Each file keeps its stage/unstage button, and folders gain one
+  too — stage or unstage everything beneath a folder in a single click.
+- **Unversioned files split out.** New, untracked files now sit in their own
+  "Unversioned" section, separate from edits to already-tracked files, so it's
+  clear at a glance what git is and isn't following yet.
+
+### Fixed
+
+- **Steady diff toolbar.** The diff header's buttons (navigate, undo/redo, stage,
+  open, layout) used to slide left or right depending on how long the file name
+  was. The name and revision label now share the left side and truncate as
+  needed, while the buttons stay pinned to a fixed spot on the right.
+
 ## [1.0.17] — 2026-06-22
 
 ### Fixed
