@@ -2452,6 +2452,13 @@ button.vs-tag:hover {
   pointer-events: none;
 }
 
+/* The change you navigated to (click a file / next / prev): a whole-line band
+   plus a left accent bar so the active hunk stands out from the diff coloring. */
+.monaco-editor .ff-active-change {
+  background: var(--ac-glow);
+  box-shadow: inset 3px 0 0 var(--ac-bright);
+}
+
 /* ---------- markdown view modes ---------- */
 .md-body {
   display: flex;

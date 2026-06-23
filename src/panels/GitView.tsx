@@ -28,6 +28,10 @@ interface Props {
   onConflictsHandled?: () => void;
   /** Bumped when a standalone merge window resolves a file: reload merge state. */
   reloadReq?: number;
+  /** False while the view is mounted but hidden (another tab is showing). Gates
+   *  the diff keyboard shortcuts so the hidden view doesn't clobber the active
+   *  one's handlers in the shared shortcut registry. */
+  active?: boolean;
 }
 
 export default function GitView({
@@ -37,6 +41,7 @@ export default function GitView({
   conflictsIntent,
   onConflictsHandled,
   reloadReq,
+  active = true,
 }: Props) {
   usePlugins();
   const [repo, setRepo] = useState<string | null>(initialRepo);
@@ -242,11 +247,12 @@ export default function GitView({
     };
   }, [repo, file, from, to, reloadKey]);
 
-  // Only fires on cross-file ↑/↓ (crossFocus set) — a plain file click keeps
-  // its top-of-file position, matching the prior behaviour.
+  // Opening any file jumps the diff to its first change (and highlights it) so
+  // the user lands on what changed, not the top of the file. Cross-file ↑/↓ sets
+  // the direction; a plain click defaults to the first change.
   useEffect(() => {
-    const which = crossFocus.current;
-    if (!file || !which) return;
+    if (!file) return;
+    const which = crossFocus.current ?? "first";
     crossFocus.current = null;
     const t = window.setTimeout(
       () => (which === "last" ? diffApi.current?.focusLast() : diffApi.current?.focusFirst()),
@@ -254,6 +260,18 @@ export default function GitView({
     );
     return () => window.clearTimeout(t);
   }, [file]);
+
+  // Auto-open the first changed file when nothing is selected yet, so opening the
+  // Git view lands straight on the first file's first change instead of an empty
+  // pane. Only fires while no file is picked, so it never fights a user click.
+  useEffect(() => {
+    if (!active || file) return;
+    const first = orderedPaths()[0];
+    if (!first) return;
+    if (mode === "commit") openWorkingFile(first);
+    else setFile(first);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, file, mode, status, changes, merge, query]);
 
   // The changed-file list as ordered on screen, so ↑/↓ spill into the adjacent
   // file. Conflicts open the resolver (not the diff), so they're excluded.
@@ -359,16 +377,16 @@ export default function GitView({
   }
 
   const editable = to === WORKDIR;
-  useShortcut("diff.next", () => navDiff("next"), !!file);
-  useShortcut("diff.prev", () => navDiff("prev"), !!file);
-  useShortcut("diff.nextChange", () => navDiff("next"), !!file);
-  useShortcut("diff.prevChange", () => navDiff("prev"), !!file);
-  useShortcut("diff.layout", () => setInline((v) => !v), !!file);
-  useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), !!file && editable);
-  useShortcut("diff.applyChange", () => diffApi.current?.revertCurrent(), !!file && editable);
-  useShortcut("diff.revertChange", () => diffApi.current?.revertCurrent(), !!file && editable);
-  useShortcut("diff.undo", () => diffApi.current?.undo(), !!file && editable);
-  useShortcut("diff.redo", () => diffApi.current?.redo(), !!file && editable);
+  useShortcut("diff.next", () => navDiff("next"), active && !!file);
+  useShortcut("diff.prev", () => navDiff("prev"), active && !!file);
+  useShortcut("diff.nextChange", () => navDiff("next"), active && !!file);
+  useShortcut("diff.prevChange", () => navDiff("prev"), active && !!file);
+  useShortcut("diff.layout", () => setInline((v) => !v), active && !!file);
+  useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), active && !!file && editable);
+  useShortcut("diff.applyChange", () => diffApi.current?.revertCurrent(), active && !!file && editable);
+  useShortcut("diff.revertChange", () => diffApi.current?.revertCurrent(), active && !!file && editable);
+  useShortcut("diff.undo", () => diffApi.current?.undo(), active && !!file && editable);
+  useShortcut("diff.redo", () => diffApi.current?.redo(), active && !!file && editable);
 
   const q = query.trim().toLowerCase();
   const matchQ = (f: { path: string }) => !q || f.path.toLowerCase().includes(q);

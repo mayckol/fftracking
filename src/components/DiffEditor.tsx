@@ -44,25 +44,42 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
   const monacoRef = useRef<Monaco | null>(null);
   const hunksRef = useRef<HunkInfo[]>(hunks);
   const decoRef = useRef<string[]>([]);
+  const activeDecoRef = useRef<string[]>([]);
   const navRef = useRef(-1);
   const [identical, setIdentical] = useState(false);
 
   function reveal(idx: number, focus: boolean) {
     const diff = diffRef.current;
+    const monaco = monacoRef.current;
     const changes = diff?.getLineChanges() ?? [];
-    if (!diff || changes.length === 0) return;
+    if (!diff || !monaco || changes.length === 0) return;
     navRef.current = idx;
     const c = changes[idx];
-    const line = c.modifiedStartLineNumber > 0 ? c.modifiedStartLineNumber : c.modifiedEndLineNumber || 1;
+    const hasMod = c.modifiedStartLineNumber > 0;
+    const line = hasMod ? c.modifiedStartLineNumber : c.modifiedEndLineNumber || 1;
     const me = diff.getModifiedEditor();
     me.revealLineNearTop(line);
     me.setPosition({ lineNumber: line, column: 1 });
+    // Highlight the change you landed on (a whole-line band + scrollbar tick) so
+    // it's obvious which one is active — not just a scroll to the file.
+    const start = hasMod ? c.modifiedStartLineNumber : Math.max(1, line);
+    const end = hasMod && c.modifiedEndLineNumber >= start ? c.modifiedEndLineNumber : start;
+    activeDecoRef.current = me.deltaDecorations(activeDecoRef.current, [
+      {
+        range: new monaco.Range(start, 1, end, 1),
+        options: {
+          isWholeLine: true,
+          className: "ff-active-change",
+          overviewRuler: { color: "#7c8cff", position: monaco.editor.OverviewRulerLane.Full },
+        },
+      },
+    ]);
     if (focus) me.focus();
   }
 
   // Cross-file nav switches the file first; its diff is recomputed async, so the
   // first/last change isn't known yet — retry until Monaco has the line changes.
-  function revealEdge(which: "first" | "last", focus: boolean, tries = 12) {
+  function revealEdge(which: "first" | "last", focus: boolean, tries = 30) {
     const changes = diffRef.current?.getLineChanges() ?? [];
     if (changes.length === 0) {
       if (tries > 0) window.setTimeout(() => revealEdge(which, focus, tries - 1), 50);
@@ -82,7 +99,7 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
       return "moved";
     },
     focusFirst() {
-      revealEdge("first", false);
+      revealEdge("first", true);
     },
     focusLast() {
       revealEdge("last", true);

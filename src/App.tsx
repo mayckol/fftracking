@@ -629,18 +629,24 @@ export default function App() {
         </div>
       )}
 
-      {tab === "git" && (
-        <div className="work" style={{ gridTemplateColumns: "340px minmax(0, 1fr)" }}>
-          <GitView
-            initialRepo={selectedMonitor?.root_path ?? null}
-            toast={notify}
-            onOpenFile={(p) => openFromSearch(p)}
-            conflictsIntent={conflictsIntent}
-            onConflictsHandled={() => setConflictsIntent(false)}
-            reloadReq={mergeReload}
-          />
-        </div>
-      )}
+      {/* Kept mounted (hidden when another tab shows) so the selected file and its
+          diff scroll/cursor survive a round-trip to Files and back. Keyed by the
+          tracked folder so switching folders still resets it. */}
+      <div
+        className="work"
+        style={{ gridTemplateColumns: "340px minmax(0, 1fr)", display: tab === "git" ? undefined : "none" }}
+      >
+        <GitView
+          key={selectedMonitor?.root_path ?? "no-repo"}
+          initialRepo={selectedMonitor?.root_path ?? null}
+          active={tab === "git"}
+          toast={notify}
+          onOpenFile={(p) => openFromSearch(p)}
+          conflictsIntent={conflictsIntent}
+          onConflictsHandled={() => setConflictsIntent(false)}
+          reloadReq={mergeReload}
+        />
+      </div>
 
       {tab === "plugins" && (
         <div className="work" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
