@@ -664,6 +664,11 @@ pub fn git_revert_hunks(repo_path: String, from: String, to: String, path: Strin
 }
 
 #[tauri::command]
+pub fn git_apply_hunk(repo_path: String, from: String, to: String, path: String, index: usize) -> R<()> {
+    err(git::apply_hunk(&PathBuf::from(repo_path), &from, &to, &path, index))
+}
+
+#[tauri::command]
 pub fn git_write_working(repo_path: String, path: String, content: String) -> R<()> {
     err(git::write_working(&PathBuf::from(repo_path), &path, &content))
 }

@@ -748,7 +748,10 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
         ) : (
         <div className="merge-panes" ref={panesRef}>
           <div className="merge-pane" style={{ flexGrow: w[0] }}>
-            <div className="merge-plabel ours">Changes from {oursLabel}</div>
+            <div className="merge-plabel ours">
+              <span className="dpb-ico" aria-hidden="true">⎇</span>
+              <span className="dpb-ref">Changes from {oursLabel}</span>
+            </div>
             <div className="merge-edhost">
               <Editor
                 className="editor-wrap"
@@ -769,7 +772,10 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
           <div className="merge-split" onMouseDown={dragSplit(0)} />
 
           <div className="merge-pane center" style={{ flexGrow: w[1] }}>
-            <div className="merge-plabel result">Result</div>
+            <div className="merge-plabel result">
+              <span className="dpb-ico" aria-hidden="true">✎</span>
+              <span className="dpb-ref">Result</span>
+            </div>
             <Editor
               className="editor-wrap"
               theme={monacoThemeId(prefs.theme)}
@@ -787,7 +793,10 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
           <div className="merge-split" onMouseDown={dragSplit(1)} />
 
           <div className="merge-pane" style={{ flexGrow: w[2] }}>
-            <div className="merge-plabel theirs">Changes from {theirsLabel}</div>
+            <div className="merge-plabel theirs">
+              <span className="dpb-ico" aria-hidden="true">⎇</span>
+              <span className="dpb-ref">Changes from {theirsLabel}</span>
+            </div>
             <div className="merge-edhost">
               <Editor
                 className="editor-wrap"

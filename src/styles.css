@@ -2429,13 +2429,89 @@ button.vs-tag:hover {
   overflow: hidden;
 }
 
-/* Diff shell hosts the Monaco diff plus the "identical" overlay. */
+/* Diff shell hosts the optional per-pane label bar, the Monaco diff, and the
+   "identical" overlay (stacked vertically). */
 .diff-shell {
   position: relative;
   flex: 1;
   min-height: 0;
   min-width: 0;
   display: flex;
+  flex-direction: column;
+}
+
+/* Per-pane revision labels above a side-by-side diff: two equal cells aligned
+   over Monaco's 50/50 split (left = original ref, right = modified ref), with a
+   small badge straddling the split to read the diff direction at a glance. */
+.diff-pane-bar {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  height: 28px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  background: linear-gradient(var(--bg-1), var(--bg-0));
+  border-bottom: 1px solid var(--line);
+  color: var(--tx-1);
+  user-select: none;
+}
+.diff-pane-bar .dpb-cell {
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.diff-pane-bar:not(.inline) .dpb-cell:first-child {
+  border-right: 1px solid var(--line);
+}
+.diff-pane-bar.inline .dpb-cell {
+  flex: 1 1 auto;
+}
+.diff-pane-bar .dpb-ico {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--ac);
+  opacity: 0.85;
+}
+.diff-pane-bar .dpb-ico.work {
+  color: var(--add);
+  opacity: 1;
+}
+.diff-pane-bar .dpb-ref {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--tx-0);
+}
+.diff-pane-bar .dpb-arrow {
+  color: var(--tx-2);
+  flex: 0 0 auto;
+}
+/* Direction badge centered on the split divider. */
+.diff-pane-bar:not(.inline)[data-badge]::after {
+  content: attr(data-badge);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  color: var(--tx-1);
+  font-size: 10px;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 .diff-identical {
   position: absolute;
@@ -2916,13 +2992,16 @@ button.vs-tag:hover {
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
-  color: var(--tx-2);
+  color: var(--tx-1);
+  opacity: 0.7;
   transition:
     color 0.12s ease,
+    opacity 0.12s ease,
     transform 0.12s ease;
 }
 .ff-revert-glyph:hover::after {
-  color: var(--ac);
+  color: var(--ac-bright);
+  opacity: 1;
   transform: translateX(1px);
 }
 
@@ -4042,6 +4121,9 @@ textarea:focus {
 .merge-pane:last-child { border-right: none; }
 .merge-plabel {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px var(--s2);
   font-family: var(--mono);
   font-size: var(--fs-xs);
@@ -4049,13 +4131,22 @@ textarea:focus {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-bottom: 1px solid var(--line);
-  white-space: nowrap;
+}
+.merge-plabel .dpb-ico {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  color: inherit;
+}
+.merge-plabel .dpb-ref {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .merge-plabel.ours { color: var(--ac); background: var(--ac-glow); }
 .merge-plabel.theirs { color: var(--t-event); background: var(--t-event-bg); }
-.merge-plabel.result { color: var(--tx-1); background: var(--bg-2); }
+.merge-plabel.result { color: var(--add); background: var(--add-bg); }
 
 /* Side-pane change highlights by origin (subtle band + thin edge marker). */
 .merge-line-ours {

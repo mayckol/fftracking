@@ -348,6 +348,20 @@ export default function GitView({
     }
   }
 
+  // Apply one block of a two-revision compare into the working tree (the panes
+  // are read-only revisions). The backend splices just that block, leaving the
+  // rest of the working file alone, and errors if it diverged there.
+  async function applyHunkToWorking(index: number) {
+    if (!repo || !file) return;
+    try {
+      await api.gitApplyHunk(repo, from, to, file, index);
+      toast(`Applied block into the working tree`);
+      await loadStatus(repo);
+    } catch (e) {
+      toast(String(e), true);
+    }
+  }
+
   async function persistWorking(value: string) {
     if (!repo || !file) return;
     try {
@@ -382,9 +396,12 @@ export default function GitView({
   useShortcut("diff.nextChange", () => navDiff("next"), active && !!file);
   useShortcut("diff.prevChange", () => navDiff("prev"), active && !!file);
   useShortcut("diff.layout", () => setInline((v) => !v), active && !!file);
-  useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), active && !!file && editable);
-  useShortcut("diff.applyChange", () => diffApi.current?.revertCurrent(), active && !!file && editable);
-  useShortcut("diff.revertChange", () => diffApi.current?.revertCurrent(), active && !!file && editable);
+  // Apply/revert work in both an editable working-tree diff (local edit) and a
+  // read-only compare (backend splice via onApplyHunk), so they aren't gated on
+  // `editable`. Undo/redo only make sense for the local edit path.
+  useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), active && !!file);
+  useShortcut("diff.applyChange", () => diffApi.current?.revertCurrent(), active && !!file);
+  useShortcut("diff.revertChange", () => diffApi.current?.revertCurrent(), active && !!file);
   useShortcut("diff.undo", () => diffApi.current?.undo(), active && !!file && editable);
   useShortcut("diff.redo", () => diffApi.current?.redo(), active && !!file && editable);
 
@@ -617,11 +634,11 @@ export default function GitView({
                   title={
                     to === WORKDIR
                       ? `Click ⟲ in the gutter to apply the ${from} version of a block to the working tree; ⌘Z / Ctrl+Z to undo`
-                      : "Both sides are read-only revisions. Switch the right side to your working tree (↧) to apply blocks."
+                      : `Click → in the gutter to splice that block's ${to} version into your working tree (the rest of the file is left alone).`
                   }
                 >
                   {hunks.length} change{hunks.length === 1 ? "" : "s"}
-                  {to === WORKDIR ? ` · ⟲ applies ${from} → working · ⌘Z undo` : " · read-only (↧ to apply)"}
+                  {to === WORKDIR ? ` · ⟲ applies ${from} → working · ⌘Z undo` : " · → applies into working tree"}
                 </span>
               )}
             </span>
@@ -688,6 +705,10 @@ export default function GitView({
             editable={to === WORKDIR}
             onCommit={persistWorking}
             hunks={hunks}
+            originalLabel={from}
+            modifiedLabel={to === WORKDIR ? "working tree" : to}
+            modifiedWorking={to === WORKDIR}
+            onApplyHunk={to === WORKDIR ? undefined : applyHunkToWorking}
             ref={diffApi}
           />
         </div>

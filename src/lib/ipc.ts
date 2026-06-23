@@ -128,6 +128,8 @@ export const api = {
     invoke<HunkInfo[]>("git_file_hunks", { repoPath, from, to, path }),
   gitRevertHunks: (repoPath: string, from: string, to: string, path: string, selected: number[]) =>
     invoke<void>("git_revert_hunks", { repoPath, from, to, path, selected }),
+  gitApplyHunk: (repoPath: string, from: string, to: string, path: string, index: number) =>
+    invoke<void>("git_apply_hunk", { repoPath, from, to, path, index }),
   gitWriteWorking: (repoPath: string, path: string, content: string) =>
     invoke<void>("git_write_working", { repoPath, path, content }),
   gitDiscardFile: (repoPath: string, path: string) =>

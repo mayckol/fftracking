@@ -1506,6 +1506,9 @@ export default function HistoryView({
               editable={!branchDiff.path.startsWith("/")}
               onCommit={persistBranchWorking}
               hunks={branchHunks}
+              originalLabel={branchDiff.label}
+              modifiedLabel="working tree"
+              modifiedWorking
               ref={branchDiffApi}
             />
           </>

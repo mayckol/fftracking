@@ -31,15 +31,29 @@ interface Props {
   /** Which side the right/modified pane shows: false = current/working
    *  (hunk old_*), true = the target/point (hunk new_*). */
   targetSide?: boolean;
+  /** Revision labels shown above each pane (e.g. a branch or commit) so it's
+   *  clear which side is which. Left = original, right = modified. */
+  originalLabel?: string;
+  modifiedLabel?: string;
+  /** Right pane is the live working tree (your editable copy) — marked with a
+   *  green pencil rather than a branch glyph. */
+  modifiedWorking?: boolean;
+  /** Apply a block into the working tree when neither pane is editable (a
+   *  two-revision compare). Receives the hunk index; the backend splices it.
+   *  When set, the apply (→) arrows show even though the panes are read-only. */
+  onApplyHunk?: (index: number) => void;
 }
 
 const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
-  { original, modified, language, inline = false, editable = false, onCommit, hunks = [], targetSide = false },
+  { original, modified, language, inline = false, editable = false, onCommit, hunks = [], targetSide = false, originalLabel, modifiedLabel, modifiedWorking = false, onApplyHunk },
   ref,
 ) {
   const prefs = useUIPrefs();
   const modifiedRef = useRef(modified);
   modifiedRef.current = modified;
+  // onMount captures handlers once; read the live apply callback through a ref.
+  const onApplyHunkRef = useRef(onApplyHunk);
+  onApplyHunkRef.current = onApplyHunk;
   const diffRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const hunksRef = useRef<HunkInfo[]>(hunks);
@@ -108,12 +122,12 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
       const diff = diffRef.current;
       if (!diff || hunksRef.current.length === 0) return;
       const line = diff.getModifiedEditor().getPosition()?.lineNumber ?? 1;
-      // The block whose start is nearest the cursor (so a keyboard revert acts on
+      // The block whose start is nearest the cursor (so a keyboard apply acts on
       // the change you navigated to).
       const hit = hunksRef.current.reduce((best, h) =>
         Math.abs(lineOf(h) - line) < Math.abs(lineOf(best) - line) ? h : best,
       );
-      revertHunk(hit);
+      applyHit(hit);
     },
     undo() {
       const me = diffRef.current?.getModifiedEditor();
@@ -129,8 +143,13 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
 
   // Icon sits on the right/modified pane at the hunk start. old_* = current
   // (working) side, new_* = target (point) side — pick per which pane is shown.
+  // A pure deletion (len 0) has no line on this side, so it anchors on the line
+  // above the gap (start, not start+1) — otherwise the glyph drifts one row below
+  // the change. Mirrors the main editor's gutter-stripe anchor.
   function lineOf(h: HunkInfo) {
-    return Math.max(1, (targetSide ? h.new_start : h.old_start) + 1);
+    const start = targetSide ? h.new_start : h.old_start;
+    const len = targetSide ? h.new_len : h.old_len;
+    return len > 0 ? start + 1 : Math.max(1, start);
   }
 
   // Restores one block of the modified (working) pane to the original (point)
@@ -152,15 +171,24 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
     me.focus();
   }
 
+  // Applies one block. Editable diffs (right pane = working tree) edit the pane
+  // directly, so it lands in the undo stack. A two-revision compare is read-only,
+  // so it delegates to the backend splice via onApplyHunk (never edits the pane —
+  // editing a read-only editor is what threw "Cannot edit in read-only editor").
+  function applyHit(h: HunkInfo) {
+    if (editable) revertHunk(h);
+    else onApplyHunkRef.current?.(h.index);
+  }
+
   function applyDecorations() {
     const diff = diffRef.current;
     const monaco = monacoRef.current;
     if (!diff || !monaco) return;
     const me = diff.getModifiedEditor();
-    // The → block-apply only makes sense against the working tree (editable
-    // "vs now"); in read-only "vs before" the panes are two past snapshots, so
-    // show no apply glyphs there.
-    const visible = editable ? hunksRef.current : [];
+    // Show the → glyph when a block can be applied: an editable working-tree diff,
+    // or a read-only compare wired to apply into the working tree via the backend.
+    const canApply = editable || !!onApplyHunkRef.current;
+    const visible = canApply ? hunksRef.current : [];
     const decos = visible.map((h) => ({
       range: new monaco.Range(lineOf(h), 1, lineOf(h), 1),
       options: {
@@ -206,11 +234,11 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
       me.getAction("editor.action.startFindReplaceAction")?.run(),
     );
     me.onMouseDown((e) => {
-      if (!editable) return;
+      if (!editable && !onApplyHunkRef.current) return;
       if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && e.target.position) {
         const ln = e.target.position.lineNumber;
         const hit = hunksRef.current.find((h) => lineOf(h) === ln);
-        if (hit) revertHunk(hit);
+        if (hit) applyHit(hit);
       }
     });
 
@@ -225,8 +253,33 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
     }
   }
 
+  const hasLabels = !!(originalLabel || modifiedLabel);
+
   return (
     <div className="diff-shell">
+    {hasLabels &&
+      (inline ? (
+        <div className="diff-pane-bar inline">
+          <span className="dpb-cell" title={originalLabel}>
+            <span className="dpb-ico" aria-hidden="true">⎇</span>
+            <span className="dpb-ref">{originalLabel}</span>
+            <span className="dpb-arrow" aria-hidden="true">→</span>
+            <span className={`dpb-ico${modifiedWorking ? " work" : ""}`} aria-hidden="true">{modifiedWorking ? "✎" : "⎇"}</span>
+            <span className="dpb-ref">{modifiedLabel}</span>
+          </span>
+        </div>
+      ) : (
+        <div className="diff-pane-bar" data-badge="→">
+          <span className="dpb-cell" title={originalLabel}>
+            <span className="dpb-ico" aria-hidden="true">⎇</span>
+            <span className="dpb-ref">{originalLabel}</span>
+          </span>
+          <span className="dpb-cell" title={modifiedLabel}>
+            <span className={`dpb-ico${modifiedWorking ? " work" : ""}`} aria-hidden="true">{modifiedWorking ? "✎" : "⎇"}</span>
+            <span className="dpb-ref">{modifiedLabel}</span>
+          </span>
+        </div>
+      ))}
     <MonacoDiff
       key={`${inline ? "inline" : "split"}-${editable ? "rw" : "ro"}`}
       // diff-wrap marks this as the *diff* editor so diff-scoped shortcuts

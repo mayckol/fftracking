@@ -5,7 +5,7 @@ use git2::{Delta, DiffOptions, ObjectType, Repository, Tree, TreeWalkMode, TreeW
 use serde::Serialize;
 
 use crate::query::ChangeStatus;
-use crate::revert::{apply_hunks, hunks, HunkInfo};
+use crate::revert::{apply_hunk_into, apply_hunks, hunks, HunkInfo};
 use crate::{Error, Result};
 
 /// Sentinel revspec meaning "the working tree as it is on disk right now".
@@ -474,6 +474,21 @@ pub fn revert_hunks(
     let (out, _) = apply_hunks(&to, &from, selected);
     let repo = open(repo_path)?;
     std::fs::write(workdir_path(&repo, path)?, out)?;
+    Ok(())
+}
+
+/// Applies one block of a two-revision `from`→`to` compare into the working-tree
+/// file, splicing only that block's `to` content and leaving the rest of the
+/// working file intact. Errors (without writing) if the working file has diverged
+/// in that block. Used by the diff's apply arrow when neither pane is the workdir.
+pub fn apply_hunk(repo_path: &Path, from_rev: &str, to_rev: &str, path: &str, index: usize) -> Result<()> {
+    let from = text_at(repo_path, from_rev, path)?;
+    let to = text_at(repo_path, to_rev, path)?;
+    let repo = open(repo_path)?;
+    let wpath = workdir_path(&repo, path)?;
+    let working = std::fs::read_to_string(&wpath).unwrap_or_default();
+    let out = apply_hunk_into(&from, &to, &working, index)?;
+    std::fs::write(wpath, out)?;
     Ok(())
 }
 
