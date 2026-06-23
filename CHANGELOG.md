@@ -4,6 +4,30 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.20] — 2026-06-23
+
+### Added
+
+- **Alt+C / Alt+V diff shortcuts.** Apply or revert the change at the cursor in
+  any diff editor (commit mode, compare-vs-working, branch compare) without
+  reaching for the glyph. Both keys perform the same block-apply operation
+  (pull the reference version into the working tree).
+- **Git change markers in the editor scrollbar.** The main code editor now shows
+  colored stripes in the right-side overview ruler for added/modified/deleted
+  lines, matching JetBrains IDEs.
+- **"Files are identical" placeholder in diff views.** When a diff has no changes,
+  a centered label appears to confirm the two sides match, instead of an empty
+  diff pane.
+
+### Fixed
+
+- **External file edits no longer get stuck as stale + dirty.** When a file is
+  edited in a terminal (or by an external tool), the app was permanently blocking
+  reloads if the dirty flag had stuck. Now the reconcile logic checks whether
+  unsaved user edits exist; clean buffers always reload from disk, preserving
+  the blue dot only when you have real unsaved changes. Fixes the issue on both
+  Linux and macOS.
+
 ## [1.0.19] — 2026-06-22
 
 ### Added
