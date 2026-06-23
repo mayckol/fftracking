@@ -4,6 +4,35 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.22] — 2026-06-23
+
+### Added
+
+- **Apply a block from a two-revision compare into your working tree.** Comparing
+  two branches or commits used to be read-only. Now each change shows an apply
+  arrow that splices just that block's version into your working file, leaving the
+  rest untouched. If your working copy has diverged in that block, it reports a
+  clear error instead of touching the file.
+- **Per-pane revision labels.** Diffs now label each pane with the branch, commit
+  or "working tree" it shows, with a small direction badge on the split. The 3-way
+  merge editor uses the same labelled treatment.
+- **Land on the first change.** Opening the Git view selects the first changed
+  file, and clicking any file jumps to and highlights its first change. Navigating
+  between changes highlights the one you land on.
+
+### Changed
+
+- **The Git view is preserved when you switch tabs** — the open file and its diff
+  scroll position survive a trip to Files and back.
+
+### Fixed
+
+- **No more "Cannot edit in read-only editor".** Applying a change from a read-only
+  compare now writes to the working tree through the backend instead of trying to
+  edit the read-only pane.
+- **The apply arrow lines up with its change** (deletions no longer push it a row
+  below).
+
 ## [1.0.21] — 2026-06-23
 
 ### Changed
