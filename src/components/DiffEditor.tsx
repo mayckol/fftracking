@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { DiffEditor as MonacoDiff, type Monaco } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import type { HunkInfo } from "../lib/types";
@@ -45,6 +45,7 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
   const hunksRef = useRef<HunkInfo[]>(hunks);
   const decoRef = useRef<string[]>([]);
   const navRef = useRef(-1);
+  const [identical, setIdentical] = useState(false);
 
   function reveal(idx: number, focus: boolean) {
     const diff = diffRef.current;
@@ -171,6 +172,12 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
     }, 0);
     applyDecorations();
 
+    // "Files are identical" placeholder. The diff computes async and recomputes
+    // on every original/modified change, so track it off onDidUpdateDiff.
+    const syncIdentical = () => setIdentical((diff.getLineChanges()?.length ?? 0) === 0);
+    syncIdentical();
+    diff.onDidUpdateDiff(syncIdentical);
+
     const me = diff.getModifiedEditor();
     // Replace lives on the active scheme's Mod key (⌘/Ctrl, or physical Alt under
     // the mac-on-PC swap) — not a hardcoded Ctrl — so it doesn't land on the same
@@ -202,6 +209,7 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
   }
 
   return (
+    <div className="diff-shell">
     <MonacoDiff
       key={`${inline ? "inline" : "split"}-${editable ? "rw" : "ro"}`}
       // diff-wrap marks this as the *diff* editor so diff-scoped shortcuts
@@ -240,6 +248,8 @@ const DiffEditor = forwardRef<DiffHandle, Props>(function DiffEditor(
         ...editorPrefOptions(prefs),
       }}
     />
+      {identical && <div className="diff-identical">Files are identical</div>}
+    </div>
   );
 });
 

@@ -2429,6 +2429,29 @@ button.vs-tag:hover {
   overflow: hidden;
 }
 
+/* Diff shell hosts the Monaco diff plus the "identical" overlay. */
+.diff-shell {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+.diff-identical {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  color: var(--tx-1);
+  font-size: 12px;
+  pointer-events: none;
+}
+
 /* ---------- markdown view modes ---------- */
 .md-body {
   display: flex;

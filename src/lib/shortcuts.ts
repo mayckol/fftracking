@@ -138,6 +138,12 @@ export const ACTIONS: ActionDef[] = [
   { id: "diff.nextChange", label: "Next change (function key)", group: "Diff", default: "F3" },
   { id: "diff.prevChange", label: "Previous change (function key)", group: "Diff", default: "Shift+F3" },
   { id: "diff.revertBlock", label: "Revert current block", group: "Diff", default: "Alt+R" },
+  // Apply/revert the change at the cursor. The diff is one-directional (the left
+  // pane is read-only), so both resolve to the same block-apply: pull the other
+  // side's version of the block into the working tree. Two keys, one op — they
+  // mirror the muscle-memory of "accept" vs "revert" without a second direction.
+  { id: "diff.applyChange", label: "Apply change at cursor (→ working tree)", group: "Diff", default: "Alt+C" },
+  { id: "diff.revertChange", label: "Revert change at cursor", group: "Diff", default: "Alt+V" },
   { id: "diff.undo", label: "Undo", group: "Diff", default: "Mod+Z", scope: "diff" },
   { id: "diff.redo", label: "Redo", group: "Diff", default: "Mod+Shift+Z", scope: "diff" },
   { id: "diff.layout", label: "Toggle split / inline", group: "Diff", default: "Alt+L" },

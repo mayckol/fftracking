@@ -365,6 +365,8 @@ export default function GitView({
   useShortcut("diff.prevChange", () => navDiff("prev"), !!file);
   useShortcut("diff.layout", () => setInline((v) => !v), !!file);
   useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), !!file && editable);
+  useShortcut("diff.applyChange", () => diffApi.current?.revertCurrent(), !!file && editable);
+  useShortcut("diff.revertChange", () => diffApi.current?.revertCurrent(), !!file && editable);
   useShortcut("diff.undo", () => diffApi.current?.undo(), !!file && editable);
   useShortcut("diff.redo", () => diffApi.current?.redo(), !!file && editable);
 

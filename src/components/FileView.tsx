@@ -353,7 +353,14 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       return;
     }
     const m = editorRef.current?.getModel();
-    if (m && m.getValue() !== content) m.setValue(content);
+    // No model yet: don't advance the baseline, or it drifts ahead of the buffer
+    // and wedges the file as permanently dirty + stale on the next reconcile.
+    if (!m) return;
+    // Buffer carries unsaved user edits (differs from baseline AND from the new
+    // disk content): an external write must not clobber them. Leave the edits and
+    // the dirty dot until the user saves.
+    if (m.getValue() !== savedValueRef.current && m.getValue() !== content) return;
+    if (m.getValue() !== content) m.setValue(content);
     // The new content is now the on-disk baseline (save succeeded, or a reload).
     savedValueRef.current = content;
     onDirtyRef.current?.(false);
@@ -1496,17 +1503,33 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       const hunkCovers = (h: HunkInfo, line: number) =>
         h.old_len > 0 ? line >= h.old_start + 1 && line <= h.old_start + h.old_len : line === hunkLine(h);
 
+      // Overview-ruler markers reuse the gutter-stripe palette. Monaco wants a
+      // color value (not a CSS class), so read the theme tokens with hard
+      // fallbacks for the (rare) case the vars aren't resolved yet.
+      const rulerColor = (kind: "add" | "del" | "mod") => {
+        const v = getComputedStyle(document.documentElement).getPropertyValue(`--${kind}`).trim();
+        return v || (kind === "add" ? "#3fb950" : kind === "del" ? "#f0626e" : "#e3b341");
+      };
+
       let changeDecos: string[] = [];
       const renderChanges = (hk: HunkInfo[]) => {
         changeDecos = editor.deltaDecorations(
           changeDecos,
-          hk.map((h) => ({
-            range: new monaco.Range(hunkLine(h), 1, h.old_len > 0 ? h.old_start + h.old_len : hunkLine(h), 1),
-            options: {
-              linesDecorationsClassName: `ff-gut-change ${h.new_len === 0 ? "add" : h.old_len === 0 ? "del" : "mod"}`,
-              stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
-            },
-          })),
+          hk.map((h) => {
+            const kind = h.new_len === 0 ? "add" : h.old_len === 0 ? "del" : "mod";
+            return {
+              range: new monaco.Range(hunkLine(h), 1, h.old_len > 0 ? h.old_start + h.old_len : hunkLine(h), 1),
+              options: {
+                linesDecorationsClassName: `ff-gut-change ${kind}`,
+                // JetBrains-style change stripes in the right scrollbar.
+                overviewRuler: {
+                  color: rulerColor(kind),
+                  position: monaco.editor.OverviewRulerLane.Right,
+                },
+                stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+              },
+            };
+          }),
         );
       };
 
@@ -1666,7 +1689,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
           automaticLayout: true,
           lineHeight: 19,
           minimap: { enabled: false },
-          overviewRulerLanes: 0,
+          overviewRulerLanes: 3,
           scrollBeyondLastLine: false,
           smoothScrolling: false,
           renderLineHighlight: "all",

@@ -653,14 +653,17 @@ export default function HistoryView({
     };
   }, [openKind, file, monitorId, root, baseInfo, latestSnap, reload, diskSync]);
 
-  // Re-sync the open working file with disk. Skips dirty buffers so unsaved edits
-  // are never clobbered by a disk re-read. Fires on editor focus and window
-  // refocus, which is when an external checkout/discard would have landed.
+  // Re-sync the open working file with disk. Always re-reads; FileView reconciles
+  // (keeps unsaved user edits, only swaps in disk content when the buffer is
+  // clean), so an external write is never missed and a clean buffer can't get
+  // wedged on a stale version. Previously this bailed whenever the path was in
+  // dirtyPaths, which — once the dirty flag stuck — permanently blocked reloads.
+  // Fires on editor focus, window refocus, and watcher/poll signals: whenever an
+  // external checkout/discard/terminal write would have landed.
   const resyncDisk = useCallback(() => {
     if (openKind !== "file" || !file || file.startsWith("/")) return;
-    if (dirtyPaths.has(file)) return;
     setDiskSync((n) => n + 1);
-  }, [openKind, file, dirtyPaths]);
+  }, [openKind, file]);
 
   useEffect(() => {
     const onFocus = () => {
@@ -1213,6 +1216,8 @@ export default function HistoryView({
   // Block revert / undo / redo target whichever diff is mounted.
   const activeDiff = () => (branchDiff ? branchDiffApi.current : diffApi.current);
   useShortcut("diff.revertBlock", () => activeDiff()?.revertCurrent(), inAnyDiff);
+  useShortcut("diff.applyChange", () => activeDiff()?.revertCurrent(), inAnyDiff);
+  useShortcut("diff.revertChange", () => activeDiff()?.revertCurrent(), inAnyDiff);
   useShortcut("diff.undo", () => activeDiff()?.undo(), inAnyDiff);
   useShortcut("diff.redo", () => activeDiff()?.redo(), inAnyDiff);
   useShortcut("revert.file", revertFile, !!file);
