@@ -1557,7 +1557,23 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
         window.clearTimeout(gutTimer);
         gutTimer = window.setTimeout(recompute, 350);
       });
-      editor.onDidDispose(() => gutSub.dispose());
+      // Monaco can drop the overview-ruler stripes when the editor is resized
+      // (notably the terminal/run dock opening under it). Re-paint the change
+      // markers on layout so they survive the resize. rAF-coalesced so a
+      // continuous drag-resize doesn't thrash deltaDecorations.
+      let layoutRaf = 0;
+      const laySub = editor.onDidLayoutChange(() => {
+        if (layoutRaf) return;
+        layoutRaf = window.requestAnimationFrame(() => {
+          layoutRaf = 0;
+          if (!gmodel.isDisposed() && hunksRef.current.length) renderChanges(hunksRef.current);
+        });
+      });
+      editor.onDidDispose(() => {
+        gutSub.dispose();
+        laySub.dispose();
+        if (layoutRaf) window.cancelAnimationFrame(layoutRaf);
+      });
 
       editor.onMouseDown((e) => {
         if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS) return;

@@ -469,6 +469,16 @@ export function formatComboFor(combo: string, style: KeymapStyle): string {
   return render(combo, resolveScheme(style, IS_MAC));
 }
 
+// Action groups that still fire while a terminal is focused: app-level
+// navigation, search and file-management commands the shell has no use for.
+// Editor/Diff/Debug/Capture stay with the terminal (and with Monaco when it owns
+// focus). A terminal-clipboard chord is excluded separately so the shell keeps
+// copy/paste even though those actions live in these groups.
+const TERMINAL_SAFE_GROUPS: ReadonlySet<ActionGroup> = new Set(["Navigation", "Search", "Changed files"]);
+function firesInTerminal(action: ActionDef): boolean {
+  return TERMINAL_SAFE_GROUPS.has(action.group);
+}
+
 function inTextField(): boolean {
   const el = document.activeElement as HTMLElement | null;
   if (!el) return false;
@@ -653,9 +663,12 @@ function onKeyDown(e: KeyboardEvent) {
     return;
   }
   const el = document.activeElement as HTMLElement | null;
-  // While a terminal is focused, only the toggle fires; every other combo goes
-  // to the shell (Ctrl-C, Ctrl-R, etc.).
-  if (action.id !== "terminal.toggle" && el?.closest(".xterm")) {
+  // A focused terminal owns its clipboard and every shell key (Ctrl-C, Ctrl-R,
+  // …), so most combos pass through to it untouched. App-global navigation,
+  // search and file actions still fire — the shell has no use for them — unless
+  // the combo IS a terminal clipboard chord (e.g. Ctrl+Shift+C on Linux), which
+  // the terminal must keep.
+  if (el?.closest(".xterm") && (!firesInTerminal(action) || terminalClipboardIntent(e))) {
     dbg("skip", action.id, "— terminal focused");
     return;
   }
