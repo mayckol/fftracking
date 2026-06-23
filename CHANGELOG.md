@@ -4,6 +4,23 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.21] — 2026-06-23
+
+### Changed
+
+- **App shortcuts work while the terminal is focused.** A focused terminal used to
+  swallow every keyboard shortcut except the terminal toggle. Now app-level
+  navigation, search and file-management shortcuts (focus file in tree, switch
+  tabs, toggle panels, find files) still fire from the terminal, while the shell
+  keeps its own clipboard chords and control keys (Ctrl-C, Ctrl-R, …).
+
+### Fixed
+
+- **Scrollbar change markers stay visible with the terminal open.** The git
+  add/modified/deleted stripes in the editor's right scrollbar used to disappear
+  when the terminal or run dock opened and resized the editor. They are now
+  repainted on layout changes, so they persist through the resize.
+
 ## [1.0.20] — 2026-06-23
 
 ### Added
