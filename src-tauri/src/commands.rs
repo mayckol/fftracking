@@ -325,6 +325,18 @@ pub fn open_path(state: State<AppState>, monitor_id: i64, path: String) -> R<()>
     Ok(())
 }
 
+/// Opens an http(s) URL in the user's default browser. Rejects other schemes
+/// so a terminal-detected link can't launch arbitrary programs.
+#[tauri::command]
+pub fn open_url(url: String) -> R<()> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("unsupported url scheme".into());
+    }
+    let prog = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    std::process::Command::new(prog).arg(&url).spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Reveals a working-tree file in the OS file manager (selects it on macOS,
 /// opens its parent directory on Linux).
 #[tauri::command]

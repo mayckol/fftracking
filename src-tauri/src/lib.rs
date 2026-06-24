@@ -183,6 +183,7 @@ pub fn run() {
             commands::replace_match,
             commands::replace_all,
             commands::open_path,
+            commands::open_url,
             commands::reveal_path,
             commands::delete_path,
             commands::create_file,

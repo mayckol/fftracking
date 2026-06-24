@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { listen } from "@tauri-apps/api/event";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import "@xterm/xterm/css/xterm.css";
@@ -52,6 +53,14 @@ export default function Terminal({ cwd, active, onExit }: Props) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+
+    // Underline http(s) links and hand clicks to the OS browser. The webview
+    // would otherwise navigate itself, so route through the Tauri command.
+    term.loadAddon(
+      new WebLinksAddon((_e, uri) => {
+        void api.openUrl(uri);
+      }),
+    );
 
     // Copy/paste/select-all follow the chosen keymap style (like the editor):
     // ⌘ on a Mac, Ctrl+Shift elsewhere, and physical Alt under mac-style-on-PC.

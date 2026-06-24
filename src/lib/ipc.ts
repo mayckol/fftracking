@@ -73,6 +73,7 @@ export const api = {
     invoke<number>("run_start", { cwd, program, args, env: Object.entries(env) }),
   runStop: (id: number) => invoke<void>("run_stop", { id }),
   openPath: (monitorId: number, path: string) => invoke<void>("open_path", { monitorId, path }),
+  openUrl: (url: string) => invoke<void>("open_url", { url }),
   revealPath: (monitorId: number, path: string) => invoke<void>("reveal_path", { monitorId, path }),
   deletePath: (monitorId: number, path: string) => invoke<void>("delete_path", { monitorId, path }),
   createFile: (monitorId: number, path: string) => invoke<void>("create_file", { monitorId, path }),
