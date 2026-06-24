@@ -4,6 +4,20 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.23] — 2026-06-24
+
+### Added
+
+- **Redis cache plugin (opt-in).** A lightweight Redis client: browse keys in a
+  colon-grouped namespace tree, inspect every type, edit string values with a
+  formatted JSON view, set or clear TTLs, and create, rename, or delete keys
+  (right-click a key for rename/delete). A console runs raw commands. Disabled by
+  default — enable it from the Plugins tab. Connections are saved locally and
+  passwords are stored in the OS keychain, with a prompt-on-connect fallback where
+  no keychain is available.
+- **Clickable links in the terminal.** http(s) URLs printed in the terminal are now
+  detected and open in your web browser on click.
+
 ## [1.0.22] — 2026-06-23
 
 ### Added
