@@ -26,6 +26,7 @@ export default function PluginsView() {
                     )}
                   </div>
                   <div className="plugin-desc">{m.description}</div>
+                  {m.note && <div className="plugin-note">{m.note}</div>}
                   <div className="plugin-by">by {m.author}</div>
                 </div>
                 <div className="plugin-actions">

@@ -1,6 +1,7 @@
 mod commands;
 mod dap;
 mod lsp;
+mod redis;
 mod run;
 mod terminal;
 
@@ -139,6 +140,7 @@ pub fn run() {
             app.manage(lsp::LspManager::default());
             app.manage(dap::DapManager::default());
             app.manage(run::RunManager::default());
+            app.manage(redis::RedisManager::default());
             #[cfg(target_os = "macos")]
             setup_app_menu(app.handle())?;
             setup_tray(app.handle())?;
@@ -243,6 +245,20 @@ pub fn run() {
             commands::dap_stop,
             commands::run_start,
             commands::run_stop,
+            commands::redis_connect,
+            commands::redis_disconnect,
+            commands::redis_scan,
+            commands::redis_get,
+            commands::redis_set_string,
+            commands::redis_delete,
+            commands::redis_create_key,
+            commands::redis_rename,
+            commands::redis_set_ttl,
+            commands::redis_command,
+            commands::redis_save_secret,
+            commands::redis_load_secret,
+            commands::redis_delete_secret,
+            commands::redis_secrets_available,
         ])
         .build(tauri::generate_context!())
         .expect("error building fftracking")

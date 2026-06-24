@@ -3,6 +3,7 @@ import { restartLsp } from "../lib/lsp";
 import { useEditorStatus, type LspPhase } from "../lib/editorStatus";
 import { resetZoom, useZoomLevel, zoomPercent } from "../lib/editorZoom";
 import { comboFor, formatCombo } from "../lib/shortcuts";
+import type { ResourceUsage } from "../lib/types";
 
 const LANG_LABEL: Record<string, string> = {
   go: "Go",
@@ -83,6 +84,13 @@ const TAB_ICONS: Record<string, ReactNode> = {
       />
     </svg>
   ),
+  redis: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <ellipse cx="8" cy="3.6" rx="5.3" ry="2.1" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M2.7 3.6v8.8c0 1.16 2.37 2.1 5.3 2.1s5.3-.94 5.3-2.1V3.6" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M2.7 8c0 1.16 2.37 2.1 5.3 2.1s5.3-.94 5.3-2.1" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  ),
   settings: (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
@@ -119,6 +127,7 @@ const TAB_LABEL: Record<string, string> = {
   git: "Git",
   plugins: "Plugins",
   settings: "Settings",
+  redis: "Redis",
 };
 // "files" is intentionally absent: the project-tree toggle (and ⌘-shortcut)
 // already return to the Files view, so a dedicated Files tab is redundant.
@@ -128,6 +137,7 @@ const TAB_ACTION: Record<string, string> = {
   git: "nav.git",
   plugins: "nav.plugins",
   settings: "nav.settings",
+  redis: "nav.redis",
 };
 function withCombo(label: string, action: string): string {
   const combo = formatCombo(comboFor(action));
@@ -142,6 +152,9 @@ function tabTitle(t: string): string {
 interface Props {
   /** Primary view nav (files/git/plugins/settings), rendered as icon buttons. */
   tabs?: { active: string; onSelect: (tab: string) => void } | null;
+  /** Plugin-contributed tabs (e.g. "redis"), shown only while that plugin is
+   *  enabled. Appended after the built-in nav. */
+  extraTabs?: string[];
   /** Whether the project sidebar is hidden, and a toggle for it. Null hides the
    *  control entirely (tabs without a sidebar). */
   sidebar?: { hidden: boolean; onToggle: () => void } | null;
@@ -153,9 +166,11 @@ interface Props {
   conflicts?: number;
   /** Clicking the git icon while conflicts exist opens the conflicts list. */
   onShowConflicts?: () => void;
+  /** CPU + memory usage for the app process. */
+  res?: ResourceUsage | null;
 }
 
-export default function StatusBar({ tabs = null, sidebar = null, workspace = null, terminal = null, conflicts = 0, onShowConflicts }: Props) {
+export default function StatusBar({ tabs = null, extraTabs = [], sidebar = null, workspace = null, terminal = null, conflicts = 0, onShowConflicts, res = null }: Props) {
   const st = useEditorStatus();
   const zoomLevel = useZoomLevel();
 
@@ -196,6 +211,19 @@ export default function StatusBar({ tabs = null, sidebar = null, workspace = nul
                 </button>
               );
             })}
+            {extraTabs.map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={tabs.active === t}
+                className={`sb-tab${tabs.active === t ? " on" : ""}`}
+                title={tabTitle(t)}
+                onClick={() => tabs.onSelect(t)}
+              >
+                {TAB_ICONS[t]}
+              </button>
+            ))}
           </div>
         )}
         {workspace && (
@@ -225,6 +253,20 @@ export default function StatusBar({ tabs = null, sidebar = null, workspace = nul
         )}
       </div>
       <span className="sb-spacer" />
+      {res && (
+        <span className="sb-res" title="fftracking CPU and memory usage">
+          <svg className="rm-ic cpu" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" aria-hidden>
+            <rect x="4.75" y="4.75" width="6.5" height="6.5" rx="1.2" />
+            <path d="M6.5 2v2.5M9.5 2v2.5M6.5 11.5V14M9.5 11.5V14M2 6.5h2.5M2 9.5h2.5M11.5 6.5H14M11.5 9.5H14" />
+          </svg>
+          {res.cpu_percent.toFixed(res.cpu_percent < 10 ? 1 : 0)}%
+          <svg className="rm-ic mem" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" aria-hidden style={{ marginLeft: 6 }}>
+            <rect x="1.75" y="4.5" width="12.5" height="7" rx="1.2" />
+            <path d="M5 11.5V14M8 11.5V14M11 11.5V14M5 6.75v2.5M8 6.75v2.5M11 6.75v2.5" />
+          </svg>
+          {(res.mem_bytes / 1048576).toFixed(0)} MB
+        </span>
+      )}
       {st && (
         <>
           <span className="sb-lang">{langLabel(st.language)}</span>

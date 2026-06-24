@@ -13,6 +13,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::dap::DapManager;
 use crate::lsp::{LspManager, LspTarget};
+use crate::redis::RedisManager;
 use crate::run::RunManager;
 use crate::terminal::TerminalManager;
 use crate::AppState;
@@ -843,4 +844,84 @@ pub fn run_start(
 #[tauri::command]
 pub fn run_stop(run: State<RunManager>, id: u64) {
     run.stop(id);
+}
+
+// Network ops run on a blocking pool: a connect to an unreachable host (or a
+// slow SCAN) would otherwise hold the main thread and freeze the UI.
+#[tauri::command]
+pub async fn redis_connect(app: tauri::AppHandle, cfg: crate::redis::ConnConfig) -> R<u64> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<RedisManager>().connect(cfg))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn redis_disconnect(redis: State<RedisManager>, id: u64) {
+    redis.disconnect(id);
+}
+
+#[tauri::command]
+pub async fn redis_scan(app: tauri::AppHandle, id: u64, pattern: String, cursor: u64, count: u32) -> R<(u64, Vec<String>)> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<RedisManager>().scan(id, &pattern, cursor, count))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn redis_get(app: tauri::AppHandle, id: u64, key: String) -> R<crate::redis::KeyValue> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<RedisManager>().get(id, &key))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn redis_set_string(redis: State<RedisManager>, id: u64, key: String, value: String) -> R<()> {
+    redis.set_string(id, &key, &value)
+}
+
+#[tauri::command]
+pub fn redis_delete(redis: State<RedisManager>, id: u64, key: String) -> R<()> {
+    redis.delete(id, &key)
+}
+
+#[tauri::command]
+pub fn redis_create_key(redis: State<RedisManager>, id: u64, key: String, kind: String, value: String) -> R<()> {
+    redis.create_key(id, &key, &kind, &value)
+}
+
+#[tauri::command]
+pub fn redis_rename(redis: State<RedisManager>, id: u64, from: String, to: String) -> R<()> {
+    redis.rename(id, &from, &to)
+}
+
+#[tauri::command]
+pub fn redis_set_ttl(redis: State<RedisManager>, id: u64, key: String, secs: i64) -> R<()> {
+    redis.set_ttl(id, &key, secs)
+}
+
+#[tauri::command]
+pub async fn redis_command(app: tauri::AppHandle, id: u64, args: Vec<String>) -> R<String> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<RedisManager>().run_command(id, &args))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn redis_save_secret(name: String, password: String) -> R<()> {
+    crate::redis::save_secret(&name, &password)
+}
+
+#[tauri::command]
+pub fn redis_load_secret(name: String) -> R<Option<String>> {
+    crate::redis::load_secret(&name)
+}
+
+#[tauri::command]
+pub fn redis_delete_secret(name: String) -> R<()> {
+    crate::redis::delete_secret(&name)
+}
+
+#[tauri::command]
+pub fn redis_secrets_available() -> bool {
+    crate::redis::secrets_available()
 }

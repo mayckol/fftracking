@@ -152,3 +152,27 @@ export interface ReplaceSummary {
   files: number;
   replacements: number;
 }
+
+export interface RedisConnConfig {
+  host: string;
+  port: number;
+  db: number;
+  username?: string;
+  password?: string;
+  tls: boolean;
+}
+
+export interface RedisZItem {
+  member: string;
+  score: number;
+}
+
+export interface RedisKeyValue {
+  kind: "string" | "list" | "set" | "hash" | "zset" | "none" | string;
+  ttl: number;
+  string?: string | null;
+  list?: string[] | null;
+  set?: string[] | null;
+  hash?: [string, string][] | null;
+  zset?: RedisZItem[] | null;
+}

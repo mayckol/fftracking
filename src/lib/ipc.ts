@@ -11,6 +11,8 @@ import type {
   RefList,
   ReplaceMatchSpec,
   ReplaceSpec,
+  RedisConnConfig,
+  RedisKeyValue,
   ReplaceSummary,
   ResourceUsage,
   SearchOptions,
@@ -152,4 +154,25 @@ export const api = {
   autostartEnabled: () => invoke<boolean>("autostart_enabled"),
 
   resourceUsage: () => invoke<ResourceUsage>("resource_usage"),
+
+  redisConnect: (cfg: RedisConnConfig) => invoke<number>("redis_connect", { cfg }),
+  redisDisconnect: (id: number) => invoke<void>("redis_disconnect", { id }),
+  redisScan: (id: number, pattern: string, cursor: number, count: number) =>
+    invoke<[number, string[]]>("redis_scan", { id, pattern, cursor, count }),
+  redisGet: (id: number, key: string) => invoke<RedisKeyValue>("redis_get", { id, key }),
+  redisSetString: (id: number, key: string, value: string) =>
+    invoke<void>("redis_set_string", { id, key, value }),
+  redisDelete: (id: number, key: string) => invoke<void>("redis_delete", { id, key }),
+  redisCreateKey: (id: number, key: string, kind: string, value: string) =>
+    invoke<void>("redis_create_key", { id, key, kind, value }),
+  redisRename: (id: number, from: string, to: string) =>
+    invoke<void>("redis_rename", { id, from, to }),
+  redisSetTtl: (id: number, key: string, secs: number) =>
+    invoke<void>("redis_set_ttl", { id, key, secs }),
+  redisCommand: (id: number, args: string[]) => invoke<string>("redis_command", { id, args }),
+  redisSaveSecret: (name: string, password: string) =>
+    invoke<void>("redis_save_secret", { name, password }),
+  redisLoadSecret: (name: string) => invoke<string | null>("redis_load_secret", { name }),
+  redisDeleteSecret: (name: string) => invoke<void>("redis_delete_secret", { name }),
+  redisSecretsAvailable: () => invoke<boolean>("redis_secrets_available"),
 };

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./lib/ipc";
 import { comboFor, formatCombo, installShortcuts, useShortcut } from "./lib/shortcuts";
@@ -36,12 +35,15 @@ import GitView from "./panels/GitView";
 import HistoryView from "./panels/HistoryView";
 import SettingsView from "./panels/SettingsView";
 import PluginsView from "./panels/PluginsView";
+import RedisView from "./panels/RedisView";
+import { isEnabled, usePlugins } from "./lib/plugins/registry";
+import { REDIS_PLUGIN_ID } from "./lib/plugins/redis";
 import StatusBar from "./components/StatusBar";
 import TerminalPanel from "./panels/TerminalPanel";
 import DebugPanel from "./panels/DebugPanel";
 import RunPanel from "./panels/RunPanel";
 
-type Tab = "files" | "history" | "git" | "plugins" | "settings";
+type Tab = "files" | "history" | "git" | "plugins" | "settings" | "redis";
 
 // Last project the user had open, restored on the next launch so a multi-project
 // setup reopens where they left off (HistoryView then restores that project's
@@ -55,6 +57,8 @@ const LSP_IDLE_GRACE_MS = 45_000;
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("files");
+  usePlugins(); // re-render when plugin enable state changes (gates the Redis tab)
+  const redisEnabled = isEnabled(REDIS_PLUGIN_ID);
   const [monitors, setMonitors] = useState<MonitorRow[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [toast, setToast] = useState<{ msg: string; error: boolean } | null>(null);
@@ -102,12 +106,6 @@ export default function App() {
   const [mergeReload, setMergeReload] = useState(0);
   const toastTimer = useRef<number>();
   const prefs = useUIPrefs();
-  // Shown in the titlebar — read from tauri.conf.json (the version of record,
-  // which CI keeps in sync with the release tag) instead of a hardcoded string.
-  const [appVersion, setAppVersion] = useState("");
-  useEffect(() => {
-    getVersion().then(setAppVersion).catch(() => {});
-  }, []);
   // Newer release available? Checked on launch (then every 6h). The titlebar pill
   // re-runs the installer in a terminal.
   const [update, setUpdate] = useState<UpdateState | null>(null);
@@ -382,6 +380,13 @@ export default function App() {
   useShortcut("nav.git", () => setTab("git"));
   useShortcut("nav.settings", () => setTab("settings"));
   useShortcut("nav.plugins", () => setTab("plugins"));
+  // Only routes when the (opt-in) Redis plugin is enabled; otherwise the tab
+  // doesn't exist, so the shortcut is a no-op.
+  useShortcut("nav.redis", () => redisEnabled && setTab("redis"));
+  // Disabling the Redis plugin while its view is open drops back to Files.
+  useEffect(() => {
+    if (tab === "redis" && !redisEnabled) setTab("files");
+  }, [tab, redisEnabled]);
   const inWorkspace = tab === "files" || tab === "history";
   // Toggle works from any tab: inside the workspace it just shows/hides the
   // tree; from git/plugins/settings it jumps back to the files workspace with
@@ -562,29 +567,8 @@ export default function App() {
           </button>
           {execMenu === "debug" && <ExecMenu kind="debug" onClose={() => setExecMenu(null)} />}
         </div>
-        {res && (
-          <div className="res-meter" title="fftracking CPU and memory usage">
-            <span title="CPU">
-              <svg className="rm-ic cpu" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round">
-                <rect x="4.75" y="4.75" width="6.5" height="6.5" rx="1.2" />
-                <path d="M6.5 2v2.5M9.5 2v2.5M6.5 11.5V14M9.5 11.5V14M2 6.5h2.5M2 9.5h2.5M11.5 6.5H14M11.5 9.5H14" />
-              </svg>
-              {res.cpu_percent.toFixed(res.cpu_percent < 10 ? 1 : 0)}%
-            </span>
-            <span title="Memory">
-              <svg className="rm-ic mem" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round">
-                <rect x="1.75" y="4.5" width="12.5" height="7" rx="1.2" />
-                <path d="M5 11.5V14M8 11.5V14M11 11.5V14M5 6.75v2.5M8 6.75v2.5M11 6.75v2.5" />
-              </svg>
-              {(res.mem_bytes / 1048576).toFixed(0)} MB
-            </span>
-          </div>
-        )}
-        <div className="brand">
-          <span className="dot" />
-          fftracking
-          {appVersion && <small>v{appVersion}</small>}
-          {update && (
+        {update && (
+          <div className="brand">
             <button
               className="update-pill"
               title={`Update to v${update.latest} (re-runs the installer in a terminal)`}
@@ -599,8 +583,8 @@ export default function App() {
             >
               ↑ v{update.latest}
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </header>
 
       {(tab === "files" || tab === "history") && (
@@ -660,10 +644,17 @@ export default function App() {
         </div>
       )}
 
+      {tab === "redis" && redisEnabled && (
+        <div className="work" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
+          <RedisView toast={notify} />
+        </div>
+      )}
+
       {!dockInWorkspace && bottomPanel}
 
       <StatusBar
         tabs={{ active: tab === "history" ? "files" : tab, onSelect: (t) => setTab(t as Tab) }}
+        extraTabs={redisEnabled ? ["redis"] : []}
         sidebar={{ hidden: !inWorkspace || treeHidden, onToggle: toggleTree }}
         workspace={inWorkspace ? { historyOn: tab === "history", onToggle: () => setTab(tab === "history" ? "files" : "history") } : null}
         terminal={{ on: bottom === "terminal", onToggle: () => toggleBottom("terminal") }}
@@ -672,6 +663,7 @@ export default function App() {
           setTab("git");
           setConflictsIntent(true);
         }}
+        res={res}
       />
 
       {search && selected != null && (

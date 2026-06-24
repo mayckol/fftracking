@@ -159,6 +159,7 @@ export const ACTIONS: ActionDef[] = [
   { id: "nav.git", label: "Go to Git tab", group: "Navigation", default: "Mod+2" },
   { id: "nav.settings", label: "Go to Settings tab", group: "Navigation", default: "Mod+3" },
   { id: "nav.plugins", label: "Go to Plugins tab", group: "Navigation", default: "Mod+4" },
+  { id: "nav.redis", label: "Go to Redis tab (when enabled)", group: "Navigation", default: "Mod+5" },
   { id: "nav.toggleTree", label: "Show / hide project tree", group: "Navigation", default: "Mod+B" },
   // Back/forward avoid Mod+Alt+Arrow: that lands on physical Ctrl+Alt+Arrow,
   // which GNOME/KDE/XFCE reserve for workspace switching so it never reaches the

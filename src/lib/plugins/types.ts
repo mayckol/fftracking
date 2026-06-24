@@ -15,6 +15,9 @@ export interface PluginManifest {
   source: PluginSource;
   // Installed (and enabled) on first run, before the user touches anything.
   defaultInstalled?: boolean;
+  // Setup caveat shown on the plugin card (e.g. an OS keychain permission a
+  // plugin needs the user to grant before it can store secrets).
+  note?: string;
 }
 
 // A plugin's editor-language contribution: which files it claims and how it

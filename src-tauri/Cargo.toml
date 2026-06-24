@@ -26,3 +26,5 @@ serde_json.workspace = true
 portable-pty = "0.8"
 base64 = "0.22"
 trash = "5"
+redis = "0.27"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }

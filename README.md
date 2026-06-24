@@ -51,6 +51,9 @@ Drive it from the desktop app, the **`fft` command line**, or the built-in
 - **Smart retention** — today stays dense, past days coalesce, anything past the
   window is pruned, and the store is capped (default 1 GB).
 - **Lightweight** — runs in the tray, shows live CPU / memory in the title bar.
+- **Redis plugin** (opt-in, disabled by default) — browse keys, view/edit values,
+  set TTLs, and run raw commands. See [Redis plugin](#redis-plugin) for the OS
+  keychain permission it needs.
 
 ## Screenshots
 
@@ -189,6 +192,38 @@ ffShortcutsDebug(true)   // snapshot of key detection; disable with ffShortcutsD
    and resolve merge conflicts.
 6. **Settings** — interval, min gap, retention, disk cap, ignore globs, respect
    `.gitignore` (off by default — like local history), launch on login.
+
+## Redis plugin
+
+A lightweight Redis client built into the app — browse keys, view and edit
+values, set TTLs, and run raw commands, in the spirit of JetBrains' Redis tool.
+
+**It is disabled by default.** Open the **Plugins** tab, find **Redis Cache**,
+click **Add** to install it, and a **Redis** icon appears in the bottom status
+bar. Removing or disabling the plugin hides the view again.
+
+1. **+** in the Connections rail → fill host / port / db (and username / password
+   for ACL or `requirepass` servers) → **Save & Connect**.
+2. **Scan** with a pattern (`*`, `user:*`, …) to list keys; click one to inspect.
+3. Edit string values in place and **Save value**; set or clear a key's TTL;
+   delete a key. Collection types (list / set / hash / zset) are shown read-only —
+   edit them from the **console** at the bottom (`HSET user:1 name Ada`, etc.).
+
+### OS keychain permission
+
+Connection passwords are **never written to disk in plaintext**. When you tick
+*Remember password*, the password is stored in your operating system's keychain,
+which the OS must allow:
+
+| OS | Backend | What to expect |
+|----|---------|----------------|
+| **macOS** | Keychain | The system prompts the first time to allow access. |
+| **Windows** | Credential Manager | Works automatically, no prompt. |
+| **Linux** | Secret Service (D-Bus) | Needs a running secret service — **GNOME Keyring** or **KWallet** — in your desktop session. Headless / minimal setups without one have no keychain. |
+
+If no keychain is available (commonly a barebones Linux session), fftracking does
+**not** persist the password — it asks for it each time you connect. You can also
+leave *Remember password* unticked to always be prompted.
 
 ## Command line & AI agents (`fft`)
 
