@@ -83,6 +83,9 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
   // The two splitter gutters that host the JetBrains-style change connectors.
   const split0Ref = useRef<HTMLDivElement>(null);
   const split1Ref = useRef<HTMLDivElement>(null);
+  // Alignment spacers (Monaco view-zones) per pane, so each change block occupies the
+  // same vertical band in all three editors and matching content stays row-aligned.
+  const zoneIds = useRef<{ ours: string[]; theirs: string[]; result: string[] }>({ ours: [], theirs: [], result: [] });
 
   // Synchronous mirror of `status` (React state is async; the Monaco content
   // callback needs the live value) + the change-region decoration ids on the
@@ -415,9 +418,7 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     }
   };
 
-  // ---- diagonal alignment: per-pane line layout, scroll mapping, connectors ----
-
-  const LH = 19; // sideOptions.lineHeight; panes have no word-wrap so this is exact.
+  // ---- alignment spacers + connectors ----
 
   // Cumulative 1-based start line of each block in a pane; `arr[blocks.length]` is
   // the line after the last block. The result column is live (status-driven).
@@ -429,23 +430,6 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     });
     return arr;
   };
-
-  // Map a pane's scrollTop to the equivalent scrollTop in another pane, piecewise-
-  // linear across the shared block boundaries — so the region at the top of one pane
-  // sits at the top of the others and the connectors stay continuous.
-  const mapScroll = (srcStarts: number[], dstStarts: number[], srcScroll: number): number => {
-    const srcLine = srcScroll / LH + 1;
-    let b = 0;
-    while (b < srcStarts.length - 2 && srcStarts[b + 1] <= srcLine) b++;
-    const sLen = srcStarts[b + 1] - srcStarts[b];
-    const frac = sLen > 0 ? (srcLine - srcStarts[b]) / sLen : 0;
-    const dLen = dstStarts[b + 1] - dstStarts[b];
-    const dstLine = dstStarts[b] + frac * dLen;
-    return Math.max(0, (dstLine - 1) * LH);
-  };
-
-  const editorName = (ed: any): "ours" | "theirs" | "result" | null =>
-    ed === oursRef.current ? "ours" : ed === theirsRef.current ? "theirs" : ed === resRef.current ? "result" : null;
 
   // Viewport-relative [top, bottom] px of a block's span in an editor, expressed in
   // the gutter SVG's local coordinates (origin = `baseTop`). A 0-line region is a point.
@@ -488,8 +472,20 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
         return { i, cls, bgTop, bgH: Math.max(1, bgBot - bgTop), points: `0,${lt} ${W},${rt} ${W},${rb} 0,${lb}` };
       })
       .filter(Boolean) as { i: number; cls: string; bgTop: number; bgH: number; points: string }[];
+    // Clip the gutter SVG to the editor area: the splitter spans the full panes
+    // column (including the pane-label row at the top), so a change scrolled above
+    // the first visible line would otherwise draw its connector up over the labels.
+    const lTop = (leftEd.getDomNode()?.getBoundingClientRect().top ?? rect.top) - rect.top;
+    const rTop = (rightEd.getDomNode()?.getBoundingClientRect().top ?? rect.top) - rect.top;
+    const clipTop = Math.max(0, lTop, rTop);
     return (
-      <svg className="merge-conn" width={W} height={H} preserveAspectRatio="none">
+      <svg
+        className="merge-conn"
+        width={W}
+        height={H}
+        preserveAspectRatio="none"
+        style={{ clipPath: `inset(${clipTop}px 0 0 0)` }}
+      >
         {shapes.map((p) => (
           <rect key={`b${p.i}`} x={0} y={p.bgTop} width={W} height={p.bgH} className={`mcb-${p.cls}`} />
         ))}
@@ -526,6 +522,43 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     [blocks, appendBelow],
   );
 
+  // Spacer view-zones that align each block across the three panes: a block's band
+  // height is the max of its line counts in ours/theirs/result, and the shorter panes
+  // get a tinted gap at the block's end that re-aligns the following block — so matching
+  // content sits on the same row in all three editors (JetBrains-style). The gap carries
+  // the change's band colour, so an aligned change reads as one continuous strip.
+  const applyZones = useCallback(() => {
+    const eds: Record<"ours" | "theirs" | "result", any> = {
+      ours: oursRef.current,
+      theirs: theirsRef.current,
+      result: resRef.current,
+    };
+    (["ours", "theirs", "result"] as const).forEach((which) => {
+      const ed = eds[which];
+      if (!ed) return;
+      let line = 0;
+      const plan: { afterLineNumber: number; heightInLines: number; cls: string | null }[] = [];
+      blocks.forEach((b, i) => {
+        const cOurs = sideLines(b, "ours").length;
+        const cTheirs = sideLines(b, "theirs").length;
+        const cRes = isChange(b) ? curLen(i) : b.base.length;
+        const h = Math.max(cOurs, cTheirs, cRes);
+        const cnt = which === "ours" ? cOurs : which === "theirs" ? cTheirs : cRes;
+        line += cnt;
+        const cls = which === "result" ? resCls(i) : sideCls(i, which);
+        if (h - cnt > 0) plan.push({ afterLineNumber: line, heightInLines: h - cnt, cls });
+      });
+      ed.changeViewZones((acc: any) => {
+        zoneIds.current[which].forEach((id) => acc.removeZone(id));
+        zoneIds.current[which] = plan.map((z) => {
+          const dom = document.createElement("div");
+          dom.className = `merge-spacer${z.cls ? ` sp-${z.cls}` : ""}`;
+          return acc.addZone({ afterLineNumber: z.afterLineNumber, heightInLines: z.heightInLines, domNode: dom });
+        });
+      });
+    });
+  }, [blocks, resCls, sideCls]);
+
   // ---- decorations: side bands + result highlight ----
 
   const paint = useCallback(() => {
@@ -537,10 +570,10 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
       blocks
         .map((_b, i) => ({ i, cls: sideCls(i, side), r: side === "ours" ? sideRanges.ours[i] : sideRanges.theirs[i] }))
         .filter((x) => x.cls && x.r && x.r.end >= x.r.start)
-        .map((x) => ({
-          range: R(x.r!.start, x.r!.end),
-          options: { isWholeLine: true, className: x.cls === "conflict" ? "merge-line-conflict" : `merge-line-${x.cls}` },
-        }));
+        .map((x) => {
+          const cn = x.cls === "conflict" ? "merge-line-conflict" : `merge-line-${x.cls}`;
+          return { range: R(x.r!.start, x.r!.end), options: { isWholeLine: true, className: cn, marginClassName: cn } };
+        });
 
     if (oursRef.current) {
       decoRefs.current.ours = decoRefs.current.ours ?? oursRef.current.createDecorationsCollection([]);
@@ -554,7 +587,10 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
       const decos = changeIdx
         .map((i) => ({ i, r: resRange(i), cls: resCls(i) }))
         .filter((x) => x.cls && !isEmptyRegion(x.i) && x.r && x.r!.end >= x.r!.start)
-        .map((x) => ({ range: R(x.r!.start, x.r!.end), options: { isWholeLine: true, className: `merge-res-${x.cls}` } }));
+        .map((x) => ({
+          range: R(x.r!.start, x.r!.end),
+          options: { isWholeLine: true, className: `merge-res-${x.cls}`, marginClassName: `merge-res-${x.cls}` },
+        }));
       decoRefs.current.res = decoRefs.current.res ?? resRef.current.createDecorationsCollection([]);
       decoRefs.current.res.set(decos);
     }
@@ -562,8 +598,9 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
 
   useEffect(() => {
     paint();
+    applyZones();
     bump();
-  }, [paint, status, w, ready]);
+  }, [paint, applyZones, status, w, ready]);
 
   // Connectors are drawn from live editor geometry; recompute on window resize.
   useEffect(() => {
@@ -605,9 +642,10 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
         capStatusByAlt();
       }
       paint();
+      applyZones();
       bump();
     },
-    [changeIdx, resRange, paint],
+    [changeIdx, resRange, paint, applyZones],
   );
 
   // Bound the undo-snapshot map so a long editing session can't leak memory.
@@ -620,25 +658,19 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     }
   };
 
-  // Vertical scroll sync: map the source pane's scrollTop into each other pane
-  // through the shared block boundaries so the connectors stay continuous.
+  // Vertical scroll sync. With the alignment spacers every pane has identical total
+  // pixel height (each block occupies its band height everywhere), so scroll maps 1:1.
   const lockScroll = (src: any) => {
     src.onDidScrollChange(() => {
       bump();
       if (syncing.current) return;
-      const srcName = editorName(src);
-      if (!srcName) return;
       syncing.current = true;
-      const srcStarts = lineStarts(srcName);
-      const srcScroll = src.getScrollTop();
-      for (const [name, ed] of [
-        ["ours", oursRef.current],
-        ["theirs", theirsRef.current],
-        ["result", resRef.current],
-      ] as const) {
+      const top = src.getScrollTop();
+      const left = src.getScrollLeft();
+      for (const ed of [oursRef.current, theirsRef.current, resRef.current]) {
         if (!ed || ed === src) continue;
-        ed.setScrollTop(mapScroll(srcStarts, lineStarts(name), srcScroll));
-        ed.setScrollLeft(src.getScrollLeft());
+        ed.setScrollTop(top);
+        ed.setScrollLeft(left);
       }
       syncing.current = false;
     });
@@ -861,6 +893,37 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
   }, [windowed, remaining]);
 
   const panesRef = useRef<HTMLDivElement>(null);
+
+  // Unified wheel scrolling: one handler drives all three editors so the panes move
+  // together. Each pane is clamped to its own scroll extent, so when one side is taller
+  // (or its lines wider) it keeps scrolling past the others' limit — "scroll only the
+  // greater side". Owning the wheel (preventDefault) keeps the three perfectly locked
+  // instead of fighting Monaco's per-editor inertia.
+  useEffect(() => {
+    const cont = panesRef.current;
+    if (!cont) return;
+    const onWheel = (e: WheelEvent) => {
+      const eds = [oursRef.current, theirsRef.current, resRef.current].filter(Boolean);
+      if (eds.length < 2) return;
+      e.preventDefault();
+      const unit = e.deltaMode === 1 ? 19 : e.deltaMode === 2 ? eds[0].getLayoutInfo().height : 1;
+      const dY = e.deltaY * unit;
+      const dX = e.deltaX * unit;
+      syncing.current = true;
+      // Monaco clamps each editor to its own scroll extent, so a taller pane keeps
+      // scrolling vertically (and a pane with wider lines keeps scrolling horizontally)
+      // after the shorter/narrower ones have bottomed out — "scroll only the greater side".
+      for (const ed of eds) {
+        if (dY) ed.setScrollTop(Math.max(0, ed.getScrollTop() + dY));
+        if (dX) ed.setScrollLeft(Math.max(0, ed.getScrollLeft() + dX));
+      }
+      syncing.current = false;
+      bump();
+    };
+    cont.addEventListener("wheel", onWheel, { passive: false });
+    return () => cont.removeEventListener("wheel", onWheel);
+  }, [ready]);
+
   const dragSplit = (i: 0 | 1) => (e: React.MouseEvent) => {
     e.preventDefault();
     const cont = panesRef.current;
