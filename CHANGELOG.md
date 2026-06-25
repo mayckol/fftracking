@@ -4,6 +4,21 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.24] — 2026-06-25
+
+### Changed
+
+- **The 3-way merge editor now lines up like JetBrains.** Matching lines sit on the
+  same row across all three panes — a change that is longer on one side gets a tinted
+  gap on the shorter sides instead of letting the rest of the file drift out of
+  alignment. The mouse wheel scrolls all three panes together, and a taller pane (or
+  one with longer lines) keeps scrolling on its own once the others reach their edge;
+  horizontal scrolling is synced too.
+- **Cleaner merge chrome.** Change highlights are one flat, even colour across the line
+  numbers and the code (no more two-tone band), the gutter connectors no longer paint
+  over the pane labels, and the panes share one seamless background with the dividing
+  borders removed.
+
 ## [1.0.23] — 2026-06-24
 
 ### Added
