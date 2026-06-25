@@ -4073,13 +4073,31 @@ textarea:focus {
 }
 .merge-split {
   flex: none;
-  width: 5px;
+  width: 40px;
+  position: relative;
   cursor: col-resize;
-  background: var(--line-2);
+  background: var(--bg-0);
+  border-left: 1px solid var(--line-2);
+  border-right: 1px solid var(--line-2);
 }
 .merge-split:hover {
-  background: var(--ac);
+  background: var(--bg-1);
 }
+/* JetBrains-style change connectors: trapezoids binding a change's span on the
+   left pane to its span on the right pane across the gutter. */
+.merge-conn {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+.merge-conn polygon {
+  stroke-width: 1;
+}
+.mc-ours { fill: var(--ac); fill-opacity: 0.16; stroke: var(--ac); stroke-opacity: 0.5; }
+.mc-theirs { fill: var(--t-event); fill-opacity: 0.16; stroke: var(--t-event); stroke-opacity: 0.5; }
+.mc-conflict { fill: var(--conflict); fill-opacity: 0.18; stroke: var(--conflict); stroke-opacity: 0.55; }
+.mc-both { fill: var(--add); fill-opacity: 0.16; stroke: var(--add); stroke-opacity: 0.5; }
 .tbtn.icon {
   padding: 2px 7px;
   font-size: var(--fs-md);
@@ -4271,37 +4289,6 @@ textarea:focus {
 .mact.accept.theirs { color: var(--t-event); }
 .mact.ignore {
   color: var(--del);
-}
-
-/* Alignment spacer (a hunk that is shorter on this side than the others). */
-.merge-spacer {
-  width: 100%;
-  height: 100%;
-  background: repeating-linear-gradient(
-    -45deg,
-    rgba(120, 130, 150, 0.05),
-    rgba(120, 130, 150, 0.05) 6px,
-    transparent 6px,
-    transparent 12px
-  );
-}
-/* A spacer inside a still-pending change carries that change's band colour, so
-   the aligned region reads as one continuous strip — no blank gap. */
-.merge-spacer.sp-ours {
-  background: var(--ac-glow);
-  box-shadow: inset 2px 0 0 var(--ac);
-}
-.merge-spacer.sp-theirs {
-  background: var(--t-event-bg);
-  box-shadow: inset 2px 0 0 var(--t-event);
-}
-.merge-spacer.sp-both {
-  background: var(--add-bg);
-  box-shadow: inset 2px 0 0 var(--add);
-}
-.merge-spacer.sp-conflict {
-  background: var(--conflict-bg);
-  box-shadow: inset 2px 0 0 var(--conflict);
 }
 
 /* Result-pane line highlights by resolution state. */

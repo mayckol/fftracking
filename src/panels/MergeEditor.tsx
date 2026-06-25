@@ -79,8 +79,10 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
   const resRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const decoRefs = useRef<{ ours?: any; theirs?: any; res?: any }>({});
-  const zoneIds = useRef<{ ours: string[]; theirs: string[]; result: string[] }>({ ours: [], theirs: [], result: [] });
   const syncing = useRef(false);
+  // The two splitter gutters that host the JetBrains-style change connectors.
+  const split0Ref = useRef<HTMLDivElement>(null);
+  const split1Ref = useRef<HTMLDivElement>(null);
 
   // Synchronous mirror of `status` (React state is async; the Monaco content
   // callback needs the live value) + the change-region decoration ids on the
@@ -411,6 +413,83 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     }
   };
 
+  // ---- diagonal alignment: per-pane line layout, scroll mapping, connectors ----
+
+  const LH = 19; // sideOptions.lineHeight; panes have no word-wrap so this is exact.
+
+  // Cumulative 1-based start line of each block in a pane; `arr[blocks.length]` is
+  // the line after the last block. The result column is live (status-driven).
+  const lineStarts = (kind: "ours" | "theirs" | "result"): number[] => {
+    const arr = [1];
+    blocks.forEach((b, i) => {
+      const len = kind === "result" ? (isChange(b) ? curLen(i) : b.base.length) : sideLines(b, kind).length;
+      arr.push(arr[arr.length - 1] + len);
+    });
+    return arr;
+  };
+
+  // Map a pane's scrollTop to the equivalent scrollTop in another pane, piecewise-
+  // linear across the shared block boundaries — so the region at the top of one pane
+  // sits at the top of the others and the connectors stay continuous.
+  const mapScroll = (srcStarts: number[], dstStarts: number[], srcScroll: number): number => {
+    const srcLine = srcScroll / LH + 1;
+    let b = 0;
+    while (b < srcStarts.length - 2 && srcStarts[b + 1] <= srcLine) b++;
+    const sLen = srcStarts[b + 1] - srcStarts[b];
+    const frac = sLen > 0 ? (srcLine - srcStarts[b]) / sLen : 0;
+    const dLen = dstStarts[b + 1] - dstStarts[b];
+    const dstLine = dstStarts[b] + frac * dLen;
+    return Math.max(0, (dstLine - 1) * LH);
+  };
+
+  const editorName = (ed: any): "ours" | "theirs" | "result" | null =>
+    ed === oursRef.current ? "ours" : ed === theirsRef.current ? "theirs" : ed === resRef.current ? "result" : null;
+
+  // Viewport-relative [top, bottom] px of a block's span in an editor, expressed in
+  // the gutter SVG's local coordinates (origin = `baseTop`). A 0-line region is a point.
+  const spanY = (ed: any, startLine: number, len: number, baseTop: number): [number, number] => {
+    const domTop = ed.getDomNode()?.getBoundingClientRect().top ?? 0;
+    const scroll = ed.getScrollTop();
+    const top = domTop + ed.getTopForLineNumber(startLine) - scroll - baseTop;
+    const bot = len > 0 ? domTop + ed.getTopForLineNumber(startLine + len) - scroll - baseTop : top;
+    return [top, bot];
+  };
+
+  // Connector polygons for one gutter (0 = ours↔result, 1 = result↔theirs), bridging
+  // each change's span on the left pane to its span on the right pane.
+  const connectors = (gutter: 0 | 1) => {
+    void tick; // recompute on scroll / layout / status
+    void status;
+    const leftEd = gutter === 0 ? oursRef.current : resRef.current;
+    const rightEd = gutter === 0 ? resRef.current : theirsRef.current;
+    const leftKind = gutter === 0 ? "ours" : "result";
+    const rightKind = gutter === 0 ? "result" : "theirs";
+    const split = (gutter === 0 ? split0Ref : split1Ref).current;
+    if (!leftEd || !rightEd || !split) return null;
+    const rect = split.getBoundingClientRect();
+    const W = rect.width;
+    const H = rect.height;
+    const ls = lineStarts(leftKind as "ours" | "theirs" | "result");
+    const rs = lineStarts(rightKind as "ours" | "theirs" | "result");
+    const polys = changeIdx
+      .map((i) => {
+        const cls = resCls(i);
+        if (!cls) return null;
+        const [lt, lb] = spanY(leftEd, ls[i], ls[i + 1] - ls[i], rect.top);
+        const [rt, rb] = spanY(rightEd, rs[i], rs[i + 1] - rs[i], rect.top);
+        if (Math.max(lb, rb) < 0 || Math.min(lt, rt) > H) return null; // off-screen
+        return { i, cls, points: `0,${lt} ${W},${rt} ${W},${rb} 0,${lb}` };
+      })
+      .filter(Boolean) as { i: number; cls: string; points: string }[];
+    return (
+      <svg className="merge-conn" width={W} height={H} preserveAspectRatio="none">
+        {polys.map((p) => (
+          <polygon key={p.i} points={p.points} className={`mc-${p.cls}`} />
+        ))}
+      </svg>
+    );
+  };
+
   // Band colour for a change. Conflicts are "danger"; one-sided changes carry
   // their side accent; resolved blocks use the chosen-side colour.
   const resCls = useCallback(
@@ -471,46 +550,17 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     }
   }, [blocks, sideRanges, changeIdx, resRange, sideCls, resCls]);
 
-  // Spacer view-zones so each block lines up across the three panes.
-  const applyZones = useCallback(() => {
-    const editors: Record<"ours" | "theirs" | "result", any> = {
-      ours: oursRef.current,
-      theirs: theirsRef.current,
-      result: resRef.current,
-    };
-    (["ours", "theirs", "result"] as const).forEach((which) => {
-      const ed = editors[which];
-      if (!ed) return;
-      let line = 0;
-      const plan: { afterLineNumber: number; heightInLines: number; cls: string | null }[] = [];
-      blocks.forEach((b, i) => {
-        const cOurs = sideLines(b, "ours").length;
-        const cTheirs = sideLines(b, "theirs").length;
-        const cRes = isChange(b) ? curLen(i) : b.base.length;
-        const h = Math.max(cOurs, cTheirs, cRes);
-        const cnt = which === "ours" ? cOurs : which === "theirs" ? cTheirs : cRes;
-        line += cnt;
-        // Tint the spacer with the block's band colour so an aligned change reads
-        // as one continuous strip (no blank gap), JetBrains-style.
-        const cls = which === "result" ? resCls(i) : sideCls(i, which);
-        if (h - cnt > 0) plan.push({ afterLineNumber: line, heightInLines: h - cnt, cls });
-      });
-      ed.changeViewZones((acc: any) => {
-        zoneIds.current[which].forEach((id) => acc.removeZone(id));
-        zoneIds.current[which] = plan.map((z) => {
-          const dom = document.createElement("div");
-          dom.className = `merge-spacer${z.cls ? ` sp-${z.cls}` : ""}`;
-          return acc.addZone({ afterLineNumber: z.afterLineNumber, heightInLines: z.heightInLines, domNode: dom });
-        });
-      });
-    });
-  }, [blocks, resCls, sideCls]);
-
   useEffect(() => {
     paint();
-    applyZones();
     bump();
-  }, [paint, applyZones, status, w, ready]);
+  }, [paint, status, w, ready]);
+
+  // Connectors are drawn from live editor geometry; recompute on window resize.
+  useEffect(() => {
+    const onResize = () => bump();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // ---- result model: init decorations + unified-undo status tracking ----
 
@@ -521,11 +571,15 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
       const altId = model.getAlternativeVersionId();
       const known = statusByAlt.current.get(altId);
       if (known) {
-        // Undo/redo landed on a state we've seen — restore its status in lockstep.
+        // Undo/redo landed on a state we've seen — restore its status in lockstep,
+        // then rebuild the change decorations so they match the reverted content
+        // (Monaco does not snapshot decorations across undo).
         setStat(known.slice());
+        rebuildDecos();
       } else if (programmatic.current) {
         programmatic.current = false;
         statusByAlt.current.set(altId, statusRef.current.slice());
+        capStatusByAlt();
       } else {
         // Manual keystroke: any change region the edit touched becomes `edited`.
         const next = statusRef.current.slice();
@@ -538,21 +592,42 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
         });
         setStat(next);
         statusByAlt.current.set(altId, next.slice());
+        capStatusByAlt();
       }
       paint();
-      applyZones();
       bump();
     },
-    [changeIdx, resRange, paint, applyZones],
+    [changeIdx, resRange, paint],
   );
 
+  // Bound the undo-snapshot map so a long editing session can't leak memory.
+  const capStatusByAlt = () => {
+    const m = statusByAlt.current;
+    while (m.size > 600) {
+      const oldest = m.keys().next().value;
+      if (oldest === undefined) break;
+      m.delete(oldest);
+    }
+  };
+
+  // Vertical scroll sync: map the source pane's scrollTop into each other pane
+  // through the shared block boundaries so the connectors stay continuous.
   const lockScroll = (src: any) => {
-    src.onDidScrollChange((e: any) => {
+    src.onDidScrollChange(() => {
       bump();
       if (syncing.current) return;
+      const srcName = editorName(src);
+      if (!srcName) return;
       syncing.current = true;
-      for (const ed of [oursRef.current, theirsRef.current, resRef.current]) {
-        if (ed && ed !== src) ed.setScrollTop(e.scrollTop);
+      const srcStarts = lineStarts(srcName);
+      const srcScroll = src.getScrollTop();
+      for (const [name, ed] of [
+        ["ours", oursRef.current],
+        ["theirs", theirsRef.current],
+        ["result", resRef.current],
+      ] as const) {
+        if (!ed || ed === src) continue;
+        ed.setScrollTop(mapScroll(srcStarts, lineStarts(name), srcScroll));
       }
       syncing.current = false;
     });
@@ -881,7 +956,9 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
             </div>
           </div>
 
-          <div className="merge-split" onMouseDown={dragSplit(0)} />
+          <div className="merge-split" ref={split0Ref} onMouseDown={dragSplit(0)}>
+            {connectors(0)}
+          </div>
 
           <div className="merge-pane center" style={{ flexGrow: w[1] }}>
             <div className="merge-plabel result">
@@ -903,7 +980,9 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
             />
           </div>
 
-          <div className="merge-split" onMouseDown={dragSplit(1)} />
+          <div className="merge-split" ref={split1Ref} onMouseDown={dragSplit(1)}>
+            {connectors(1)}
+          </div>
 
           <div className="merge-pane" style={{ flexGrow: w[2] }}>
             <div className="merge-plabel theirs">
