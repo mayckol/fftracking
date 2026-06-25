@@ -5,6 +5,7 @@ interface Props {
   title: string;
   message: ReactNode;
   confirmLabel: string;
+  cancelLabel?: string;
   danger?: boolean;
   /** When set, shows a "Don't show this again" checkbox that suppresses this
    *  confirmation by id on confirm. */
@@ -19,6 +20,7 @@ export default function ConfirmModal({
   title,
   message,
   confirmLabel,
+  cancelLabel = "Cancel",
   danger,
   suppressId,
   extra,
@@ -40,7 +42,7 @@ export default function ConfirmModal({
         )}
         <div className="modal-actions">
           <button className="tbtn" onClick={onCancel}>
-            Cancel
+            {cancelLabel}
           </button>
           <button
             className={`tbtn ${danger ? "danger" : "primary"}`}

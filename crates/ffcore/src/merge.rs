@@ -54,13 +54,20 @@ fn owned(lines: &[&str]) -> Vec<String> {
     lines.iter().map(|s| s.to_string()).collect()
 }
 
+/// Split into lines on `\n`, dropping a trailing `\r` so CRLF content yields clean
+/// lines. Without this a lone `\r` rides each line into the editor, where Monaco
+/// treats it as a terminator and injects phantom blank lines on every applied hunk.
+fn split_lines(s: &str) -> Vec<&str> {
+    s.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect()
+}
+
 /// Diff3 merge of `base`/`ours`/`theirs` into ordered [`MergeBlock`]s. The blocks
 /// partition each side's lines in order, so concatenating any one side's lines
 /// across blocks reproduces that side verbatim.
 pub fn diff3(base_s: &str, ours_s: &str, theirs_s: &str) -> Vec<MergeBlock> {
-    let base: Vec<&str> = base_s.split('\n').collect();
-    let ours: Vec<&str> = ours_s.split('\n').collect();
-    let theirs: Vec<&str> = theirs_s.split('\n').collect();
+    let base = split_lines(base_s);
+    let ours = split_lines(ours_s);
+    let theirs = split_lines(theirs_s);
 
     let ha = changed_hunks(&base, &ours);
     let hb = changed_hunks(&base, &theirs);
@@ -228,5 +235,31 @@ mod tests {
     #[test]
     fn added_lines_each_side() {
         reconstructs("a\nc", "a\nb\nc", "a\nc\nd");
+    }
+
+    #[test]
+    fn crlf_lines_are_normalized() {
+        let b = diff3("a\r\nb\r\nc\r\n", "a\r\nB\r\nc\r\n", "a\r\nb\r\nc\r\n");
+        let change: Vec<_> = b.iter().filter(|x| x.kind != "unchanged").collect();
+        assert_eq!(change.len(), 1);
+        assert_eq!(change[0].kind, "ours");
+        assert_eq!(change[0].ours, vec!["B".to_string()], "no trailing CR retained");
+        assert!(
+            b.iter().all(|bl| bl.base.iter().chain(&bl.ours).chain(&bl.theirs).all(|l| !l.contains('\r'))),
+            "no block line carries a carriage return",
+        );
+    }
+
+    #[test]
+    fn one_sided_deletion_yields_empty_region() {
+        // ours deletes the middle line; theirs leaves it. The change must contribute
+        // zero `ours` lines so the editor can track it as an insertion anchor.
+        let b = diff3("a\nx\nb", "a\nb", "a\nx\nb");
+        let change: Vec<_> = b.iter().filter(|x| x.kind != "unchanged").collect();
+        assert_eq!(change.len(), 1);
+        assert_eq!(change[0].kind, "ours");
+        assert!(change[0].ours.is_empty(), "deleted side contributes zero lines");
+        assert_eq!(change[0].base, vec!["x".to_string()]);
+        reconstructs("a\nx\nb", "a\nb", "a\nx\nb");
     }
 }

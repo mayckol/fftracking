@@ -4094,12 +4094,24 @@ textarea:focus {
   border-bottom: 1px solid var(--line);
   flex: none;
 }
-.merge-apply {
+/* Bottom action bar: Accept Left/Right on the left, Cancel/Apply on the right. */
+.merge-foot {
   display: flex;
   align-items: center;
+  gap: var(--s3);
+  padding: 8px var(--s3);
+  background: var(--bg-1);
+  border-top: 1px solid var(--line);
+  flex: none;
+}
+.merge-foot-l {
+  display: flex;
   gap: var(--s1);
-  font-size: var(--fs-xs);
-  color: var(--tx-2);
+}
+.merge-foot-r {
+  display: flex;
+  gap: var(--s1);
+  margin-left: auto;
 }
 .merge-file {
   font-family: var(--mono);
@@ -4163,6 +4175,22 @@ textarea:focus {
 .merge-plabel.ours { color: var(--ac); background: var(--ac-glow); }
 .merge-plabel.theirs { color: var(--t-event); background: var(--t-event-bg); }
 .merge-plabel.result { color: var(--add); background: var(--add-bg); }
+
+/* Read-only padlock on the side panes; filename appended to the Result label. */
+.dpb-lock {
+  flex: 0 0 auto;
+  font-size: 10px;
+  opacity: 0.6;
+}
+.merge-plabel.ours .dpb-lock { margin-left: auto; }
+.dpb-file {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.75;
+}
 
 /* Side-pane change highlights by origin (subtle band + thin edge marker). */
 .merge-line-ours {

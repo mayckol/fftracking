@@ -41,6 +41,16 @@ export default function ConflictsDialog({ repoPath, state, toast, onMerge, onRel
     if (state.files.length === 0) onClose();
   }, [state.files.length, onClose]);
 
+  // The selected file may be resolved out-of-band (its own merge window, the
+  // terminal), dropping it from the list. A stale selection would let Accept
+  // Yours/Theirs act on a path that is no longer conflicted — which deletes it.
+  // Re-point at the first remaining file.
+  useEffect(() => {
+    if (selected && !state.files.some((f) => f.path === selected)) {
+      setSelected(state.files[0]?.path ?? null);
+    }
+  }, [state.files, selected]);
+
   const groups = useMemo(() => {
     if (!grouped) return [{ dir: "", files: state.files }];
     const map = new Map<string, ConflictFile[]>();
@@ -53,6 +63,10 @@ export default function ConflictsDialog({ repoPath, state, toast, onMerge, onRel
 
   async function accept(side: "ours" | "theirs") {
     if (!selected || busy) return;
+    if (!state.files.some((f) => f.path === selected)) {
+      setSelected(state.files[0]?.path ?? null);
+      return;
+    }
     setBusy(true);
     try {
       await api.gitAcceptSide(repoPath, selected, side);

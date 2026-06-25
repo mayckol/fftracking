@@ -87,6 +87,14 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
   // result model, in change-block order.
   const statusRef = useRef<St[]>([]);
   const resDecoIds = useRef<string[]>([]);
+  // Parallel to resDecoIds: whether each change region currently contributes zero
+  // result lines, so it is tracked as a collapsed insertion anchor. A 0-line span
+  // can't be a real decoration range and would otherwise drift onto — and let edits
+  // clobber — the next block's first line.
+  const resEmpty = useRef<boolean[]>([]);
+  // Set just before we close the window ourselves, so the onCloseRequested guard
+  // lets the close through instead of re-prompting.
+  const closingRef = useRef(false);
   // alternativeVersionId → status snapshot. Monaco reuses the same id when undo/
   // redo lands back on a content state, so this restores per-change status in
   // lockstep with the editor's native undo — one unified history.
@@ -103,10 +111,20 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
   useEffect(() => {
     let alive = true;
     (async () => {
-      const bs = await api.gitMergeBlocks(repoPath, path);
-      if (!alive) return;
-      setBlocks(bs);
-      setStat(bs.map(initStatus));
+      try {
+        const bs = await api.gitMergeBlocks(repoPath, path);
+        if (!alive) return;
+        setBlocks(bs);
+        setStat(bs.map(initStatus));
+      } catch (e) {
+        if (!alive) return;
+        // No conflict to load (stale row, aborted merge, binary file): surface it and
+        // close, instead of mounting an empty editor that would overwrite the file
+        // with "" on close.
+        toast(String(e), true);
+        closingRef.current = true;
+        onClose();
+      }
     })();
     return () => {
       alive = false;
@@ -151,6 +169,12 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     [blocks, status],
   );
   const changeCount = useMemo(() => blocks.filter(isChange).length, [blocks]);
+  // Non-conflict changes not yet explicitly acted on (auto-applied to a default
+  // side); shown in the Apply-anyway confirmation alongside `remaining`.
+  const unprocessed = useMemo(
+    () => blocks.reduce((n, b, i) => n + (isChange(b) && b.kind !== "conflict" && status[i] === "pending" ? 1 : 0), 0),
+    [blocks, status],
+  );
 
   // Bumped on scroll/layout so the overlay buttons re-position; `ready` ticks as
   // editors mount so paint/zones re-run once instances exist.
@@ -172,52 +196,88 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
 
   // ---- result mutations (all routed through Monaco so undo covers them) ----
 
-  const replaceResult = (range: Range3, newLines: string[]) => {
-    const ed = resRef.current;
-    const model = ed?.getModel();
-    const mo = monacoRef.current;
-    if (!ed || !model || !mo) return;
-    const lastLine = model.getLineCount();
-    let r: any;
-    let text: string;
-    if (newLines.length === 0) {
-      if (range.end < lastLine) {
-        r = new mo.Range(range.start, 1, range.end + 1, 1);
-      } else {
-        const prevEnd = range.start > 1 ? model.getLineMaxColumn(range.start - 1) : 1;
-        r = new mo.Range(Math.max(1, range.start - 1), prevEnd, range.end, model.getLineMaxColumn(range.end));
-      }
-      text = "";
-    } else {
-      r = new mo.Range(range.start, 1, range.end, model.getLineMaxColumn(range.end));
-      text = newLines.join("\n");
-    }
-    programmatic.current = true;
-    ed.executeEdits("merge", [{ range: r, text, forceMoveMarkers: true }]);
+  const changePos = (blockIdx: number) => changeIdx.indexOf(blockIdx);
+
+  // Live decoration range of a change block (a collapsed anchor for a 0-line
+  // region); null before the result editor mounts.
+  const decoRange = (blockIdx: number): any => {
+    const model = resRef.current?.getModel();
+    const id = resDecoIds.current[changePos(blockIdx)];
+    if (!model || !id) return null;
+    return model.getDecorationRange(id);
   };
 
-  // Reset a change's decoration to a known line span (after our own edit, where we
-  // know the exact resulting length).
-  const setResDeco = (blockIdx: number, start: number, len: number) => {
+  const isEmptyRegion = (blockIdx: number) => !!resEmpty.current[changePos(blockIdx)];
+
+  // (Re)seed one change block's tracking decoration. A zero-line region is anchored
+  // as a collapsed marker at the end of the previous line (or doc start) so it never
+  // overlaps — and so is never mistaken for — the following block's first line.
+  const setBlockRegion = (blockIdx: number, start: number, len: number) => {
     const model = resRef.current?.getModel();
     const mo = monacoRef.current;
     if (!model || !mo) return;
-    const pos = changeIdx.indexOf(blockIdx);
+    const pos = changePos(blockIdx);
     const oldId = resDecoIds.current[pos];
-    const end = Math.max(start, start + len - 1);
+    let range: any;
+    if (len === 0) {
+      if (start > 1) {
+        const p = Math.min(start - 1, model.getLineCount());
+        const col = model.getLineMaxColumn(p);
+        range = new mo.Range(p, col, p, col);
+      } else {
+        range = new mo.Range(1, 1, 1, 1);
+      }
+      resEmpty.current[pos] = true;
+    } else {
+      range = new mo.Range(start, 1, start + len - 1, 1);
+      resEmpty.current[pos] = false;
+    }
     const [newId] = model.deltaDecorations(oldId ? [oldId] : [], [
-      {
-        range: new mo.Range(start, 1, end, 1),
-        options: { stickiness: mo.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges },
-      },
+      { range, options: { stickiness: mo.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges } },
     ]);
     resDecoIds.current[pos] = newId;
   };
 
+  // Replace a change block's current result region with `newLines`, handling the
+  // zero-line cases (empty source = insert at the anchor; empty target = delete the
+  // span) so a deletion never reaches into the neighbouring block's lines.
+  const editResult = (blockIdx: number, newLines: string[]) => {
+    const ed = resRef.current;
+    const model = ed?.getModel();
+    const mo = monacoRef.current;
+    if (!ed || !model || !mo) return;
+    const pos = changePos(blockIdx);
+    const a = model.getDecorationRange(resDecoIds.current[pos]);
+    if (!a) return;
+    programmatic.current = true;
+    if (resEmpty.current[pos]) {
+      if (newLines.length === 0) return; // empty stays empty — no-op
+      const atTop = a.startLineNumber === 1 && a.startColumn === 1;
+      const r = new mo.Range(a.startLineNumber, a.startColumn, a.startLineNumber, a.startColumn);
+      const text = atTop ? newLines.join("\n") + "\n" : "\n" + newLines.join("\n");
+      ed.executeEdits("merge", [{ range: r, text, forceMoveMarkers: true }]);
+      setBlockRegion(blockIdx, atTop ? 1 : a.startLineNumber + 1, newLines.length);
+    } else if (newLines.length === 0) {
+      const lastLine = model.getLineCount();
+      let r: any;
+      if (a.endLineNumber < lastLine) {
+        r = new mo.Range(a.startLineNumber, 1, a.endLineNumber + 1, 1);
+      } else {
+        const prevEnd = a.startLineNumber > 1 ? model.getLineMaxColumn(a.startLineNumber - 1) : 1;
+        r = new mo.Range(Math.max(1, a.startLineNumber - 1), prevEnd, a.endLineNumber, model.getLineMaxColumn(a.endLineNumber));
+      }
+      ed.executeEdits("merge", [{ range: r, text: "", forceMoveMarkers: true }]);
+      setBlockRegion(blockIdx, a.startLineNumber, 0);
+    } else {
+      const r = new mo.Range(a.startLineNumber, 1, a.endLineNumber, model.getLineMaxColumn(a.endLineNumber));
+      ed.executeEdits("merge", [{ range: r, text: newLines.join("\n"), forceMoveMarkers: true }]);
+      setBlockRegion(blockIdx, a.startLineNumber, newLines.length);
+    }
+  };
+
   const apply = (blockIdx: number, which: Side) => {
     const b = blocks[blockIdx];
-    const range = resRange(blockIdx);
-    if (!b || !range) return;
+    if (!b || changePos(blockIdx) < 0 || !decoRange(blockIdx)) return;
     const next = statusRef.current.slice();
     let lines: string[];
     if (appendBelow(blockIdx, which)) {
@@ -229,19 +289,16 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
       next[blockIdx] = which;
     }
     setStat(next);
-    replaceResult(range, lines);
-    setResDeco(blockIdx, range.start, lines.length);
+    editResult(blockIdx, lines);
   };
 
   const ignore = (blockIdx: number) => {
     const b = blocks[blockIdx];
-    const range = resRange(blockIdx);
-    if (!b || !range) return;
+    if (!b || changePos(blockIdx) < 0 || !decoRange(blockIdx)) return;
     const next = statusRef.current.slice();
     next[blockIdx] = "base";
     setStat(next);
-    replaceResult(range, b.base);
-    setResDeco(blockIdx, range.start, b.base.length);
+    editResult(blockIdx, b.base);
   };
 
   const acceptAll = (which: Side) => {
@@ -250,20 +307,44 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     const mo = monacoRef.current;
     if (!ed || !model || !mo) return;
     const next = statusRef.current.slice();
-    // Bottom-up so earlier ranges stay valid as we splice.
     const edits = changeIdx
       .filter((i) => relevant(blocks[i], which))
-      .map((i) => ({ i, r: resRange(i) }))
-      .filter((x) => x.r)
-      .sort((a, b) => b.r!.start - a.r!.start)
-      .map(({ i, r }) => {
+      .map((i) => ({ i, a: decoRange(i) }))
+      .filter((x) => x.a)
+      // Bottom-up so earlier ranges stay valid as Monaco applies the batch.
+      .sort((x, y) => y.a.startLineNumber - x.a.startLineNumber)
+      .map(({ i, a }) => {
         next[i] = which;
+        const lines = sideLines(blocks[i], which);
+        if (resEmpty.current[changePos(i)]) {
+          if (!lines.length) return null;
+          const atTop = a.startLineNumber === 1 && a.startColumn === 1;
+          return {
+            range: new mo.Range(a.startLineNumber, a.startColumn, a.startLineNumber, a.startColumn),
+            text: atTop ? lines.join("\n") + "\n" : "\n" + lines.join("\n"),
+            forceMoveMarkers: true,
+          };
+        }
+        if (!lines.length) {
+          const lastLine = model.getLineCount();
+          const range =
+            a.endLineNumber < lastLine
+              ? new mo.Range(a.startLineNumber, 1, a.endLineNumber + 1, 1)
+              : new mo.Range(
+                  Math.max(1, a.startLineNumber - 1),
+                  a.startLineNumber > 1 ? model.getLineMaxColumn(a.startLineNumber - 1) : 1,
+                  a.endLineNumber,
+                  model.getLineMaxColumn(a.endLineNumber),
+                );
+          return { range, text: "", forceMoveMarkers: true };
+        }
         return {
-          range: new mo.Range(r!.start, 1, r!.end, model.getLineMaxColumn(r!.end)),
-          text: sideLines(blocks[i], which).join("\n"),
+          range: new mo.Range(a.startLineNumber, 1, a.endLineNumber, model.getLineMaxColumn(a.endLineNumber)),
+          text: lines.join("\n"),
           forceMoveMarkers: true,
         };
-      });
+      })
+      .filter(Boolean) as any[];
     if (!edits.length) return;
     setStat(next);
     programmatic.current = true;
@@ -273,29 +354,38 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
 
   // Rebuild every change decoration from the current model by walking block sizes;
   // used after a multi-region edit (acceptAll) where per-region tracking is moot.
+  // Zero-line regions are anchored as collapsed markers so they never overlap the
+  // next block.
   const rebuildDecos = () => {
     const model = resRef.current?.getModel();
     const mo = monacoRef.current;
     if (!model || !mo) return;
-    // Best-effort: recompute spans from current statuses' contributed lengths.
     let cur = 1;
-    const specs: { range: any }[] = [];
-    const order: number[] = [];
+    const specs: any[] = [];
+    const empties: boolean[] = [];
     blocks.forEach((b, i) => {
       const len = isChange(b) ? curLen(i) : b.base.length;
       if (isChange(b)) {
-        order.push(i);
-        specs.push({
-          range: new mo.Range(cur, 1, Math.max(cur, cur + len - 1), 1),
-          options: { stickiness: mo.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges } as any,
-        } as any);
+        let range: any;
+        if (len === 0) {
+          if (cur > 1) {
+            const p = Math.min(cur - 1, model.getLineCount());
+            const col = model.getLineMaxColumn(p);
+            range = new mo.Range(p, col, p, col);
+          } else {
+            range = new mo.Range(1, 1, 1, 1);
+          }
+          empties.push(true);
+        } else {
+          range = new mo.Range(cur, 1, cur + len - 1, 1);
+          empties.push(false);
+        }
+        specs.push({ range, options: { stickiness: mo.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges } });
       }
       cur += len;
     });
-    const ids = model.deltaDecorations(resDecoIds.current, specs as any);
-    // order matches changeIdx order (blocks iterated ascending)
-    resDecoIds.current = ids;
-    void order;
+    resDecoIds.current = model.deltaDecorations(resDecoIds.current, specs);
+    resEmpty.current = empties;
   };
 
   // Lines a change currently contributes to the result, by its status.
@@ -374,7 +464,7 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     if (resRef.current) {
       const decos = changeIdx
         .map((i) => ({ i, r: resRange(i), cls: resCls(i) }))
-        .filter((x) => x.cls && x.r && x.r!.end >= x.r!.start)
+        .filter((x) => x.cls && !isEmptyRegion(x.i) && x.r && x.r!.end >= x.r!.start)
         .map((x) => ({ range: R(x.r!.start, x.r!.end), options: { isWholeLine: true, className: `merge-res-${x.cls}` } }));
       decoRefs.current.res = decoRefs.current.res ?? resRef.current.createDecorationsCollection([]);
       decoRefs.current.res.set(decos);
@@ -443,7 +533,7 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
         changeIdx.forEach((bi) => {
           const r = resRange(bi);
           if (!r) return;
-          const hit = touched.some((tr: any) => tr.startLineNumber <= r.end + 1 && tr.endLineNumber >= r.start);
+          const hit = touched.some((tr: any) => tr.startLineNumber <= r.end && tr.endLineNumber >= r.start);
           if (hit) next[bi] = "edited";
         });
         setStat(next);
@@ -480,20 +570,34 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     monacoRef.current = mo;
     resRef.current = ed;
     const model = ed.getModel();
-    // Seed one decoration per change block over its initial result span.
+    // Seed one decoration per change block over its initial result span; a zero-line
+    // region becomes a collapsed insertion anchor (see setBlockRegion).
     let cur = 1;
     const specs: any[] = [];
+    const empties: boolean[] = [];
     blocks.forEach((b) => {
       const len = initResult(b).length;
       if (isChange(b)) {
-        specs.push({
-          range: new mo.Range(cur, 1, Math.max(cur, cur + len - 1), 1),
-          options: { stickiness: mo.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges },
-        });
+        let range: any;
+        if (len === 0) {
+          if (cur > 1) {
+            const p = Math.min(cur - 1, model.getLineCount());
+            const col = model.getLineMaxColumn(p);
+            range = new mo.Range(p, col, p, col);
+          } else {
+            range = new mo.Range(1, 1, 1, 1);
+          }
+          empties.push(true);
+        } else {
+          range = new mo.Range(cur, 1, cur + len - 1, 1);
+          empties.push(false);
+        }
+        specs.push({ range, options: { stickiness: mo.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges } });
       }
       cur += len;
     });
     resDecoIds.current = model.deltaDecorations([], specs);
+    resEmpty.current = empties;
     statusByAlt.current.set(model.getAlternativeVersionId(), statusRef.current.slice());
     model.onDidChangeContent(onResultContent);
     lockScroll(ed);
@@ -576,15 +680,20 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Set just before we close the window ourselves, so the onCloseRequested guard
-  // lets the close through instead of re-prompting.
-  const closingRef = useRef(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [confirmApply, setConfirmApply] = useState(false);
 
   // All conflicts done → write the merged buffer, stage, emit, close.
   async function doResolve() {
     const model = resRef.current?.getModel();
-    if (!model) return;
+    // Nothing mounted, or a degenerate/stale buffer with no real change blocks: just
+    // close — writing model.getValue() here would clobber the file (e.g. truncate it
+    // to "") for a path that is no longer conflicted.
+    if (!model || changeCount === 0) {
+      closingRef.current = true;
+      onClose();
+      return;
+    }
     try {
       await api.gitResolveConflict(repoPath, path, model.getValue());
       closingRef.current = true;
@@ -605,6 +714,17 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     setConfirmClose(false);
     onClose();
   };
+  // Bottom-bar Cancel: discard and close, confirming first when work would be lost.
+  const cancel = () => {
+    if (remaining > 0) setConfirmClose(true);
+    else discardAndClose();
+  };
+  // Bottom-bar Apply: with conflicts still unresolved, confirm first (then write,
+  // marking them resolved at their default side); otherwise apply straight away.
+  const applyMerge = () => {
+    if (remaining > 0) setConfirmApply(true);
+    else doResolve();
+  };
 
   // Announce success once, when the last conflict is resolved.
   const announced = useRef(false);
@@ -613,7 +733,7 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
       announced.current = false;
     } else if (changeCount > 0 && blocks.length > 0 && !announced.current) {
       announced.current = true;
-      toast(`All conflicts resolved in ${basename(path)} — close to apply`);
+      toast(`All conflicts resolved in ${basename(path)} — click Apply`);
     }
   }, [remaining, changeCount, blocks.length, path]);
 
@@ -722,22 +842,13 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
           <button className="tbtn icon" title="Redo (⌘⇧Z)" onClick={redo}>
             ↷
           </button>
-          <div className="merge-apply">
-            <span>Apply all:</span>
-            <button className="tbtn" onClick={() => acceptAll("ours")} title={`Take every change from ${oursLabel}`}>
-              ≪ Left
-            </button>
-            <button className="tbtn" onClick={() => acceptAll("theirs")} title={`Take every change from ${theirsLabel}`}>
-              Right ≫
-            </button>
-          </div>
           <span className="merge-file" title={path}>
             {basename(path)}
           </span>
           <span className={`merge-status${remaining ? " bad" : " ok"}`}>
             {remaining
               ? `${changeCount} change${changeCount === 1 ? "" : "s"} · ${remaining} conflict${remaining === 1 ? "" : "s"} left`
-              : "✓ All conflicts resolved — close the window to apply"}
+              : "✓ All conflicts resolved"}
           </span>
         </div>
 
@@ -750,7 +861,8 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
           <div className="merge-pane" style={{ flexGrow: w[0] }}>
             <div className="merge-plabel ours">
               <span className="dpb-ico" aria-hidden="true">⎇</span>
-              <span className="dpb-ref">Changes from {oursLabel}</span>
+              <span className="dpb-ref" title={`Changes from ${oursLabel}`}>Changes from {oursLabel}</span>
+              <span className="dpb-lock" aria-hidden="true" title="Read-only">🔒</span>
             </div>
             <div className="merge-edhost">
               <Editor
@@ -775,6 +887,7 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
             <div className="merge-plabel result">
               <span className="dpb-ico" aria-hidden="true">✎</span>
               <span className="dpb-ref">Result</span>
+              <span className="dpb-file" title={path}>{basename(path)}</span>
             </div>
             <Editor
               className="editor-wrap"
@@ -794,8 +907,9 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
 
           <div className="merge-pane" style={{ flexGrow: w[2] }}>
             <div className="merge-plabel theirs">
+              <span className="dpb-lock" aria-hidden="true" title="Read-only">🔒</span>
               <span className="dpb-ico" aria-hidden="true">⎇</span>
-              <span className="dpb-ref">Changes from {theirsLabel}</span>
+              <span className="dpb-ref" title={`Changes from ${theirsLabel}`}>Changes from {theirsLabel}</span>
             </div>
             <div className="merge-edhost">
               <Editor
@@ -815,6 +929,41 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
           </div>
         </div>
         )}
+
+        <div className="merge-foot">
+          <div className="merge-foot-l">
+            <button
+              className="tbtn"
+              disabled={blocks.length === 0}
+              onClick={() => acceptAll("ours")}
+              title={`Take every change from ${oursLabel}`}
+            >
+              Accept Left
+            </button>
+            <button
+              className="tbtn"
+              disabled={blocks.length === 0}
+              onClick={() => acceptAll("theirs")}
+              title={`Take every change from ${theirsLabel}`}
+            >
+              Accept Right
+            </button>
+          </div>
+          <div className="merge-foot-r">
+            <button className="tbtn" onClick={cancel}>
+              Cancel
+            </button>
+            <button
+              className="tbtn primary"
+              disabled={changeCount === 0}
+              title="Apply the merge and close"
+              onClick={applyMerge}
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+
         {confirmClose && (
           <ConfirmModal
             title="Unresolved conflicts"
@@ -829,6 +978,34 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
             confirmLabel="Close anyway"
             onConfirm={discardAndClose}
             onCancel={() => setConfirmClose(false)}
+          />
+        )}
+        {confirmApply && (
+          <ConfirmModal
+            title="Apply Changes"
+            confirmLabel="Apply Changes and Mark Resolved"
+            cancelLabel="Continue Merge"
+            message={
+              <>
+                {unprocessed > 0 ? (
+                  <>
+                    There are {unprocessed} change{unprocessed === 1 ? "" : "s"} and {remaining} conflict
+                    {remaining === 1 ? "" : "s"} left unprocessed.{" "}
+                  </>
+                ) : (
+                  <>
+                    {remaining === 1 ? "There is" : "There are"} {remaining} conflict{remaining === 1 ? "" : "s"} left
+                    unprocessed.{" "}
+                  </>
+                )}
+                Save changes and mark {remaining === 1 ? "the conflict" : "them"} resolved anyway?
+              </>
+            }
+            onConfirm={() => {
+              setConfirmApply(false);
+              doResolve();
+            }}
+            onCancel={() => setConfirmApply(false)}
           />
         )}
       </div>

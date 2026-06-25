@@ -25,6 +25,10 @@ fn write(dir: &Path, rel: &str, content: &str) {
     std::fs::write(dir.join(rel), content).unwrap();
 }
 
+fn write_bytes(dir: &Path, rel: &str, content: &[u8]) {
+    std::fs::write(dir.join(rel), content).unwrap();
+}
+
 #[test]
 fn diff_two_commits_and_read_blobs() {
     let dir = tempfile::tempdir().unwrap();
@@ -187,4 +191,46 @@ fn accept_side_takes_whole_side() {
     accept_side(root, "f.txt", "theirs").unwrap();
     assert!(conflicted_paths(root).unwrap().is_empty(), "conflict cleared");
     assert_eq!(std::fs::read_to_string(root.join("f.txt")).unwrap(), "L1\nfrom-feature\nL3\n");
+}
+
+#[test]
+fn binary_conflict_rejected_by_editor_and_accept_side_is_byte_exact() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    git(root, &["init", "-q", "-b", "main"]);
+    write_bytes(root, "b.bin", &[0u8, 1, 2, 3]);
+    git(root, &["add", "."]);
+    git(root, &["commit", "-q", "-m", "base"]);
+
+    git(root, &["checkout", "-q", "-b", "feature"]);
+    write_bytes(root, "b.bin", &[0u8, 9, 9, 9]);
+    git(root, &["commit", "-q", "-am", "feature"]);
+
+    git(root, &["checkout", "-q", "main"]);
+    write_bytes(root, "b.bin", &[0u8, 7, 7, 7]);
+    git(root, &["commit", "-q", "-am", "main"]);
+
+    run_git(root, &["merge", "feature"]);
+    assert_eq!(conflicted_paths(root).unwrap(), vec!["b.bin".to_string()]);
+
+    // The text merge editor must refuse a binary conflict rather than corrupt it
+    // through a lossy UTF-8 round-trip.
+    assert!(merge_blocks(root, "b.bin").is_err(), "binary conflict rejected by editor");
+
+    // Whole-side accept copies the raw blob bytes verbatim, not a mojibake String.
+    accept_side(root, "b.bin", "ours").unwrap();
+    assert_eq!(std::fs::read(root.join("b.bin")).unwrap(), vec![0u8, 7, 7, 7]);
+    assert!(conflicted_paths(root).unwrap().is_empty());
+}
+
+#[test]
+fn merge_ops_error_when_path_not_conflicted() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    setup_conflict(root);
+    // A path with no index conflict must error, never silently return an empty diff
+    // (which the editor would otherwise write back as an empty file).
+    assert!(merge_blocks(root, "does-not-exist.txt").is_err());
+    assert!(conflict_sides(root, "does-not-exist.txt").is_err());
+    assert!(accept_side(root, "does-not-exist.txt", "ours").is_err());
 }

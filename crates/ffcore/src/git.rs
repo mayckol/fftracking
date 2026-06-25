@@ -649,9 +649,42 @@ pub struct ConflictSides {
     pub theirs: Option<String>,
 }
 
-fn blob_text(repo: &Repository, entry: Option<&git2::IndexEntry>) -> Option<String> {
+fn blob_bytes(repo: &Repository, entry: Option<&git2::IndexEntry>) -> Option<Vec<u8>> {
     let blob = repo.find_blob(entry?.id).ok()?;
-    Some(String::from_utf8_lossy(blob.content()).into_owned())
+    Some(blob.content().to_vec())
+}
+
+/// Content with a NUL byte or invalid UTF-8 is treated as binary — the same rule
+/// `commands::read_text_file` uses, so the merge editor and the file viewer agree.
+fn is_binary(bytes: &[u8]) -> bool {
+    bytes.contains(&0) || std::str::from_utf8(bytes).is_err()
+}
+
+struct ConflictBytes {
+    base: Option<Vec<u8>>,
+    ours: Option<Vec<u8>>,
+    theirs: Option<Vec<u8>>,
+}
+
+/// Raw bytes of the three conflict stages for `path`, or `None` when `path` has no
+/// index conflict at all — distinct from a stage whose blob is absent (add/delete).
+fn find_conflict_bytes(repo: &Repository, path: &str) -> Result<Option<ConflictBytes>> {
+    let index = repo.index()?;
+    let target = path.as_bytes();
+    for c in index.conflicts()? {
+        let c = c?;
+        let hit = [&c.ancestor, &c.our, &c.their]
+            .iter()
+            .any(|e| e.as_ref().is_some_and(|e| e.path == target));
+        if hit {
+            return Ok(Some(ConflictBytes {
+                base: blob_bytes(repo, c.ancestor.as_ref()),
+                ours: blob_bytes(repo, c.our.as_ref()),
+                theirs: blob_bytes(repo, c.their.as_ref()),
+            }));
+        }
+    }
+    Ok(None)
 }
 
 /// The three conflicting versions (ancestor/ours/theirs) of `path` from the
@@ -663,22 +696,15 @@ pub fn conflict_sides(repo_path: &Path, path: &str) -> Result<ConflictSides> {
 }
 
 fn conflict_sides_in(repo: &Repository, path: &str) -> Result<ConflictSides> {
-    let index = repo.index()?;
-    let target = path.as_bytes();
-    for c in index.conflicts()? {
-        let c = c?;
-        let hit = [&c.ancestor, &c.our, &c.their]
-            .iter()
-            .any(|e| e.as_ref().is_some_and(|e| e.path == target));
-        if hit {
-            return Ok(ConflictSides {
-                base: blob_text(repo, c.ancestor.as_ref()),
-                ours: blob_text(repo, c.our.as_ref()),
-                theirs: blob_text(repo, c.their.as_ref()),
-            });
+    let cb = find_conflict_bytes(repo, path)?
+        .ok_or_else(|| Error::Msg("no merge conflict for this path".into()))?;
+    for side in [&cb.base, &cb.ours, &cb.theirs] {
+        if side.as_deref().is_some_and(is_binary) {
+            return Err(Error::Msg("binary file conflict — resolve it with Accept Yours/Theirs".into()));
         }
     }
-    Ok(ConflictSides { base: None, ours: None, theirs: None })
+    let text = |b: Option<Vec<u8>>| b.map(|b| String::from_utf8(b).unwrap_or_default());
+    Ok(ConflictSides { base: text(cb.base), ours: text(cb.ours), theirs: text(cb.theirs) })
 }
 
 /// Diff3 blocks for a conflicted file, powering the three-pane merge editor.
@@ -700,20 +726,24 @@ pub fn accept_side(repo_path: &Path, path: &str, side: &str) -> Result<()> {
         .workdir()
         .ok_or_else(|| Error::Msg("bare repo has no working tree".into()))?
         .to_path_buf();
-    let sides = conflict_sides_in(&repo, path)?;
+    // Use raw blob bytes (not a lossy String) so a binary side is byte-exact, and
+    // error rather than fall into the deletion branch when the path isn't actually
+    // conflicted (e.g. a stale selection already resolved elsewhere).
+    let cb = find_conflict_bytes(&repo, path)?
+        .ok_or_else(|| Error::Msg("no merge conflict for this path".into()))?;
     let content = match side {
-        "ours" => sides.ours,
-        "theirs" => sides.theirs,
+        "ours" => cb.ours,
+        "theirs" => cb.theirs,
         _ => return Err(Error::Msg("side must be 'ours' or 'theirs'".into())),
     };
     let dest = workdir.join(path);
     let mut index = repo.index()?;
     match content {
-        Some(text) => {
+        Some(bytes) => {
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::write(&dest, text)?;
+            std::fs::write(&dest, &bytes)?;
             index.add_path(Path::new(path))?;
         }
         None => {
