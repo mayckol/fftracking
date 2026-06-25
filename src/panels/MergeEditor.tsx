@@ -310,7 +310,9 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     if (!ed || !model || !mo) return;
     const next = statusRef.current.slice();
     const edits = changeIdx
-      .filter((i) => relevant(blocks[i], which))
+      // Skip regions the user hand-edited so Accept-all doesn't clobber (and strand)
+      // their manual content.
+      .filter((i) => relevant(blocks[i], which) && statusRef.current[i] !== "edited")
       .map((i) => ({ i, a: decoRange(i) }))
       .filter((x) => x.a)
       // Bottom-up so earlier ranges stay valid as Monaco applies the batch.
@@ -628,6 +630,7 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
       ] as const) {
         if (!ed || ed === src) continue;
         ed.setScrollTop(mapScroll(srcStarts, lineStarts(name), srcScroll));
+        ed.setScrollLeft(src.getScrollLeft());
       }
       syncing.current = false;
     });
@@ -726,6 +729,24 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
       .filter(Boolean);
   };
 
+  // Jump between changes (F7 / Shift+F7) in the result pane.
+  const [cur, setCur] = useState(-1);
+  const navDiff = useCallback(
+    (dir: 1 | -1) => {
+      if (!changeIdx.length) return;
+      const p = changeIdx.indexOf(cur);
+      const nextIdx =
+        p < 0 ? (dir > 0 ? changeIdx[0] : changeIdx[changeIdx.length - 1]) : changeIdx[(p + dir + changeIdx.length) % changeIdx.length];
+      setCur(nextIdx);
+      const r = resRange(nextIdx);
+      if (r && resRef.current) {
+        resRef.current.revealLineInCenter(Math.max(r.start, 1));
+        resRef.current.setPosition({ lineNumber: Math.max(r.start, 1), column: 1 });
+      }
+    },
+    [changeIdx, cur, resRange],
+  );
+
   // ---- unified undo/redo (Monaco native) ----
 
   const undo = () => resRef.current?.trigger("merge", "undo", null);
@@ -735,6 +756,11 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         onClose();
+        return;
+      }
+      if (e.key === "F7") {
+        e.preventDefault();
+        navDiff(e.shiftKey ? -1 : 1);
         return;
       }
       const mod = e.metaKey || e.ctrlKey;
@@ -753,7 +779,7 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, navDiff]);
 
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmApply, setConfirmApply] = useState(false);
@@ -801,12 +827,11 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     else doResolve();
   };
 
-  // Announce success once, when the last conflict is resolved.
+  // Announce success once. Not re-armed when `remaining` goes back above 0, so
+  // undo/redo across the last-conflict threshold doesn't re-fire the toast.
   const announced = useRef(false);
   useEffect(() => {
-    if (remaining > 0) {
-      announced.current = false;
-    } else if (changeCount > 0 && blocks.length > 0 && !announced.current) {
+    if (remaining === 0 && changeCount > 0 && blocks.length > 0 && !announced.current) {
       announced.current = true;
       toast(`All conflicts resolved in ${basename(path)} — click Apply`);
     }
@@ -826,20 +851,6 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     };
     // attemptClose reads `remaining` via closure; re-subscribe when it changes.
   }, [windowed, remaining]);
-
-  // Jump between changes (F7 / Shift+F7) in the result pane.
-  const [cur, setCur] = useState(-1);
-  const navDiff = (dir: 1 | -1) => {
-    if (!changeIdx.length) return;
-    const p = changeIdx.indexOf(cur);
-    const nextIdx = p < 0 ? (dir > 0 ? changeIdx[0] : changeIdx[changeIdx.length - 1]) : changeIdx[(p + dir + changeIdx.length) % changeIdx.length];
-    setCur(nextIdx);
-    const r = resRange(nextIdx);
-    if (r && resRef.current) {
-      resRef.current.revealLineInCenter(Math.max(r.start, 1));
-      resRef.current.setPosition({ lineNumber: Math.max(r.start, 1), column: 1 });
-    }
-  };
 
   const panesRef = useRef<HTMLDivElement>(null);
   const dragSplit = (i: 0 | 1) => (e: React.MouseEvent) => {

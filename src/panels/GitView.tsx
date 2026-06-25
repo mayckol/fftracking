@@ -443,7 +443,7 @@ export default function GitView({
     <div
       key={"c:" + c.path}
       className="frow conflict-row"
-      onClick={() => merge && repo && openMergeWindow({ repo, path: c.path, ours: merge.ours_label, theirs: merge.theirs_label })}
+      onClick={() => merge && repo && openMergeWindow({ repo, path: c.path, ours: merge.ours_label, theirs: merge.theirs_label }, toast)}
       title={`${c.path} — open the 3-way merge`}
     >
       <span className="stat conflicted">!</span>
@@ -736,7 +736,7 @@ export default function GitView({
           onReload={reloadMerge}
           onClose={() => setShowConflicts(false)}
           onMerge={(p) =>
-            openMergeWindow({ repo, path: p, ours: merge.ours_label, theirs: merge.theirs_label })
+            openMergeWindow({ repo, path: p, ours: merge.ours_label, theirs: merge.theirs_label }, toast)
           }
         />
       )}

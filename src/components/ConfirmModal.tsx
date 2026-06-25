@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { suppressConfirm } from "../lib/confirmPrefs";
 
 interface Props {
@@ -28,6 +28,25 @@ export default function ConfirmModal({
   onCancel,
 }: Props) {
   const [hide, setHide] = useState(false);
+  // Esc cancels, Enter confirms. Capture phase + stopImmediatePropagation so a
+  // parent window keydown listener (e.g. the merge editor / conflicts dialog) does
+  // not also act on the same key while this modal is open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        onCancel();
+      } else if (e.key === "Enter") {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        if (hide && suppressId) suppressConfirm(suppressId);
+        onConfirm();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onCancel, onConfirm, hide, suppressId]);
   return (
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
