@@ -473,19 +473,27 @@ export default function MergeEditor({ repoPath, path, oursLabel, theirsLabel, to
     const H = rect.height;
     const ls = lineStarts(leftKind as "ours" | "theirs" | "result");
     const rs = lineStarts(rightKind as "ours" | "theirs" | "result");
-    const polys = changeIdx
+    const shapes = changeIdx
       .map((i) => {
         const cls = resCls(i);
         if (!cls) return null;
         const [lt, lb] = spanY(leftEd, ls[i], ls[i + 1] - ls[i], rect.top);
         const [rt, rb] = spanY(rightEd, rs[i], rs[i + 1] - rs[i], rect.top);
         if (Math.max(lb, rb) < 0 || Math.min(lt, rt) > H) return null; // off-screen
-        return { i, cls, points: `0,${lt} ${W},${rt} ${W},${rb} 0,${lb}` };
+        // Faint full-width backing over the change's whole vertical extent so the
+        // gutter reads as one continuous coloured strip (no dark "split"); the solid
+        // wedge on top shows the actual line mapping when the two sides differ.
+        const bgTop = Math.min(lt, rt);
+        const bgBot = Math.max(lb, rb);
+        return { i, cls, bgTop, bgH: Math.max(1, bgBot - bgTop), points: `0,${lt} ${W},${rt} ${W},${rb} 0,${lb}` };
       })
-      .filter(Boolean) as { i: number; cls: string; points: string }[];
+      .filter(Boolean) as { i: number; cls: string; bgTop: number; bgH: number; points: string }[];
     return (
       <svg className="merge-conn" width={W} height={H} preserveAspectRatio="none">
-        {polys.map((p) => (
+        {shapes.map((p) => (
+          <rect key={`b${p.i}`} x={0} y={p.bgTop} width={W} height={p.bgH} className={`mcb-${p.cls}`} />
+        ))}
+        {shapes.map((p) => (
           <polygon key={p.i} points={p.points} className={`mc-${p.cls}`} />
         ))}
       </svg>

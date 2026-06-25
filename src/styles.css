@@ -4073,7 +4073,7 @@ textarea:focus {
 }
 .merge-split {
   flex: none;
-  width: 40px;
+  width: 24px;
   position: relative;
   cursor: col-resize;
   background: var(--bg-0);
@@ -4094,10 +4094,15 @@ textarea:focus {
 .merge-conn polygon {
   stroke-width: 1;
 }
-.mc-ours { fill: var(--ac); fill-opacity: 0.16; stroke: var(--ac); stroke-opacity: 0.5; }
-.mc-theirs { fill: var(--t-event); fill-opacity: 0.16; stroke: var(--t-event); stroke-opacity: 0.5; }
-.mc-conflict { fill: var(--conflict); fill-opacity: 0.18; stroke: var(--conflict); stroke-opacity: 0.55; }
-.mc-both { fill: var(--add); fill-opacity: 0.16; stroke: var(--add); stroke-opacity: 0.5; }
+.mc-ours { fill: var(--ac); fill-opacity: 0.38; stroke: var(--ac); stroke-opacity: 0.8; }
+.mc-theirs { fill: var(--t-event); fill-opacity: 0.38; stroke: var(--t-event); stroke-opacity: 0.8; }
+.mc-conflict { fill: var(--conflict); fill-opacity: 0.4; stroke: var(--conflict); stroke-opacity: 0.85; }
+.mc-both { fill: var(--add); fill-opacity: 0.38; stroke: var(--add); stroke-opacity: 0.8; }
+/* Faint full-span backing so a change's gutter reads as one continuous strip. */
+.mcb-ours { fill: var(--ac); fill-opacity: 0.1; }
+.mcb-theirs { fill: var(--t-event); fill-opacity: 0.1; }
+.mcb-conflict { fill: var(--conflict); fill-opacity: 0.11; }
+.mcb-both { fill: var(--add); fill-opacity: 0.1; }
 .tbtn.icon {
   padding: 2px 7px;
   font-size: var(--fs-md);
