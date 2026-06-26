@@ -4,6 +4,28 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.25] — 2026-06-26
+
+### Changed
+
+- **The 3-way merge editor was rebuilt from the ground up to match JetBrains.** A single
+  toolbar (jump between changes, apply non-conflicting changes Left / All / Right, a
+  magic wand to auto-resolve the simple ones), three locked headers naming each side's
+  branch, in-gutter accept (» / «), reject (✕) and keep-both (↓) buttons on every change,
+  change connectors between the panes, and a change-bar minimap on the result scrollbar
+  with conflicts in red. The result pane stays fully editable — typing and click-to-accept
+  coexist under one unified undo.
+- **The conflicts list shows what you're in the middle of.** The header now spells out the
+  operation (merging / rebasing / cherry-picking / reverting), the branches involved, and
+  the commit being replayed (author and message), and each file carries its type icon.
+
+### Fixed
+
+- **No more silent data loss while resolving conflicts.** Resolving a modify/delete conflict
+  to an empty result now removes the file instead of leaving it empty; one-sided deletions,
+  hand edits in unchanged regions, and accepting a whole side no longer drift onto or
+  overwrite a neighbouring change.
+
 ## [1.0.24] — 2026-06-25
 
 ### Changed
