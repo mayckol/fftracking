@@ -95,6 +95,14 @@ export interface MergeState {
   files: ConflictFile[];
 }
 
+export interface MergeOpInfo {
+  operation: string;
+  theirs_sha?: string | null;
+  current_sha?: string | null;
+  current_author?: string | null;
+  current_summary?: string | null;
+}
+
 export type MergeBlockKind = "unchanged" | "ours" | "theirs" | "both" | "conflict";
 
 export interface MergeBlock {

@@ -228,6 +228,7 @@ pub fn run() {
             commands::git_resolve_conflict,
             commands::git_merge_state,
             commands::git_merge_blocks,
+            commands::git_merge_op_info,
             commands::git_accept_side,
             commands::pick_folder,
             commands::set_autostart,

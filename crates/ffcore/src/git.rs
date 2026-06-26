@@ -642,6 +642,64 @@ pub fn merge_state(repo_path: &Path) -> Result<MergeState> {
     Ok(MergeState { ours_label, theirs_label, files })
 }
 
+/// Read-only context for the conflicts-dialog header: which operation is in
+/// progress and the commit being replayed. Every field is optional and degrades to
+/// `None` on any failure.
+#[derive(Debug, Clone, Serialize)]
+pub struct MergeOpInfo {
+    pub operation: String,
+    pub theirs_sha: Option<String>,
+    pub current_sha: Option<String>,
+    pub current_author: Option<String>,
+    pub current_summary: Option<String>,
+}
+
+fn short_sha(oid: git2::Oid) -> String {
+    oid.to_string().chars().take(7).collect()
+}
+
+fn commit_info(repo: &Repository, oid: git2::Oid) -> (Option<String>, Option<String>, Option<String>) {
+    match repo.find_commit(oid) {
+        Ok(c) => (Some(short_sha(oid)), c.author().name().map(str::to_string), c.summary().map(str::to_string)),
+        Err(_) => (Some(short_sha(oid)), None, None),
+    }
+}
+
+/// Detects the in-progress operation by inspecting the `.git` directory (no index or
+/// worktree writes) and looks up the replayed commit via git2. Used only to enrich
+/// the conflicts dialog header; the resolution path is unaffected.
+pub fn merge_operation(repo_path: &Path) -> Result<MergeOpInfo> {
+    let repo = open(repo_path)?;
+    let git_dir = repo.path().to_path_buf();
+    let exists = |p: &str| git_dir.join(p).exists();
+    let read_oid = |p: &str| {
+        std::fs::read_to_string(git_dir.join(p))
+            .ok()
+            .and_then(|s| git2::Oid::from_str(s.trim()).ok())
+    };
+
+    let (operation, theirs_sha, current): (&str, Option<String>, Option<git2::Oid>) =
+        if exists("rebase-merge") || exists("rebase-apply") {
+            let onto = read_oid("rebase-merge/onto");
+            let stopped = read_oid("rebase-merge/stopped-sha").or_else(|| read_oid("rebase-apply/original-commit"));
+            ("rebase", onto.map(short_sha), stopped)
+        } else if exists("CHERRY_PICK_HEAD") {
+            ("cherry-pick", None, repo.revparse_single("CHERRY_PICK_HEAD").ok().map(|o| o.id()))
+        } else if exists("REVERT_HEAD") {
+            ("revert", None, repo.revparse_single("REVERT_HEAD").ok().map(|o| o.id()))
+        } else if exists("MERGE_HEAD") {
+            ("merge", repo.revparse_single("MERGE_HEAD").ok().map(|o| short_sha(o.id())), None)
+        } else {
+            ("merge", None, None)
+        };
+
+    let (current_sha, current_author, current_summary) = match current {
+        Some(oid) => commit_info(&repo, oid),
+        None => (None, None, None),
+    };
+    Ok(MergeOpInfo { operation: operation.to_string(), theirs_sha, current_sha, current_author, current_summary })
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ConflictSides {
     pub base: Option<String>,

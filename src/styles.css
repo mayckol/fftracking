@@ -4025,8 +4025,8 @@ textarea:focus {
 .conflict-banner b {
   color: var(--conflict);
 }
-/* ---------- 3-pane merge editor (JetBrains style) ---------- */
-.merge-overlay {
+/* ===================== JetBrains-style 3-way merge editor ===================== */
+.mrg-overlay {
   position: fixed;
   inset: 0;
   z-index: 60;
@@ -4035,7 +4035,7 @@ textarea:focus {
   justify-content: center;
   background: rgba(0, 0, 0, 0.55);
 }
-.merge-modal {
+.mrg {
   display: flex;
   flex-direction: column;
   width: 97vw;
@@ -4047,13 +4047,13 @@ textarea:focus {
   overflow: hidden;
   will-change: transform;
 }
-/* Standalone OS window: the editor fills the frame, no floating chrome. */
-.merge-window {
+/* Standalone OS window: fill the frame, flat, no floating chrome. */
+.mrg-window {
   position: fixed;
   inset: 0;
   display: flex;
 }
-.merge-modal.windowed {
+.mrg.windowed {
   width: 100%;
   height: 100%;
   border: none;
@@ -4061,253 +4061,376 @@ textarea:focus {
   box-shadow: none;
   will-change: auto;
 }
-.merge-modal.windowed .merge-bar {
+
+/* ---- toolbar ---- */
+.mrg-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 6px var(--s3);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+}
+.mrg-tb-group {
+  display: flex;
+  gap: 2px;
+}
+.mrg-iconbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--tx-1);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.mrg-iconbtn:hover:not(:disabled) {
+  background: var(--bg-3);
+  color: var(--tx-0);
+}
+.mrg-iconbtn.accent {
+  color: var(--ac);
+}
+.mrg-iconbtn.toggle.on {
+  border-color: var(--ac);
+  color: var(--ac);
+}
+.mrg-tb-sep {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  background: var(--line-2);
+  margin: 0 2px;
+}
+.mrg-tb-label {
+  color: var(--tx-2);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.mrg-applybtn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  font-size: var(--fs-sm);
+  color: var(--tx-1);
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mrg-applybtn:hover {
+  background: var(--bg-3);
+  color: var(--tx-0);
+}
+.mrg-chev {
+  font-weight: 900;
+}
+.mrg-chev.ours {
+  color: var(--ac);
+}
+.mrg-chev.theirs {
+  color: var(--t-event);
+}
+.mrg-dropdown {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: var(--fs-sm);
+  color: var(--tx-1);
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  cursor: default;
+  white-space: nowrap;
+}
+.mrg-dropdown:disabled {
+  opacity: 0.55;
+}
+.mrg-caret {
+  color: var(--tx-2);
+}
+.mrg-tb-status {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--tx-2);
+  white-space: nowrap;
+}
+.mrg-tb-status b {
+  color: var(--tx-0);
+}
+.mrg-tb-status b.bad {
+  color: var(--conflict);
+}
+
+/* ---- column headers (aligned to pane weights) ---- */
+.mrg-heads {
+  flex: none;
+  display: flex;
+  height: 26px;
+  border-bottom: 1px solid var(--line);
+}
+.mrg-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 var(--s2);
+  background: var(--bg-1);
+  font-size: var(--fs-sm);
+}
+.mrg-head.ours {
+  border-left: 2px solid var(--ac);
+}
+.mrg-head.theirs {
+  border-right: 2px solid var(--t-event);
+}
+.mrg-head-gut {
+  flex: none;
+  width: 30px;
+  background: var(--bg-1);
+}
+.mrg-lock {
+  flex: none;
+  font-size: 10px;
+  opacity: 0.7;
+}
+.mrg-head-ref {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tx-0);
+  font-weight: 600;
+}
+.mrg-head-title {
+  color: var(--tx-0);
+  font-weight: 700;
+}
+.mrg-head-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--tx-2);
+}
+.mrg-details {
+  margin-left: auto;
+  flex: none;
+  padding: 0;
+  font-size: var(--fs-xs);
+  color: var(--ac);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.mrg-details:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.mrg-details:disabled {
+  opacity: 0.5;
   cursor: default;
 }
-.merge-bar {
-  cursor: grab;
-  user-select: none;
+
+/* ---- panes + gutters ---- */
+.mrg-panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
-.merge-bar:active {
-  cursor: grabbing;
+.mrg-pane {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
-.merge-split {
+.mrg-pane.center {
+  position: relative;
+}
+.mrg-gutter {
   flex: none;
-  width: 24px;
+  width: 30px;
   position: relative;
   cursor: col-resize;
   background: var(--bg-0);
 }
-.merge-split:hover {
-  background: var(--bg-1);
+/* Line-number margin sits on the gutter colour, content on the editor colour; make
+   the merge editors' margin transparent so a band tint is one uniform shade. */
+.mrg-panes .monaco-editor .margin {
+  background: transparent;
 }
-/* JetBrains-style change connectors: trapezoids binding a change's span on the
-   left pane to its span on the right pane across the gutter. */
-.merge-conn {
+/* Suppress Monaco's focus outline (theme focusBorder) so the panes don't show a
+   bright vertical rule at each editor edge. */
+.mrg-panes .monaco-editor {
+  outline: none !important;
+}
+
+/* connectors: flat fill matching the band tone, NO stroke (a stroke draws false
+   vertical borders down the result pane). With aligned bands these are rectangles. */
+.mrg-conn {
   position: absolute;
   inset: 0;
   pointer-events: none;
   overflow: visible;
 }
-.merge-conn polygon {
-  stroke-width: 1;
+.mc-ours {
+  fill: var(--ac);
+  fill-opacity: 0.14;
 }
-/* Connector = flat fill matching the in-pane band tone, NO stroke. The stroke used to
-   outline the (aligned ⇒ rectangular) polygon's vertical edges, drawing coloured lines
-   down both sides of the result pane that read as borders. Fill alone keeps the change
-   one smooth continuous colour from pane → gutter → pane. */
-.mc-ours { fill: var(--ac); fill-opacity: 0.14; stroke: none; }
-.mc-theirs { fill: var(--t-event); fill-opacity: 0.14; stroke: none; }
-.mc-conflict { fill: var(--conflict); fill-opacity: 0.14; stroke: none; }
-.mc-both { fill: var(--add); fill-opacity: 0.14; stroke: none; }
-/* Backing kept minimal: with aligned bands it underlaps the connector, so a hair of
-   extra fill is all that's needed to avoid a seam. */
-.mcb-ours, .mcb-theirs, .mcb-conflict, .mcb-both { fill-opacity: 0; }
-.tbtn.icon {
-  padding: 2px 7px;
-  font-size: var(--fs-md);
-  line-height: 1;
+.mc-theirs {
+  fill: var(--t-event);
+  fill-opacity: 0.14;
 }
-.merge-bar {
+.mc-conflict {
+  fill: var(--conflict);
+  fill-opacity: 0.14;
+}
+.mc-both {
+  fill: var(--add);
+  fill-opacity: 0.14;
+}
+.mc-edited {
+  fill: var(--mod);
+  fill-opacity: 0.14;
+}
+
+/* per-change action pill, centered in the gutter, aligned to the result row */
+.mrg-acts {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.mrg-act-row {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%) translateY(-0.5px);
+  display: flex;
+  height: 16px;
+  align-items: center;
+  background: rgba(10, 12, 16, 0.94);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+}
+.mrg-act {
   display: flex;
   align-items: center;
-  gap: var(--s3);
-  padding: 6px var(--s3);
-  background: var(--bg-1);
-  border-bottom: 1px solid var(--line);
-  flex: none;
+  justify-content: center;
+  width: 13px;
+  height: 15px;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0.85;
 }
-/* Bottom action bar: Accept Left/Right on the left, Cancel/Apply on the right. */
-.merge-foot {
+.mrg-act:not(:last-child) {
+  border-right: 1px solid var(--line-2);
+}
+.mrg-act:hover {
+  filter: brightness(1.5);
+  background: rgba(93, 107, 122, 0.2);
+  opacity: 1;
+}
+.mrg-act.accept.ours {
+  color: var(--ac);
+}
+.mrg-act.accept.theirs {
+  color: var(--t-event);
+}
+.mrg-act.accept.add {
+  color: var(--add);
+}
+.mrg-act.reject {
+  color: var(--del);
+}
+
+/* side-pane change bands (one flat tone across margin + content) */
+.mrg-line-ours {
+  background: var(--ac-glow);
+}
+.mrg-line-theirs {
+  background: var(--t-event-bg);
+}
+.mrg-line-conflict {
+  background: var(--conflict-bg);
+}
+
+/* result-pane bands by resolution state */
+.mrg-res-ours {
+  background: var(--ac-glow);
+}
+.mrg-res-theirs {
+  background: var(--t-event-bg);
+}
+.mrg-res-both {
+  background: var(--add-bg);
+}
+.mrg-res-conflict {
+  background: var(--conflict-bg);
+}
+.mrg-res-edited {
+  background: var(--mod-bg);
+}
+
+/* alignment spacers: the gap a shorter pane gets at a block's end, tinted to the
+   band tone so an aligned change reads as one continuous colour. */
+.mrg-spacer {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+.mrg-spacer.sp-ours {
+  background: var(--ac-glow);
+}
+.mrg-spacer.sp-theirs {
+  background: var(--t-event-bg);
+}
+.mrg-spacer.sp-both {
+  background: var(--add-bg);
+}
+.mrg-spacer.sp-conflict {
+  background: var(--conflict-bg);
+}
+.mrg-spacer.sp-edited {
+  background: var(--mod-bg);
+}
+
+/* ---- footer ---- */
+.mrg-foot {
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--s3);
   padding: 8px var(--s3);
   background: var(--bg-1);
   border-top: 1px solid var(--line);
-  flex: none;
 }
-.merge-foot-l {
+.mrg-foot-l {
   display: flex;
   gap: var(--s1);
 }
-.merge-foot-r {
+.mrg-foot-r {
   display: flex;
   gap: var(--s1);
   margin-left: auto;
 }
-.merge-file {
-  font-family: var(--mono);
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  color: var(--tx-0);
-}
-.merge-status {
-  margin-left: auto;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  white-space: nowrap;
-}
-.merge-status.ok {
-  color: var(--add);
-  padding: 3px 10px;
-  border-radius: var(--r-sm);
-  background: var(--add-bg);
-  border: 1px solid var(--add);
-}
-.merge-status.bad { color: var(--conflict); }
-
-.merge-panes {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-.merge-pane {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-.merge-plabel {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px var(--s2);
-  font-family: var(--mono);
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.merge-plabel .dpb-ico {
-  flex: 0 0 auto;
-  font-size: 12px;
-  line-height: 1;
-  color: inherit;
-}
-.merge-plabel .dpb-ref {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* Same flat background on every pane label (and the gutters/editors already share it);
-   only the text/icon colour distinguishes the side. */
-.merge-plabel.ours { color: var(--ac); }
-.merge-plabel.theirs { color: var(--t-event); }
-.merge-plabel.result { color: var(--add); }
-
-/* Read-only padlock on the side panes; filename appended to the Result label. */
-.dpb-lock {
-  flex: 0 0 auto;
-  font-size: 10px;
-  opacity: 0.6;
-}
-.merge-plabel.ours .dpb-lock { margin-left: auto; }
-.dpb-file {
-  flex: 0 0 auto;
-  font-family: var(--mono);
-  font-weight: 600;
-  text-transform: none;
-  letter-spacing: 0;
-  opacity: 0.75;
-}
-
-/* Side-pane change highlights by origin: one flat tone across the whole row (line
-   number margin + content), no edge bar — so the band reads as a single smooth colour
-   instead of a saturated margin strip beside a lighter content tint. */
-.merge-line-ours { background: var(--ac-glow); }
-.merge-line-theirs { background: var(--t-event-bg); }
-.merge-line-conflict { background: var(--conflict-bg); }
-
-/* The line-number margin sits on the gutter colour, the content on the editor colour;
-   a translucent tint would composite to two different shades. Make the merge editors'
-   margin transparent so both layers sit over the same base and the tint is uniform. */
-.merge-panes .monaco-editor .margin { background: transparent; }
-
-/* Ours (left) pane: push its vertical scrollbar to the OUTER (left) edge so it
-   stops colliding with the action chevrons on the inner-right edge. Monaco has
-   no left-scrollbar option, so override the rendered scrollbar element. */
-.merge-pane:first-child .monaco-scrollable-element > .scrollbar.vertical {
-  left: 0 !important;
-  right: auto !important;
-}
-
-/* Overlay action chevrons pinned to a side pane's inner edge. */
-.merge-edhost {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-.mact-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 6;
-  pointer-events: none;
-  overflow: hidden;
-}
-.mact-row {
-  position: absolute;
-  display: flex;
-  gap: 0;
-  height: 16px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  background: rgba(13, 16, 23, 0.94);
-  border: 1px solid rgba(124, 140, 255, 0.1);
-  border-radius: 3px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-  transform: translateY(-0.5px);
-}
-.mact-layer.ours .mact-row { right: 0; }
-.mact-layer.theirs .mact-row { left: 0; }
-.mact {
-  pointer-events: auto;
-  cursor: pointer;
-  width: 15px;
-  height: 15px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  font-size: 11px;
-  font-weight: 900;
-  line-height: 1;
-  border: none;
-  background: transparent;
-  flex-shrink: 0;
-  opacity: 0.85;
-}
-.mact:not(:last-child) { border-right: 1px solid rgba(93, 107, 122, 0.3); }
-.mact:hover {
-  filter: brightness(1.5);
-  background: rgba(93, 107, 122, 0.2);
-  opacity: 1;
-}
-.mact.accept.ours { color: var(--ac); }
-.mact.accept.theirs { color: var(--t-event); }
-.mact.ignore {
-  color: var(--del);
-}
-
-/* Result-pane line highlights by resolution state — flat tone, no edge bar. */
-.merge-res-ours { background: var(--ac-glow); }
-.merge-res-theirs { background: var(--t-event-bg); }
-.merge-res-both { background: var(--add-bg); }
-.merge-res-conflict { background: var(--conflict-bg); }
-.merge-res-base { background: transparent; }
-
-/* Alignment spacers: the gap a shorter pane gets at the end of an aligned change
-   block. Same flat tone as the change band, so the aligned region reads as one
-   continuous colour — never a blank void or a different shade. */
-.merge-spacer { width: 100%; height: 100%; background: transparent; }
-.merge-spacer.sp-ours { background: var(--ac-glow); }
-.merge-spacer.sp-theirs { background: var(--t-event-bg); }
-.merge-spacer.sp-both { background: var(--add-bg); }
-.merge-spacer.sp-conflict { background: var(--conflict-bg); }
 
 /* ---------- conflicts dialog (JetBrains style) ---------- */
 .cfl-modal {
@@ -4326,8 +4449,22 @@ textarea:focus {
   border-bottom: 1px solid var(--line);
 }
 .cfl-head h3 { margin: 0 0 2px; }
-.cfl-sub { font-size: var(--fs-sm); color: var(--tx-2); }
+.cfl-sub { font-size: var(--fs-sm); color: var(--tx-2); line-height: 1.5; }
 .cfl-sub b { color: var(--tx-0); }
+.cfl-sub code {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--tx-1);
+}
+.cfl-commit-msg {
+  margin: var(--s1) 0 0;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--tx-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .cfl-body {
   display: flex;
   min-height: 0;
@@ -4369,7 +4506,9 @@ textarea:focus {
 .cfl-row { cursor: pointer; font-size: var(--fs-sm); }
 .cfl-row:hover { background: var(--bg-2); }
 .cfl-row.on { background: var(--ac-glow); }
-.cfl-name { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.cfl-name { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.cfl-icon { flex: none; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; }
+.cfl-icon .ftype-icon, .cfl-icon svg, .cfl-icon img { width: 16px; height: 16px; }
 .cfl-base {
   font-weight: 600;
   color: var(--tx-0);

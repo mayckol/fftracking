@@ -6,6 +6,7 @@ import type {
   GitFileChange,
   HunkInfo,
   MergeBlock,
+  MergeOpInfo,
   MergeState,
   MonitorRow,
   RefList,
@@ -147,6 +148,7 @@ export const api = {
   gitMergeState: (repoPath: string) => invoke<MergeState>("git_merge_state", { repoPath }),
   gitMergeBlocks: (repoPath: string, path: string) =>
     invoke<MergeBlock[]>("git_merge_blocks", { repoPath, path }),
+  gitMergeOpInfo: (repoPath: string) => invoke<MergeOpInfo>("git_merge_op_info", { repoPath }),
   gitAcceptSide: (repoPath: string, path: string, side: "ours" | "theirs") =>
     invoke<void>("git_accept_side", { repoPath, path, side }),
 

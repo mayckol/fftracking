@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/ipc";
 import ConfirmModal from "../components/ConfirmModal";
+import { FileTypeIcon } from "../components/FileTypeIcon";
 import { basename } from "../lib/util";
-import type { ConflictFile, MergeState } from "../lib/types";
+import type { ConflictFile, MergeOpInfo, MergeState } from "../lib/types";
+
+const opVerb = (o: string): string =>
+  ({ rebase: "Rebasing", "cherry-pick": "Cherry-picking", revert: "Reverting", merge: "Merging" }[o] ?? "Merging");
 
 interface Props {
   repoPath: string;
@@ -26,6 +30,16 @@ export default function ConflictsDialog({ repoPath, state, toast, onMerge, onRel
   const [busy, setBusy] = useState(false);
   // Accept-yours/theirs takes one whole side and discards the other, so confirm first.
   const [confirmSide, setConfirmSide] = useState<"ours" | "theirs" | null>(null);
+  // Operation/commit context for the header. Optional, read-only — degrades to the
+  // single-line "Merging X into Y" header if the backend command is absent.
+  const [op, setOp] = useState<MergeOpInfo | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.gitMergeOpInfo(repoPath).then((o) => alive && setOp(o)).catch(() => alive && setOp(null));
+    return () => {
+      alive = false;
+    };
+  }, [repoPath]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -90,6 +104,9 @@ export default function ConflictsDialog({ repoPath, state, toast, onMerge, onRel
       title={f.path}
     >
       <span className="cfl-name">
+        <span className="cfl-icon">
+          <FileTypeIcon name={basename(f.path)} />
+        </span>
         <span className="cfl-base">{basename(f.path)}</span>
         {!grouped && dirOf(f.path) && <span className="cfl-dir">{dirOf(f.path)}</span>}
       </span>
@@ -103,9 +120,29 @@ export default function ConflictsDialog({ repoPath, state, toast, onMerge, onRel
       <div className="cfl-modal" onClick={(e) => e.stopPropagation()}>
         <div className="cfl-head">
           <h3>Conflicts</h3>
-          <span className="cfl-sub">
-            Merging branch <b>{state.theirs_label}</b> into branch <b>{state.ours_label}</b>
-          </span>
+          {op ? (
+            <>
+              <p className="cfl-sub">
+                {opVerb(op.operation)} branch <b>{state.theirs_label}</b> onto branch <b>{state.ours_label}</b>
+                {op.theirs_sha && (
+                  <>
+                    , revision <code>{op.theirs_sha}</code>
+                  </>
+                )}
+                {op.current_sha && (
+                  <>
+                    . Current commit <code>{op.current_sha}</code>
+                    {op.current_author && <> made by {op.current_author}</>}:
+                  </>
+                )}
+              </p>
+              {op.current_summary && <p className="cfl-commit-msg">{op.current_summary}</p>}
+            </>
+          ) : (
+            <p className="cfl-sub">
+              Merging branch <b>{state.theirs_label}</b> into branch <b>{state.ours_label}</b>
+            </p>
+          )}
         </div>
 
         <div className="cfl-body">

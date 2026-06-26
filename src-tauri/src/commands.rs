@@ -732,6 +732,11 @@ pub fn git_merge_blocks(repo_path: String, path: String) -> R<Vec<ffcore::merge:
 }
 
 #[tauri::command]
+pub fn git_merge_op_info(repo_path: String) -> R<git::MergeOpInfo> {
+    err(git::merge_operation(&PathBuf::from(repo_path)))
+}
+
+#[tauri::command]
 pub fn git_accept_side(repo_path: String, path: String, side: String) -> R<()> {
     err(git::accept_side(&PathBuf::from(repo_path), &path, &side))
 }
