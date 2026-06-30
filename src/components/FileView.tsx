@@ -117,6 +117,14 @@ function toKeybinding(monaco: Monaco, combo: string): number | null {
   return code == null ? null : mods | code;
 }
 
+// Last on-disk text per model path. Monaco keeps one model per path URI
+// (keepCurrentModel), so reopening a file — or opening it in a second pane —
+// reuses a model that may still hold content from before an external write
+// (AI agent, terminal). The baseline must persist alongside that model, not in
+// a per-mount ref: only then can a remount tell a clean-but-stale model (adopt
+// disk) from one carrying real unsaved edits (keep them).
+const savedByPath = new Map<string, string>();
+
 interface Props {
   content: string;
   language: string;
@@ -228,8 +236,34 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
   }, [language, pos.line, pos.col, diag.errors, diag.warnings, lsp, root]);
   useEffect(() => () => setEditorStatus(null), []);
   const editorRef = useRef<MEditor.IStandaloneCodeEditor | null>(null);
-  // Last text known to be on disk; dirty = editor value differs from this.
-  const savedValueRef = useRef(content);
+  // Last text known to be on disk; dirty = editor value differs from this. Seed
+  // from the per-path store when a kept model is being reused (reopen / split),
+  // so the saved baseline matches the model rather than this mount's content.
+  const savedValueRef = useRef(path && savedByPath.has(path) ? (savedByPath.get(path) as string) : content);
+  const setSaved = (v: string) => {
+    savedValueRef.current = v;
+    if (path) savedByPath.set(path, v);
+  };
+  // onMount captures props once; reconcile reads the live disk content here.
+  const contentRef = useRef(content);
+  contentRef.current = content;
+  // Reconcile the model (possibly a reused, stale, kept model) with the latest
+  // disk content: a model that still matches its saved baseline is clean, so a
+  // disk drift is an external write to adopt; a model diverging from BOTH the
+  // baseline and disk carries unsaved edits, which must survive. No-ops until
+  // the model exists (onMount drives the first pass).
+  const reconcileWithDisk = () => {
+    const m = editorRef.current?.getModel();
+    if (!m) return;
+    const disk = contentRef.current;
+    if (m.getValue() !== savedValueRef.current && m.getValue() !== disk) {
+      onDirtyRef.current?.(true);
+      return;
+    }
+    if (m.getValue() !== disk) m.setValue(disk);
+    setSaved(disk);
+    onDirtyRef.current?.(false);
+  };
   // Props change identity across renders; onMount captures them once, so read
   // the live versions through refs (auto-save fires long after mount).
   const onSaveRef = useRef(onSave);
@@ -341,29 +375,14 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
     };
   }, [popOldText, language]);
 
-  // External reload of the open file (snapshot restore, git ops): the editor
-  // is uncontrolled (defaultValue), so push the new text in ourselves.
-  // setValue also resets that file's undo stack — correct for a disk reload.
-  // Skipped on mount: the model already holds the right content, and a kept
-  // model may carry unsaved edits we must not wipe.
-  const firstContent = useRef(true);
+  // External reload of the open file (snapshot restore, git ops, an AI agent or
+  // terminal writing on disk): the editor is uncontrolled (defaultValue), so
+  // push the new text in ourselves. setValue resets that file's undo stack —
+  // correct for a disk reload. A no-op until the model exists; the mount-time
+  // pass runs in onMount, where a reused kept model is reconciled against disk.
   useEffect(() => {
-    if (firstContent.current) {
-      firstContent.current = false;
-      return;
-    }
-    const m = editorRef.current?.getModel();
-    // No model yet: don't advance the baseline, or it drifts ahead of the buffer
-    // and wedges the file as permanently dirty + stale on the next reconcile.
-    if (!m) return;
-    // Buffer carries unsaved user edits (differs from baseline AND from the new
-    // disk content): an external write must not clobber them. Leave the edits and
-    // the dirty dot until the user saves.
-    if (m.getValue() !== savedValueRef.current && m.getValue() !== content) return;
-    if (m.getValue() !== content) m.setValue(content);
-    // The new content is now the on-disk baseline (save succeeded, or a reload).
-    savedValueRef.current = content;
-    onDirtyRef.current?.(false);
+    reconcileWithDisk();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content]);
 
   // Showing the editor again after Read mode hid it (display:none) can leave
@@ -497,7 +516,7 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
       }
       const v = editor.getValue();
       await onSaveRef.current?.(v, auto);
-      savedValueRef.current = v;
+      setSaved(v);
       onDirtyRef.current?.(false);
     };
     bind("editor.save", () => void doSave(false));
@@ -529,12 +548,15 @@ const FileView = forwardRef<FileHandle, Props>(function FileView(
 
     // Unsaved-changes dot + intelligent auto-save (editable files only). Dirty
     // is recomputed shortly after edits stop; auto-save writes ~1s after the
-    // last keystroke when enabled. A kept model may reopen carrying edits, so
-    // sync once on mount too.
+    // last keystroke when enabled. On mount, reconcile against disk first: a
+    // reused kept model may be stale (external write while it was unmounted) or
+    // carry real unsaved edits — reconcile adopts disk for the former, preserves
+    // the latter, and sets the dot accordingly. Runs before the change listener
+    // is wired so an adopt-disk setValue doesn't trip a spurious auto-save.
     const dmodel = editor.getModel();
     if (dmodel) {
       const syncDirty = () => onDirtyRef.current?.(dmodel.getValue() !== savedValueRef.current);
-      syncDirty();
+      reconcileWithDisk();
       let dirtyTimer = 0;
       let autoTimer = 0;
       const sub = dmodel.onDidChangeContent(() => {
