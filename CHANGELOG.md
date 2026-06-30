@@ -4,6 +4,17 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.26] — 2026-06-30
+
+### Fixed
+
+- **Reopening or splitting a file no longer shows stale content after an external write.**
+  Monaco keeps one model per path, so reopening a file — or opening it in a second pane —
+  could reuse a model that predated a write from an AI agent or the terminal. The saved
+  baseline now persists per path, so a remount can tell a clean-but-stale model (adopt the
+  new disk content) from one carrying real unsaved edits (preserve them), reconciling on
+  mount before the change listener is wired.
+
 ## [1.0.25] — 2026-06-26
 
 ### Changed
