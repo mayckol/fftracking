@@ -4,6 +4,24 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.27] — 2026-07-03
+
+### Changed
+
+- **Merge conflicts and git compare now open in [MCR](https://github.com/mayckol/mcr),
+  a dedicated external merge/diff app.** Clicking a conflicted file (or "Merge…" in the
+  conflicts dialog) launches MCR on that file following the git mergetool contract; on
+  Save & Exit the file is staged and the conflicts list refreshes automatically. The Git
+  view's compare pane and History's "Compare with…" open MCR's whole-repo diff (chosen
+  ref against the working tree, with a file sidebar). If MCR isn't installed, a toast
+  points at the installer. Bulk Accept Yours/Theirs, staging, committing, and the
+  breaking-point Revert file/folder actions all remain in-app.
+
+### Removed
+
+- **The built-in 3-way merge editor and inline Monaco diff viewer.** Both are replaced
+  by MCR; the app sheds the whole in-app diff3/merge engine (~3,200 lines).
+
 ## [1.0.26] — 2026-06-30
 
 ### Fixed
