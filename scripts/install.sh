@@ -10,6 +10,7 @@
 #   FFTRACKING_VERSION  tag to install (default: latest release)
 #   FFTRACKING_PREFIX   Linux install prefix; AppImage goes to $PREFIX/bin (default: $HOME/.local)
 #   FFTRACKING_REPO     override repo slug (default: mayckol/fftracking)
+#   FFTRACKING_NO_MCR   set to 1 to skip installing MCR (the merge/diff companion app)
 #
 # Flags:
 #   --uninstall, --purge   remove the app, the `fft` and `fftrack` CLIs, and the
@@ -19,7 +20,9 @@
 # macOS: installs fftracking.app to /Applications (Apple Silicon).
 # Linux: installs the AppImage to $PREFIX/bin/fftracking (x86_64) and registers a
 #        desktop launcher + icon under $PREFIX/share so it appears in the app menu.
-# Both: also installs the headless `fft` CLI (+ MCP server) to ~/.local/bin/fft.
+# Both: also installs the headless `fft` CLI (+ MCP server) to ~/.local/bin/fft,
+#       and MCR (github.com/mayckol/mcr) — the external merge/diff editor the app
+#       launches for git conflicts and compare — when it isn't installed yet.
 
 set -eu
 
@@ -206,5 +209,26 @@ EOF
     ;;
   *) fail "unsupported OS: $os_raw" ;;
 esac
+
+# MCR is the external merge/diff editor fftracking spawns for git conflicts and
+# compare. Its own installer covers the same OS matrix (macOS arm64 dmg, Linux
+# x86_64 AppImage) and registers it as a git mergetool. Skipped when already
+# installed (update MCR independently) or when opted out; never fatal — the app
+# runs without it and points at the installer from a toast.
+install_mcr() {
+  [ "${FFTRACKING_NO_MCR:-0}" = "1" ] && { log "skipping MCR (FFTRACKING_NO_MCR=1)"; return 0; }
+  if command -v mcr >/dev/null 2>&1 || [ -x "$HOME/.local/bin/mcr" ] || [ -x "/Applications/MCR.app/Contents/MacOS/mcr-app" ]; then
+    log "MCR already installed — skipping (re-run its installer to update)"
+    return 0
+  fi
+  log "installing MCR (merge/diff editor)"
+  if $DL "https://raw.githubusercontent.com/mayckol/mcr/main/scripts/install.sh" | sh; then
+    log "MCR installed"
+  else
+    log "MCR install failed — fftracking works without it; install later with:"
+    log "  curl -fsSL https://raw.githubusercontent.com/mayckol/mcr/main/scripts/install.sh | sh"
+  fi
+}
+install_mcr
 
 log "done"

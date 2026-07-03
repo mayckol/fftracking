@@ -86,7 +86,10 @@ curl -fsSL https://raw.githubusercontent.com/mayckol/fftracking/main/scripts/ins
 
 Installs the latest release — `fftracking.app` to `/Applications` on macOS
 (Apple Silicon), or the AppImage to `~/.local/bin/fftracking` on Linux (x86_64) —
-plus the headless **`fft`** CLI (+ MCP server) at `~/.local/bin/fft`.
+plus the headless **`fft`** CLI (+ MCP server) at `~/.local/bin/fft`, and
+[**MCR**](https://github.com/mayckol/mcr), the external merge/diff editor the app
+launches for git conflicts and compare (skipped if already installed; opt out
+with `FFTRACKING_NO_MCR=1`).
 Pin a version with `FFTRACKING_VERSION=v0.3.1`.
 
 ### Homebrew (macOS)
