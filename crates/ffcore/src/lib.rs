@@ -3,7 +3,6 @@ pub mod detect;
 pub mod engine;
 pub mod git;
 pub mod ignore;
-pub mod merge;
 pub mod query;
 pub mod revert;
 pub mod runner;

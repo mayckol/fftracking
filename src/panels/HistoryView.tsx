@@ -1,9 +1,9 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
-import { api, WORKDIR } from "../lib/ipc";
-import type { BaseInfo, ChangeSummary, FileChange, HunkInfo, RefList, SnapshotRow } from "../lib/types";
-import { basename, dayLabel, dirname, fmtTime, langOf } from "../lib/util";
+import { api } from "../lib/ipc";
+import { openMcrDiff } from "../lib/mcr";
+import type { BaseInfo, ChangeSummary, FileChange, RefList, SnapshotRow } from "../lib/types";
+import { basename, dirname, langOf } from "../lib/util";
 import { useShortcut } from "../lib/shortcuts";
 import { isConfirmSuppressed } from "../lib/confirmPrefs";
 import { getPrefs } from "../lib/uiPrefs";
@@ -63,10 +63,6 @@ export default function HistoryView({
   const [summaries, setSummaries] = useState<Record<number, ChangeSummary>>({});
   const [changes, setChanges] = useState<FileChange[]>([]);
   const [file, setFile] = useState<string | null>(null);
-  const [left, setLeft] = useState("");
-  const [right, setRight] = useState("");
-  const [inline, setInline] = useState(false);
-  const [hunks, setHunks] = useState<HunkInfo[]>([]);
   const [reload, setReload] = useState(0);
   // Forces a re-read of the open working file + its gutter baseline, without the
   // broader semantics of `reload`. Bumped when the editor regains focus / the
@@ -131,13 +127,6 @@ export default function HistoryView({
   const [comparePick, setComparePick] = useState<{ path: string; kind: "file" | "dir" } | null>(null);
   const [compareRefs, setCompareRefs] = useState<RefList | null>(null);
   const [compareQuery, setCompareQuery] = useState("");
-  // Folder compare, step 2: files under the folder that differ from the ref.
-  const [compareFolder, setCompareFolder] = useState<{ prefix: string; ref: string; label: string; files: string[] } | null>(null);
-  const [branchDiff, setBranchDiff] = useState<{ path: string; ref: string; label: string } | null>(null);
-  const [branchLeft, setBranchLeft] = useState("");
-  const [branchRight, setBranchRight] = useState("");
-  const [branchHunks, setBranchHunks] = useState<HunkInfo[]>([]);
-  const branchDiffApi = useRef<DiffHandle>(null);
   const repoRoot = baseInfo?.kind === "git" ? baseInfo.repo_root : null;
   // Monitor-relative path → repo-relative (the monitor may be a subfolder).
   const monitorSub = () => {
@@ -146,12 +135,6 @@ export default function HistoryView({
     return root === repoRoot ? "" : root.startsWith(prefix) ? `${root.slice(prefix.length)}/` : "";
   };
   const toRepoRel = (p: string) => `${monitorSub()}${p}`;
-  // Repo-relative path → monitor-relative (inverse of toRepoRel), for opening a
-  // file that git reported under the repo root.
-  const toMonitorRel = (p: string) => {
-    const sub = monitorSub();
-    return sub && p.startsWith(sub) ? p.slice(sub.length) : p;
-  };
 
   // Back/Forward navigation history (mouse buttons 4/5). Refs,
   // not state — it drives setFile/setPendingGoto rather than rendering itself.
@@ -330,12 +313,7 @@ export default function HistoryView({
   // to it. Cleared by the banner's ✕ or a monitor switch.
   const [historyFilter, setHistoryFilter] = useState<string | null>(null);
   const [scopedSummaries, setScopedSummaries] = useState<Record<number, ChangeSummary>>({});
-  const diffApi = useRef<DiffHandle>(null);
   const summariesKey = useRef("");
-  const diffReq = useRef(0);
-  // Set when ↑/↓ crossed a file boundary, so the load effect lands on the new
-  // file's last ("prev") / first ("next") change instead of always the first.
-  const crossFocus = useRef<"first" | "last" | null>(null);
   // window.prompt/confirm don't work in the Tauri webview — use a custom modal.
   const [dialog, setDialog] = useState<
     | { kind: "label"; id: number; value: string }
@@ -767,88 +745,10 @@ export default function HistoryView({
     };
   }, [snap, monitorId, reload, vsMode]);
 
-  // The two panes depend on the mode. "current": LEFT = the file as captured
-  // at the point ("Before", read-only), RIGHT = the live working tree
-  // ("Current", editable) — the ⟲ gutter icon restores a block from Before
-  // into Current and the edit is undoable (⌘Z / Ctrl+Z). "point": LEFT = the
-  // base (git branch / previous point), RIGHT = the point's capture, both
-  // read-only — what this breaking point changed.
-  const loadDiff = useCallback(async () => {
-    // Monotonic token: a slower in-flight load must not clobber the panes (and
-    // the hunk indices that drive gutter-revert) of a newer selection.
-    const req = ++diffReq.current;
-    if (snap == null || !file || file.startsWith("/")) {
-      setLeft("");
-      setRight("");
-      setHunks([]);
-      return;
-    }
-    const [l, r] =
-      vsMode === "current"
-        ? [(await api.fileAt(snap, file)) ?? "", (await api.workingFile(monitorId, file)) ?? ""]
-        : [(await api.baseFile(monitorId, snap, file)) ?? "", (await api.fileAt(snap, file)) ?? ""];
-    const hk = await api.textHunks(l, r);
-    if (req !== diffReq.current) return;
-    setLeft(l);
-    setRight(r);
-    setHunks(hk);
-  }, [snap, file, monitorId, vsMode]);
-
-  useEffect(() => {
-    loadDiff();
-  }, [loadDiff]);
-
-  // Branch comparison panes: the branch's version of the file (left) vs the live
-  // working file (right).
-  useEffect(() => {
-    if (!branchDiff || !repoRoot) return;
-    let alive = true;
-    (async () => {
-      try {
-        const rel = toRepoRel(branchDiff.path);
-        const l = (await api.gitFile(repoRoot, branchDiff.ref, rel)) ?? "";
-        const r = branchDiff.path.startsWith("/")
-          ? (await api.readTextFile(branchDiff.path)) ?? ""
-          : (await api.workingFile(monitorId, branchDiff.path)) ?? "";
-        const hk = await api.textHunks(l, r);
-        if (alive) {
-          setBranchLeft(l);
-          setBranchRight(r);
-          setBranchHunks(hk);
-        }
-      } catch (e) {
-        if (alive) toast(String(e), true);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branchDiff, repoRoot, monitorId]);
-
-  // Opening any file/diff dismisses an active branch comparison.
-  useEffect(() => {
-    setBranchDiff(null);
-  }, [file, openKind]);
-
-  // When a breaking point / file loads, jump the diff to its first change so the
-  // user lands on what actually changed instead of the top of the file.
-  useEffect(() => {
-    if (snap == null || !file) return;
-    const which = crossFocus.current ?? "first";
-    crossFocus.current = null;
-    const t = window.setTimeout(
-      () => (which === "last" ? diffApi.current?.focusLast() : diffApi.current?.focusFirst()),
-      180,
-    );
-    return () => window.clearTimeout(t);
-  }, [snap, file]);
-
   async function afterRevert(msg: string) {
     toast(msg);
     await loadSnaps(snap ?? undefined);
     setReload((n) => n + 1);
-    await loadDiff();
   }
 
   async function revertFile() {
@@ -887,36 +787,6 @@ export default function HistoryView({
       if (snap === id) setSnap(null);
       await loadSnaps(snap === id ? undefined : snap ?? undefined);
       toast("Breaking point deleted");
-    } catch (e) {
-      toast(String(e), true);
-    }
-  }
-
-  // Persist an in-diff edit / gutter-revert (vs-now mode) to the working tree.
-  // We update `right` to the value the editor already holds (no model reset, so
-  // native undo/redo survives) and refresh the gutter hunks for the new content.
-  async function persistWorking(value: string) {
-    if (snap == null || !file) return;
-    try {
-      await api.writeWorkingFile(monitorId, file, value);
-      setRight(value);
-      api.textHunks(left, value).then(setHunks).catch(() => {});
-      await loadSnaps(snap ?? undefined);
-    } catch (e) {
-      toast(String(e), true);
-    }
-  }
-
-  // Branch-compare counterpart: the right pane is the working tree, so its edits
-  // and per-block ⟲ (which adopts the branch's version of a block) persist to the
-  // working file. Refresh the diff hunks against the unchanged branch baseline.
-  async function persistBranchWorking(value: string) {
-    if (!branchDiff || branchDiff.path.startsWith("/")) return;
-    try {
-      await api.writeWorkingFile(monitorId, branchDiff.path, value);
-      setBranchRight(value);
-      api.textHunks(branchLeft, value).then(setBranchHunks).catch(() => {});
-      setReload((n) => n + 1);
     } catch (e) {
       toast(String(e), true);
     }
@@ -1115,7 +985,6 @@ export default function HistoryView({
       setSnap(id);
       await loadSnaps(id);
       setReload((n) => n + 1);
-      await loadDiff();
       toast("Reverted everything to this breaking point");
     } catch (e) {
       toast(String(e), true);
@@ -1125,21 +994,6 @@ export default function HistoryView({
   function askRevertAll(id: number) {
     if (isConfirmSuppressed("revertAll")) doRevertAll(id);
     else setRevertAllId(id);
-  }
-
-  // ↑/↓ walk changes within the file; at the first/last change they spill over
-  // into the previous/next changed file (landing on its last/first change).
-  function navDiff(dir: "next" | "prev") {
-    if (branchDiff) {
-      branchDiffApi.current?.navigate(dir);
-      return;
-    }
-    if (diffApi.current?.navigate(dir) !== "boundary") return;
-    const i = changes.findIndex((c) => c.path === file);
-    const j = dir === "next" ? i + 1 : i - 1;
-    if (i < 0 || j < 0 || j >= changes.length) return;
-    crossFocus.current = dir === "next" ? "first" : "last";
-    setFile(changes[j].path);
   }
 
   function gotoPoint(delta: number) {
@@ -1173,53 +1027,18 @@ export default function HistoryView({
     }
   }
 
-  async function chooseRef(ref: string, label: string) {
-    const target = comparePick;
+  // Any compare target (file or folder) opens MCR's whole-repo view against
+  // the chosen ref — MCR has its own file sidebar, so per-path scoping happens
+  // there rather than in a second modal here.
+  async function chooseRef(ref: string) {
     setComparePick(null);
-    if (!target || !repoRoot) return;
-    if (target.kind === "file") {
-      setBranchDiff({ path: target.path, ref, label });
-      return;
-    }
-    // Folder: list the files under it that differ from the chosen ref. An empty
-    // repo-relative scope (the project root) accepts every changed path.
-    try {
-      const rel = toRepoRel(target.path).replace(/\/$/, "");
-      const prefix = rel ? `${rel}/` : "";
-      const changed = await api.gitChangedFiles(repoRoot, ref, WORKDIR);
-      const files = changed
-        .map((c) => c.path)
-        .filter((p) => prefix === "" || p.startsWith(prefix))
-        .map(toMonitorRel)
-        .sort();
-      if (!files.length) return toast(`No differences${target.path ? ` under ${target.path}` : ""} vs ${label}`);
-      setCompareFolder({ prefix: target.path, ref, label, files });
-    } catch (e) {
-      toast(String(e), true);
-    }
+    if (!repoRoot) return;
+    await openMcrDiff(repoRoot, ref, toast);
   }
 
-  // Diff-only bindings: gate to the diff view so they don't steal ⌘Z (undo) and
-  // friends from the plain editable file view (which shares the .editor-wrap
-  // class the diff scope-check targets).
-  const inDiff = openKind === "diff" && !!file;
-  // Branch comparison is a diff too — share next/prev-change and layout bindings.
-  const inAnyDiff = inDiff || !!branchDiff;
-  useShortcut("diff.next", () => navDiff("next"), inAnyDiff);
-  useShortcut("diff.prev", () => navDiff("prev"), inAnyDiff);
-  useShortcut("diff.nextChange", () => navDiff("next"), inAnyDiff);
-  useShortcut("diff.prevChange", () => navDiff("prev"), inAnyDiff);
-  useShortcut("diff.layout", () => setInline((v) => !v), inAnyDiff);
   useShortcut("editor.splitRight", () => splitActive("v"));
   useShortcut("editor.splitDown", () => splitActive("h"));
   useShortcut("editor.closeSplit", () => closeSplit(), !!split);
-  // Block revert / undo / redo target whichever diff is mounted.
-  const activeDiff = () => (branchDiff ? branchDiffApi.current : diffApi.current);
-  useShortcut("diff.revertBlock", () => activeDiff()?.revertCurrent(), inAnyDiff);
-  useShortcut("diff.applyChange", () => activeDiff()?.revertCurrent(), inAnyDiff);
-  useShortcut("diff.revertChange", () => activeDiff()?.revertCurrent(), inAnyDiff);
-  useShortcut("diff.undo", () => activeDiff()?.undo(), inAnyDiff);
-  useShortcut("diff.redo", () => activeDiff()?.redo(), inAnyDiff);
   useShortcut("revert.file", revertFile, !!file);
   useShortcut("file.copyPath", () => file && copyToClipboard(file, "path"), !!file);
   useShortcut(
@@ -1268,8 +1087,6 @@ export default function HistoryView({
 
   const counts = { added: 0, modified: 0, deleted: 0 };
   for (const c of displayChanges) counts[c.status]++;
-  const sel = snaps.find((s) => s.id === snap);
-  const beforeLabel = sel ? `${dayLabel(sel.day_bucket)}, ${fmtTime(sel.ts)}` : "Before";
 
   return (
     <>
@@ -1458,61 +1275,7 @@ export default function HistoryView({
             </span>
           </div>
         )}
-        {branchDiff ? (
-          <>
-            <div className="diff-head">
-              <span className="file" title={branchDiff.path}>
-                {branchDiff.path}
-              </span>
-              <button className="tbtn" title="Previous change" onClick={() => navDiff("prev")}>
-                ↑
-              </button>
-              <button className="tbtn" title="Next change" onClick={() => navDiff("next")}>
-                ↓
-              </button>
-              {!branchDiff.path.startsWith("/") && (
-                <>
-                  <button className="tbtn" title="Undo (in this diff)" onClick={() => branchDiffApi.current?.undo()}>
-                    ↶
-                  </button>
-                  <button className="tbtn" title="Redo (in this diff)" onClick={() => branchDiffApi.current?.redo()}>
-                    ↷
-                  </button>
-                </>
-              )}
-              <span className="vs">{branchDiff.label} → working tree</span>
-              {branchHunks.length > 0 && (
-                <span className="changecount">
-                  {branchHunks.length} change{branchHunks.length === 1 ? "" : "s"}
-                </span>
-              )}
-              <button
-                className="tbtn"
-                style={{ marginLeft: "auto" }}
-                onClick={() => setInline((v) => !v)}
-                title="Diff layout: side-by-side or inline"
-              >
-                {inline ? "≣ inline" : "⇆ split"}
-              </button>
-              <button className="tbtn" onClick={() => setBranchDiff(null)} title="Close branch comparison">
-                ✕
-              </button>
-            </div>
-            <DiffEditor
-              original={branchLeft}
-              modified={branchRight}
-              language={langOf(branchDiff.path)}
-              inline={inline}
-              editable={!branchDiff.path.startsWith("/")}
-              onCommit={persistBranchWorking}
-              hunks={branchHunks}
-              originalLabel={branchDiff.label}
-              modifiedLabel="working tree"
-              modifiedWorking
-              ref={branchDiffApi}
-            />
-          </>
-        ) : openKind === "file" ? (
+        {openKind === "file" ? (
           file ? (
             <>
               <div className="diff-head">
@@ -1585,38 +1348,6 @@ export default function HistoryView({
               <span className="file" title={file}>
                 {file}
               </span>
-              <button className="tbtn" title="Previous change" onClick={() => navDiff("prev")}>
-                ↑
-              </button>
-              <button className="tbtn" title="Next change" onClick={() => navDiff("next")}>
-                ↓
-              </button>
-              <button className="tbtn" title="Undo (in this diff)" onClick={() => diffApi.current?.undo()}>
-                ↶
-              </button>
-              <button className="tbtn" title="Redo (in this diff)" onClick={() => diffApi.current?.redo()}>
-                ↷
-              </button>
-              <button
-                className="tbtn"
-                onClick={() => setInline(!inline)}
-                title="Diff layout: side-by-side or inline"
-              >
-                {inline ? "≣ inline" : "⇆ split"}
-              </button>
-              {hunks.length > 0 && (
-                <span
-                  className="changecount"
-                  title={
-                    vsMode === "current"
-                      ? "Click the ⟲ icon in the gutter to restore that block to this breaking point; ⌘Z / Ctrl+Z to undo"
-                      : "Changes this breaking point introduced"
-                  }
-                >
-                  {hunks.length} change{hunks.length === 1 ? "" : "s"}
-                  {vsMode === "current" && " · ⟲ in gutter to revert · ⌘Z undo"}
-                </span>
-              )}
               <div className="diff-actions">
                 <button className="tbtn" onClick={revertFile} title="Restore this file to the selected breaking point">
                   Revert file
@@ -1626,39 +1357,20 @@ export default function HistoryView({
                 </button>
               </div>
             </div>
-            {!inline && (
-              <div className="pane-labels">
-                {vsMode === "current" ? (
-                  <>
-                    <span className="pane-label before" title="Read-only: the file as captured at this breaking point">
-                      🔒 Before · {beforeLabel}
-                    </span>
-                    <span className="pane-label current" title="Editable: your live working file">
-                      Current
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="pane-label before" title="Read-only: the file at the previous point">
-                      🔒 Previous point
-                    </span>
-                    <span className="pane-label current" title="Read-only: the file as captured at this breaking point">
-                      🔒 This point · {beforeLabel}
-                    </span>
-                  </>
-                )}
-              </div>
-            )}
-            <DiffEditor
-              original={left}
-              modified={right}
-              language={langOf(file)}
-              inline={inline}
-              editable={vsMode === "current"}
-              onCommit={persistWorking}
-              hunks={hunks}
-              ref={diffApi}
-            />
+            <div className="empty">
+              <div className="glyph">⇆</div>
+              <h3>Inline diff has moved to MCR</h3>
+              <p>Revert file/folder still works from the bar above. For a visual compare, open MCR.</p>
+              {repoRoot && (
+                <button
+                  className="tbtn primary"
+                  onClick={() => openMcrDiff(repoRoot, "HEAD", toast)}
+                  title="Open the whole repo, HEAD → working tree, in MCR"
+                >
+                  ⇆ Open in MCR (HEAD → working tree)
+                </button>
+              )}
+            </div>
           </>
         ) : snaps.length === 0 ? (
           <div className="empty">
@@ -1913,7 +1625,7 @@ export default function HistoryView({
                 spellCheck={false}
                 onChange={(e) => setCompareQuery(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && firstRef) chooseRef(firstRef[0], firstRef[1]);
+                  if (e.key === "Enter" && firstRef) chooseRef(firstRef[0]);
                   else if (e.key === "Escape") setComparePick(null);
                 }}
               />
@@ -1924,13 +1636,13 @@ export default function HistoryView({
                   <>
                     {local.length > 0 && <div className="branch-pick-group">Local branches</div>}
                     {local.map((b) => (
-                      <button key={"l:" + b} className="branch-pick-item" onClick={() => chooseRef(b, b)} title={`Compare against ${b}`}>
+                      <button key={"l:" + b} className="branch-pick-item" onClick={() => chooseRef(b)} title={`Compare against ${b}`}>
                         ⎇ {b}
                       </button>
                     ))}
                     {remote.length > 0 && <div className="branch-pick-group">Origin branches</div>}
                     {remote.map((b) => (
-                      <button key={"r:" + b} className="branch-pick-item" onClick={() => chooseRef(b, b)} title={`Compare against ${b}`}>
+                      <button key={"r:" + b} className="branch-pick-item" onClick={() => chooseRef(b)} title={`Compare against ${b}`}>
                         ⇡ {b}
                       </button>
                     ))}
@@ -1939,7 +1651,7 @@ export default function HistoryView({
                       <button
                         key={"c:" + c.id}
                         className="branch-pick-item"
-                        onClick={() => chooseRef(c.id, `${c.id.slice(0, 8)} · ${c.summary}`)}
+                        onClick={() => chooseRef(c.id)}
                         title={`Compare against ${c.id}`}
                       >
                         ● <code>{c.id.slice(0, 8)}</code> {c.summary}
@@ -1958,36 +1670,6 @@ export default function HistoryView({
         );
       })()}
 
-      {compareFolder && (
-        <div className="modal-overlay" onClick={() => setCompareFolder(null)}>
-          <div className="modal branch-pick" onClick={(e) => e.stopPropagation()}>
-            <h3>Files differing from {compareFolder.label}</h3>
-            <p className="hint" style={{ margin: "0 0 8px" }}>
-              {compareFolder.prefix ? `${compareFolder.prefix}/` : "Whole project"} · {compareFolder.files.length} file{compareFolder.files.length === 1 ? "" : "s"} → working tree
-            </p>
-            <div className="branch-pick-list">
-              {compareFolder.files.map((p) => (
-                <button
-                  key={p}
-                  className="branch-pick-item"
-                  title={p}
-                  onClick={() => {
-                    setBranchDiff({ path: p, ref: compareFolder.ref, label: compareFolder.label });
-                    setCompareFolder(null);
-                  }}
-                >
-                  <FileTypeIcon name={basename(p)} /> {p}
-                </button>
-              ))}
-            </div>
-            <div className="modal-actions">
-              <button className="tbtn" onClick={() => setCompareFolder(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

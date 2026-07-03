@@ -1,18 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import DiffEditor, { type DiffHandle } from "../components/DiffEditor";
 import RefPicker from "../components/RefPicker";
 import { api, WORKDIR } from "../lib/ipc";
-import { useShortcut } from "../lib/shortcuts";
 import { isConfirmSuppressed } from "../lib/confirmPrefs";
 import ConfirmModal from "../components/ConfirmModal";
-import type { GitFileChange, HunkInfo, MergeState, RefList, WorkingStatus } from "../lib/types";
-import { basename, langOf } from "../lib/util";
+import type { GitFileChange, MergeState, RefList, WorkingStatus } from "../lib/types";
+import { basename } from "../lib/util";
 import { buildFileTree, flattenTree } from "../lib/filetree";
 import ChangedTree from "./ChangedTree";
 import CommitTree from "./CommitTree";
 import ConflictsDialog from "./ConflictsDialog";
-import { openMergeWindow } from "../lib/mergeWindow";
+import { openMcrDiff, openMcrMerge } from "../lib/mcr";
 import { usePlugins } from "../lib/plugins/registry";
 import { pollWhileVisible } from "../lib/poll";
 
@@ -26,11 +24,9 @@ interface Props {
   /** Set by the status-bar git icon: pop the conflicts list once merge loads. */
   conflictsIntent?: boolean;
   onConflictsHandled?: () => void;
-  /** Bumped when a standalone merge window resolves a file: reload merge state. */
+  /** Bumped when MCR resolves a file: reload merge state. */
   reloadReq?: number;
-  /** False while the view is mounted but hidden (another tab is showing). Gates
-   *  the diff keyboard shortcuts so the hidden view doesn't clobber the active
-   *  one's handlers in the shared shortcut registry. */
+  /** False while the view is mounted but hidden (another tab is showing). */
   active?: boolean;
 }
 
@@ -53,25 +49,13 @@ export default function GitView({
   const [status, setStatus] = useState<WorkingStatus | null>(null);
   const [commitMsg, setCommitMsg] = useState("");
   const [file, setFile] = useState<string | null>(null);
-  const [left, setLeft] = useState("");
-  const [right, setRight] = useState("");
   const [merge, setMerge] = useState<MergeState | null>(null);
   const [showConflicts, setShowConflicts] = useState(false);
   const [collapsed, setCollapsed] = useState({ conflicts: false, staged: false, changes: false, untracked: false });
-  const [inline, setInline] = useState(false);
-  const [hunks, setHunks] = useState<HunkInfo[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; paths: string[]; isDir: boolean; label: string } | null>(null);
   const [discardTarget, setDiscardTarget] = useState<{ paths: string[]; label: string; isDir: boolean } | null>(null);
   const [query, setQuery] = useState("");
-  // Bumped on any external-change signal (window refocus, backend watcher/poll
-  // event); pulls the open diff's blobs again since from/to/file don't change
-  // across an external `git checkout` but the underlying content does.
-  const [reloadKey, setReloadKey] = useState(0);
-  const diffApi = useRef<DiffHandle>(null);
   const statusReq = useRef(0);
-  // Set when ↑/↓ crossed a file boundary; the load effect then lands on the new
-  // file's last ("prev") / first ("next") change.
-  const crossFocus = useRef<"first" | "last" | null>(null);
 
   const loadStatus = useCallback(async (path: string): Promise<WorkingStatus | null> => {
     // Monotonic token: the 3s poll must not clobber a fresher status fetched
@@ -174,7 +158,7 @@ export default function GitView({
   // External git activity (a terminal checkout, an AI agent, another tool)
   // leaves from/to/file unchanged, so the per-dependency effects above never
   // re-run. Pull everything an outside change can move: refs/branch, the working
-  // status or compare list, merge state, and the open diff's blobs (reloadKey).
+  // status or compare list, and merge state.
   const refreshExternal = useCallback(async () => {
     if (!repo) return;
     try {
@@ -188,7 +172,6 @@ export default function GitView({
     } else {
       loadCompare(false).catch(() => {});
     }
-    setReloadKey((k) => k + 1);
   }, [repo, mode, loadStatus, loadCompare, dropFileIfClean]);
 
   // The external op usually lands while the window is unfocused (user is in
@@ -224,43 +207,6 @@ export default function GitView({
     };
   }, [refreshExternal]);
 
-  // Shared diff loader. In commit mode from/to are pinned to HEAD → working tree.
-  useEffect(() => {
-    if (!repo || !file) {
-      setLeft("");
-      setRight("");
-      return;
-    }
-    let alive = true;
-    (async () => {
-      const l = (await api.gitFile(repo, from, file)) ?? "";
-      const r = (await api.gitFile(repo, to, file)) ?? "";
-      const hk = await api.gitFileHunks(repo, from, to, file);
-      if (alive) {
-        setLeft(l);
-        setRight(r);
-        setHunks(hk);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [repo, file, from, to, reloadKey]);
-
-  // Opening any file jumps the diff to its first change (and highlights it) so
-  // the user lands on what changed, not the top of the file. Cross-file ↑/↓ sets
-  // the direction; a plain click defaults to the first change.
-  useEffect(() => {
-    if (!file) return;
-    const which = crossFocus.current ?? "first";
-    crossFocus.current = null;
-    const t = window.setTimeout(
-      () => (which === "last" ? diffApi.current?.focusLast() : diffApi.current?.focusFirst()),
-      120,
-    );
-    return () => window.clearTimeout(t);
-  }, [file]);
-
   // Auto-open the first changed file when nothing is selected yet, so opening the
   // Git view lands straight on the first file's first change instead of an empty
   // pane. Only fires while no file is picked, so it never fights a user click.
@@ -273,27 +219,12 @@ export default function GitView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, file, mode, status, changes, merge, query]);
 
-  // The changed-file list as ordered on screen, so ↑/↓ spill into the adjacent
-  // file. Conflicts open the resolver (not the diff), so they're excluded.
+  // The changed-file list as ordered on screen. Conflicts open MCR (not a
+  // selection), so they're excluded.
   function orderedPaths(): string[] {
     const flat = (items: GitFileChange[]) => flattenTree(buildFileTree(items)).map((f) => f.path);
     if (mode === "compare") return flat(compareChanges);
     return [...flat(stagedList), ...flat(trackedChanges), ...flat(untrackedChanges)];
-  }
-
-  function navDiff(dir: "next" | "prev") {
-    if (diffApi.current?.navigate(dir) !== "boundary") return;
-    const paths = orderedPaths();
-    const i = paths.indexOf(file ?? "");
-    if (i < 0 || paths.length === 0) return;
-    // Cycle through the list: down on the last row → first, up on the first → last.
-    const j = (i + (dir === "next" ? 1 : -1) + paths.length) % paths.length;
-    if (j === i) return;
-    crossFocus.current = dir === "next" ? "first" : "last";
-    if (mode === "commit") openWorkingFile(paths[j]);
-    else {
-      setFile(paths[j]);
-    }
   }
 
   function switchMode(m: GitMode) {
@@ -348,32 +279,6 @@ export default function GitView({
     }
   }
 
-  // Apply one block of a two-revision compare into the working tree (the panes
-  // are read-only revisions). The backend splices just that block, leaving the
-  // rest of the working file alone, and errors if it diverged there.
-  async function applyHunkToWorking(index: number) {
-    if (!repo || !file) return;
-    try {
-      await api.gitApplyHunk(repo, from, to, file, index);
-      toast(`Applied block into the working tree`);
-      await loadStatus(repo);
-    } catch (e) {
-      toast(String(e), true);
-    }
-  }
-
-  async function persistWorking(value: string) {
-    if (!repo || !file) return;
-    try {
-      await api.gitWriteWorking(repo, file, value);
-      if (to === WORKDIR) setRight(value);
-      setHunks(await api.gitFileHunks(repo, from, to, file));
-      if (mode === "commit") dropFileIfClean(await loadStatus(repo));
-    } catch (e) {
-      toast(String(e), true);
-    }
-  }
-
   async function discardFiles(paths: string[]) {
     if (!repo || paths.length === 0) return;
     try {
@@ -389,21 +294,6 @@ export default function GitView({
       toast(String(e), true);
     }
   }
-
-  const editable = to === WORKDIR;
-  useShortcut("diff.next", () => navDiff("next"), active && !!file);
-  useShortcut("diff.prev", () => navDiff("prev"), active && !!file);
-  useShortcut("diff.nextChange", () => navDiff("next"), active && !!file);
-  useShortcut("diff.prevChange", () => navDiff("prev"), active && !!file);
-  useShortcut("diff.layout", () => setInline((v) => !v), active && !!file);
-  // Apply/revert work in both an editable working-tree diff (local edit) and a
-  // read-only compare (backend splice via onApplyHunk), so they aren't gated on
-  // `editable`. Undo/redo only make sense for the local edit path.
-  useShortcut("diff.revertBlock", () => diffApi.current?.revertCurrent(), active && !!file);
-  useShortcut("diff.applyChange", () => diffApi.current?.revertCurrent(), active && !!file);
-  useShortcut("diff.revertChange", () => diffApi.current?.revertCurrent(), active && !!file);
-  useShortcut("diff.undo", () => diffApi.current?.undo(), active && !!file && editable);
-  useShortcut("diff.redo", () => diffApi.current?.redo(), active && !!file && editable);
 
   const q = query.trim().toLowerCase();
   const matchQ = (f: { path: string }) => !q || f.path.toLowerCase().includes(q);
@@ -443,8 +333,8 @@ export default function GitView({
     <div
       key={"c:" + c.path}
       className="frow conflict-row"
-      onClick={() => merge && repo && openMergeWindow({ repo, path: c.path, ours: merge.ours_label, theirs: merge.theirs_label }, toast)}
-      title={`${c.path} — open the 3-way merge`}
+      onClick={() => repo && openMcrMerge(repo, c.path, toast)}
+      title={`${c.path} — resolve in MCR`}
     >
       <span className="stat conflicted">!</span>
       <span className="fname">{c.path}</span>
@@ -628,46 +518,19 @@ export default function GitView({
               <span className="vs">
                 {from} → {to === WORKDIR ? "working tree" : to}
               </span>
-              {hunks.length > 0 && (
-                <span
-                  className="changecount"
-                  title={
-                    to === WORKDIR
-                      ? `Click ⟲ in the gutter to apply the ${from} version of a block to the working tree; ⌘Z / Ctrl+Z to undo`
-                      : `Click → in the gutter to splice that block's ${to} version into your working tree (the rest of the file is left alone).`
-                  }
-                >
-                  {hunks.length} change{hunks.length === 1 ? "" : "s"}
-                  {to === WORKDIR ? ` · ⟲ applies ${from} → working · ⌘Z undo` : " · → applies into working tree"}
-                </span>
-              )}
             </span>
             <div className="dh-tools">
-              <button className="tbtn" title="Previous change" onClick={() => navDiff("prev")}>
-                ↑
+              <button
+                className="tbtn primary"
+                onClick={() => openMcrDiff(repo!, from, toast)}
+                title={
+                  to === WORKDIR
+                    ? `Open ${from} → working tree in MCR`
+                    : `MCR compares ${from} against your working tree (not against ${to})`
+                }
+              >
+                ⇆ Open diff in MCR
               </button>
-              <button className="tbtn" title="Next change" onClick={() => navDiff("next")}>
-                ↓
-              </button>
-              {editable && (
-                <>
-                  <button className="tbtn" title="Undo (in this diff)" onClick={() => diffApi.current?.undo()}>
-                    ↶
-                  </button>
-                  <button className="tbtn" title="Redo (in this diff)" onClick={() => diffApi.current?.redo()}>
-                    ↷
-                  </button>
-                </>
-              )}
-              {mode === "compare" && to !== WORKDIR && (
-                <button
-                  className="tbtn"
-                  title={`Compare ${from} against your working tree so you can apply its blocks into it`}
-                  onClick={() => setTo(WORKDIR)}
-                >
-                  ↧ Apply against working tree
-                </button>
-              )}
               {mode === "commit" && file && (
                 status?.staged.some((s) => s.path === file) ? (
                   <button className="tbtn" onClick={() => unstage([file])}>
@@ -688,29 +551,13 @@ export default function GitView({
                   ↗ file
                 </button>
               )}
-              <button
-                className="tbtn"
-                onClick={() => setInline(!inline)}
-                title="Diff layout: side-by-side or inline"
-              >
-                {inline ? "≣ inline" : "⇆ split"}
-              </button>
             </div>
           </div>
-          <DiffEditor
-            original={left}
-            modified={right}
-            language={langOf(file)}
-            inline={inline}
-            editable={to === WORKDIR}
-            onCommit={persistWorking}
-            hunks={hunks}
-            originalLabel={from}
-            modifiedLabel={to === WORKDIR ? "working tree" : to}
-            modifiedWorking={to === WORKDIR}
-            onApplyHunk={to === WORKDIR ? undefined : applyHunkToWorking}
-            ref={diffApi}
-          />
+          <div className="empty">
+            <div className="glyph">⇆</div>
+            <h3>Diffs open in MCR</h3>
+            <p>Whole-repo compare with a file sidebar — hit “Open diff in MCR” above.</p>
+          </div>
         </div>
       ) : (
         <div className="col main">
@@ -735,9 +582,7 @@ export default function GitView({
           toast={toast}
           onReload={reloadMerge}
           onClose={() => setShowConflicts(false)}
-          onMerge={(p) =>
-            openMergeWindow({ repo, path: p, ours: merge.ours_label, theirs: merge.theirs_label }, toast)
-          }
+          onMerge={(p) => openMcrMerge(repo, p, toast)}
         />
       )}
 

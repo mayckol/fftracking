@@ -667,26 +667,6 @@ pub fn git_file(repo_path: String, rev: String, path: String) -> R<Option<String
 }
 
 #[tauri::command]
-pub fn git_file_hunks(repo_path: String, from: String, to: String, path: String) -> R<Vec<HunkInfo>> {
-    err(git::file_hunks(&PathBuf::from(repo_path), &from, &to, &path))
-}
-
-#[tauri::command]
-pub fn git_revert_hunks(repo_path: String, from: String, to: String, path: String, selected: Vec<usize>) -> R<()> {
-    err(git::revert_hunks(&PathBuf::from(repo_path), &from, &to, &path, &selected))
-}
-
-#[tauri::command]
-pub fn git_apply_hunk(repo_path: String, from: String, to: String, path: String, index: usize) -> R<()> {
-    err(git::apply_hunk(&PathBuf::from(repo_path), &from, &to, &path, index))
-}
-
-#[tauri::command]
-pub fn git_write_working(repo_path: String, path: String, content: String) -> R<()> {
-    err(git::write_working(&PathBuf::from(repo_path), &path, &content))
-}
-
-#[tauri::command]
 pub fn git_discard_file(repo_path: String, path: String) -> R<()> {
     err(git::discard_file(&PathBuf::from(repo_path), &path))
 }
@@ -717,18 +697,8 @@ pub fn git_conflicts(repo_path: String) -> R<Vec<String>> {
 }
 
 #[tauri::command]
-pub fn git_resolve_conflict(repo_path: String, path: String, content: String) -> R<()> {
-    err(git::resolve_conflict(&PathBuf::from(repo_path), &path, &content))
-}
-
-#[tauri::command]
 pub fn git_merge_state(repo_path: String) -> R<git::MergeState> {
     err(git::merge_state(&PathBuf::from(repo_path)))
-}
-
-#[tauri::command]
-pub fn git_merge_blocks(repo_path: String, path: String) -> R<Vec<ffcore::merge::MergeBlock>> {
-    err(git::merge_blocks(&PathBuf::from(repo_path), &path))
 }
 
 #[tauri::command]

@@ -2,8 +2,8 @@ use std::path::Path;
 use std::process::Command;
 
 use ffcore::git::{
-    accept_side, changed_files, commit, conflict_sides, conflicted_paths, file_at_rev, merge_blocks,
-    merge_state, resolve_conflict, stage_paths, unstage_paths, working_status, WORKDIR,
+    accept_side, changed_files, commit, conflict_sides, conflicted_paths, file_at_rev,
+    merge_state, stage_paths, unstage_paths, working_status, WORKDIR,
 };
 use ffcore::query::ChangeStatus;
 
@@ -125,7 +125,10 @@ fn detect_and_resolve_merge_conflict() {
     let conflicts = conflicted_paths(root).unwrap();
     assert_eq!(conflicts, vec!["f.txt".to_string()]);
 
-    resolve_conflict(root, "f.txt", "resolved\n").unwrap();
+    // The MCR flow: the external editor writes the resolved working file, then
+    // the file is staged, which collapses the conflict stages.
+    write(root, "f.txt", "resolved\n");
+    stage_paths(root, &["f.txt".into()]).unwrap();
     assert!(conflicted_paths(root).unwrap().is_empty(), "conflict cleared after staging");
     assert_eq!(std::fs::read_to_string(root.join("f.txt")).unwrap(), "resolved\n");
 }
@@ -165,7 +168,7 @@ fn merge_state_reports_branches_and_sides() {
 }
 
 #[test]
-fn conflict_sides_and_blocks() {
+fn conflict_sides_reads_all_three_stages() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     setup_conflict(root);
@@ -174,12 +177,6 @@ fn conflict_sides_and_blocks() {
     assert_eq!(sides.base.as_deref(), Some("L1\nbase\nL3\n"));
     assert_eq!(sides.ours.as_deref(), Some("L1\nfrom-main\nL3\n"));
     assert_eq!(sides.theirs.as_deref(), Some("L1\nfrom-feature\nL3\n"));
-
-    let blocks = merge_blocks(root, "f.txt").unwrap();
-    let conflicts: Vec<_> = blocks.iter().filter(|b| b.kind == "conflict").collect();
-    assert_eq!(conflicts.len(), 1, "one conflicting region");
-    assert_eq!(conflicts[0].ours.join("\n"), "from-main");
-    assert_eq!(conflicts[0].theirs.join("\n"), "from-feature");
 }
 
 #[test]
@@ -213,9 +210,9 @@ fn binary_conflict_rejected_by_editor_and_accept_side_is_byte_exact() {
     run_git(root, &["merge", "feature"]);
     assert_eq!(conflicted_paths(root).unwrap(), vec!["b.bin".to_string()]);
 
-    // The text merge editor must refuse a binary conflict rather than corrupt it
-    // through a lossy UTF-8 round-trip.
-    assert!(merge_blocks(root, "b.bin").is_err(), "binary conflict rejected by editor");
+    // Stage extraction (which feeds MCR text panes) must refuse a binary
+    // conflict rather than corrupt it through a lossy UTF-8 round-trip.
+    assert!(conflict_sides(root, "b.bin").is_err(), "binary conflict rejected");
 
     // Whole-side accept copies the raw blob bytes verbatim, not a mojibake String.
     accept_side(root, "b.bin", "ours").unwrap();
@@ -228,9 +225,8 @@ fn merge_ops_error_when_path_not_conflicted() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     setup_conflict(root);
-    // A path with no index conflict must error, never silently return an empty diff
-    // (which the editor would otherwise write back as an empty file).
-    assert!(merge_blocks(root, "does-not-exist.txt").is_err());
+    // A path with no index conflict must error, never silently return empty
+    // sides (which would feed MCR three blank panes).
     assert!(conflict_sides(root, "does-not-exist.txt").is_err());
     assert!(accept_side(root, "does-not-exist.txt", "ours").is_err());
 }

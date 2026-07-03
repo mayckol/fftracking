@@ -5,7 +5,6 @@ import type {
   FileChange,
   GitFileChange,
   HunkInfo,
-  MergeBlock,
   MergeOpInfo,
   MergeState,
   MonitorRow,
@@ -128,14 +127,6 @@ export const api = {
     invoke<GitFileChange[]>("git_changed_files", { repoPath, from, to }),
   gitFile: (repoPath: string, rev: string, path: string) =>
     invoke<string | null>("git_file", { repoPath, rev, path }),
-  gitFileHunks: (repoPath: string, from: string, to: string, path: string) =>
-    invoke<HunkInfo[]>("git_file_hunks", { repoPath, from, to, path }),
-  gitRevertHunks: (repoPath: string, from: string, to: string, path: string, selected: number[]) =>
-    invoke<void>("git_revert_hunks", { repoPath, from, to, path, selected }),
-  gitApplyHunk: (repoPath: string, from: string, to: string, path: string, index: number) =>
-    invoke<void>("git_apply_hunk", { repoPath, from, to, path, index }),
-  gitWriteWorking: (repoPath: string, path: string, content: string) =>
-    invoke<void>("git_write_working", { repoPath, path, content }),
   gitDiscardFile: (repoPath: string, path: string) =>
     invoke<void>("git_discard_file", { repoPath, path }),
   gitStatus: (repoPath: string) => invoke<WorkingStatus>("git_status", { repoPath }),
@@ -143,14 +134,14 @@ export const api = {
   gitUnstage: (repoPath: string, paths: string[]) => invoke<void>("git_unstage", { repoPath, paths }),
   gitCommit: (repoPath: string, message: string) => invoke<string>("git_commit", { repoPath, message }),
   gitConflicts: (repoPath: string) => invoke<string[]>("git_conflicts", { repoPath }),
-  gitResolveConflict: (repoPath: string, path: string, content: string) =>
-    invoke<void>("git_resolve_conflict", { repoPath, path, content }),
   gitMergeState: (repoPath: string) => invoke<MergeState>("git_merge_state", { repoPath }),
-  gitMergeBlocks: (repoPath: string, path: string) =>
-    invoke<MergeBlock[]>("git_merge_blocks", { repoPath, path }),
   gitMergeOpInfo: (repoPath: string) => invoke<MergeOpInfo>("git_merge_op_info", { repoPath }),
   gitAcceptSide: (repoPath: string, path: string, side: "ours" | "theirs") =>
     invoke<void>("git_accept_side", { repoPath, path, side }),
+  mcrOpenMerge: (repoPath: string, path: string) =>
+    invoke<void>("mcr_open_merge", { args: { repoPath, path } }),
+  mcrOpenDiff: (repoPath: string, gitRef: string) =>
+    invoke<void>("mcr_open_diff", { args: { repoPath, gitRef } }),
 
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   autostartEnabled: () => invoke<boolean>("autostart_enabled"),

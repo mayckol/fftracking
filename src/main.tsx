@@ -66,14 +66,10 @@ loader.config({ monaco });
 // mounted editors otherwise keep stale theme data across HMR/theme edits.
 defineAllThemes(monaco);
 
-// A `view=merge` window renders only the standalone merge editor. Load App vs
-// MergeWindow lazily so the merge window doesn't pull the whole app's panels —
-// it gets its own small chunk (Monaco stays shared in the entry).
-const isMergeWindow = new URLSearchParams(window.location.search).get("view") === "merge";
 const root = ReactDOM.createRoot(document.getElementById("root")!);
 const dropBoot = () => requestAnimationFrame(() => document.getElementById("ff-boot")?.remove());
 
-(isMergeWindow ? import("./panels/MergeWindow") : import("./App")).then(({ default: Root }) => {
+import("./App").then(({ default: Root }) => {
   root.render(
     <React.StrictMode>
       <Root />

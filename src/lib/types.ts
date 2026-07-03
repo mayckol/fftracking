@@ -103,15 +103,6 @@ export interface MergeOpInfo {
   current_summary?: string | null;
 }
 
-export type MergeBlockKind = "unchanged" | "ours" | "theirs" | "both" | "conflict";
-
-export interface MergeBlock {
-  kind: MergeBlockKind;
-  base: string[];
-  ours: string[];
-  theirs: string[];
-}
-
 export interface DetectedWorkspace {
   path: string;
   source: EditorSource;

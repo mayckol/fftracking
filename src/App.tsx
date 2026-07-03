@@ -337,17 +337,19 @@ export default function App() {
     };
   }, []);
 
-  // A standalone merge window finished a file: refresh the count immediately and
-  // tell GitView to reload so its conflicts list stays in sync.
+  // MCR resolved a file: refresh the count immediately and tell GitView to
+  // reload so its conflicts list stays in sync.
   useEffect(() => {
     const un = listen("merge-resolved", () => {
       if (repoPath) api.gitMergeState(repoPath).then((ms) => setMergeConflicts(ms.files.length)).catch(() => {});
       setMergeReload((n) => n + 1);
     });
+    const unErr = listen<string>("mcr-error", (e) => notify(e.payload, true));
     return () => {
       un.then((f) => f());
+      unErr.then((f) => f());
     };
-  }, [repoPath]);
+  }, [repoPath, notify]);
 
   useEffect(installShortcuts, []);
   // Test-runner clicks need the terminal panel visible before they can type.

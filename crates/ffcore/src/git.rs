@@ -5,7 +5,6 @@ use git2::{Delta, DiffOptions, ObjectType, Repository, Tree, TreeWalkMode, TreeW
 use serde::Serialize;
 
 use crate::query::ChangeStatus;
-use crate::revert::{apply_hunk_into, apply_hunks, hunks, HunkInfo};
 use crate::{Error, Result};
 
 /// Sentinel revspec meaning "the working tree as it is on disk right now".
@@ -445,60 +444,6 @@ fn workdir_path(repo: &Repository, rel: &str) -> Result<std::path::PathBuf> {
         .join(rel))
 }
 
-fn text_at(repo_path: &Path, rev: &str, path: &str) -> Result<String> {
-    Ok(file_at_rev(repo_path, rev, path)?
-        .map(|b| String::from_utf8_lossy(&b).into_owned())
-        .unwrap_or_default())
-}
-
-/// Per-block changes for the displayed `from`→`to` diff. The hunk lines are on
-/// the `to` (right/modified) side so revert icons line up with what's shown.
-pub fn file_hunks(repo_path: &Path, from_rev: &str, to_rev: &str, path: &str) -> Result<Vec<HunkInfo>> {
-    let to = text_at(repo_path, to_rev, path)?;
-    let from = text_at(repo_path, from_rev, path)?;
-    Ok(hunks(&to, &from))
-}
-
-/// Applies the `from` version of the selected blocks into the working-tree file
-/// (taking `to` as the base, so the result matches the displayed right pane with
-/// those blocks reverted to `from`). Works for any from/to, incl. branch↔branch.
-pub fn revert_hunks(
-    repo_path: &Path,
-    from_rev: &str,
-    to_rev: &str,
-    path: &str,
-    selected: &[usize],
-) -> Result<()> {
-    let to = text_at(repo_path, to_rev, path)?;
-    let from = text_at(repo_path, from_rev, path)?;
-    let (out, _) = apply_hunks(&to, &from, selected);
-    let repo = open(repo_path)?;
-    std::fs::write(workdir_path(&repo, path)?, out)?;
-    Ok(())
-}
-
-/// Applies one block of a two-revision `from`→`to` compare into the working-tree
-/// file, splicing only that block's `to` content and leaving the rest of the
-/// working file intact. Errors (without writing) if the working file has diverged
-/// in that block. Used by the diff's apply arrow when neither pane is the workdir.
-pub fn apply_hunk(repo_path: &Path, from_rev: &str, to_rev: &str, path: &str, index: usize) -> Result<()> {
-    let from = text_at(repo_path, from_rev, path)?;
-    let to = text_at(repo_path, to_rev, path)?;
-    let repo = open(repo_path)?;
-    let wpath = workdir_path(&repo, path)?;
-    let working = std::fs::read_to_string(&wpath).unwrap_or_default();
-    let out = apply_hunk_into(&from, &to, &working, index)?;
-    std::fs::write(wpath, out)?;
-    Ok(())
-}
-
-/// Writes content to a working-tree file (in-diff edit / undo-redo persistence).
-pub fn write_working(repo_path: &Path, path: &str, content: &str) -> Result<()> {
-    let repo = open(repo_path)?;
-    std::fs::write(workdir_path(&repo, path)?, content)?;
-    Ok(())
-}
-
 /// Discards working-tree changes to one file, restoring its committed (HEAD)
 /// version — like `git checkout -- <file>`. A file with no HEAD version (newly
 /// added / untracked) is removed.
@@ -541,20 +486,6 @@ pub fn conflicted_paths(repo_path: &Path) -> Result<Vec<String>> {
     paths.sort();
     paths.dedup();
     Ok(paths)
-}
-
-/// Writes the resolved `content` to `path` and stages it, which clears the
-/// conflict for that file (the index conflict stages collapse to stage 0).
-pub fn resolve_conflict(repo_path: &Path, path: &str, content: &str) -> Result<()> {
-    let repo = open(repo_path)?;
-    let workdir = repo
-        .workdir()
-        .ok_or_else(|| Error::Msg("bare repo has no working tree".into()))?;
-    std::fs::write(workdir.join(path), content)?;
-    let mut index = repo.index()?;
-    index.add_path(Path::new(path))?;
-    index.write()?;
-    Ok(())
 }
 
 /// One conflicted file with each side's change relative to the common ancestor.
@@ -763,16 +694,6 @@ fn conflict_sides_in(repo: &Repository, path: &str) -> Result<ConflictSides> {
     }
     let text = |b: Option<Vec<u8>>| b.map(|b| String::from_utf8(b).unwrap_or_default());
     Ok(ConflictSides { base: text(cb.base), ours: text(cb.ours), theirs: text(cb.theirs) })
-}
-
-/// Diff3 blocks for a conflicted file, powering the three-pane merge editor.
-pub fn merge_blocks(repo_path: &Path, path: &str) -> Result<Vec<crate::merge::MergeBlock>> {
-    let s = conflict_sides(repo_path, path)?;
-    Ok(crate::merge::diff3(
-        s.base.as_deref().unwrap_or(""),
-        s.ours.as_deref().unwrap_or(""),
-        s.theirs.as_deref().unwrap_or(""),
-    ))
 }
 
 /// Resolves a conflict by taking one whole side. `side` is `"ours"` or

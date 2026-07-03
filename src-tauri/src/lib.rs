@@ -1,6 +1,7 @@
 mod commands;
 mod dap;
 mod lsp;
+mod mcr;
 mod redis;
 mod run;
 mod terminal;
@@ -141,6 +142,7 @@ pub fn run() {
             app.manage(dap::DapManager::default());
             app.manage(run::RunManager::default());
             app.manage(redis::RedisManager::default());
+            app.manage(mcr::McrState::default());
             #[cfg(target_os = "macos")]
             setup_app_menu(app.handle())?;
             setup_tray(app.handle())?;
@@ -215,21 +217,17 @@ pub fn run() {
             commands::git_changed_files,
             commands::git_checkout_branch,
             commands::git_file,
-            commands::git_file_hunks,
-            commands::git_revert_hunks,
-            commands::git_apply_hunk,
-            commands::git_write_working,
             commands::git_discard_file,
             commands::git_status,
             commands::git_stage,
             commands::git_unstage,
             commands::git_commit,
             commands::git_conflicts,
-            commands::git_resolve_conflict,
             commands::git_merge_state,
-            commands::git_merge_blocks,
             commands::git_merge_op_info,
             commands::git_accept_side,
+            mcr::mcr_open_merge,
+            mcr::mcr_open_diff,
             commands::pick_folder,
             commands::set_autostart,
             commands::autostart_enabled,
