@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.0.28] — 2026-07-06
+
+### Fixed
+
+- **MCR now opens correctly on Linux for merge conflicts and git compare.** The
+  Linux `mcr` on PATH is a launcher wrapper that reinterprets argv (dropping the
+  extra files of the 4-way merge signature) and chdir's the AppImage into its own
+  mount, losing the caller's working directory. fftracking now invokes the raw
+  `mcr.AppImage` directly — as macOS already does with the raw `.app` binary — and
+  passes the repository as an explicit anchor for compare, since the AppImage
+  destroys the cwd it would otherwise discover the repo from.
+
 ## [1.0.27] — 2026-07-03
 
 ### Changed
