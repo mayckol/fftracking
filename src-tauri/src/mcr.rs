@@ -38,6 +38,20 @@ fn is_exec(p: &Path) -> bool {
 /// PATH first, then the installer's known locations — a packaged GUI app
 /// inherits a stripped PATH (same problem run.rs solves for go/node tools).
 fn find_mcr() -> Result<PathBuf, String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+
+    // On Linux the `mcr` on PATH (and ~/.local/bin/mcr) is a launcher SHELL WRAPPER
+    // that reinterprets argv for `mcr [dir]`/`mcr diff` — it drops the extra files
+    // of our 4-way merge signature and chdir's the AppImage into its own mount,
+    // losing our cwd anchor. Invoke the raw AppImage directly instead, exactly as
+    // macOS invokes the raw .app binary (a transparent `exec … "$@"` passthrough).
+    #[cfg(target_os = "linux")]
+    if let Some(h) = &home {
+        let c = h.join(".local/bin/mcr.AppImage");
+        if is_exec(&c) {
+            return Ok(c);
+        }
+    }
     if let Some(paths) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&paths) {
             let c = dir.join("mcr");
@@ -46,7 +60,6 @@ fn find_mcr() -> Result<PathBuf, String> {
             }
         }
     }
-    let home = std::env::var_os("HOME").map(PathBuf::from);
     if let Some(h) = &home {
         let c = h.join(".local/bin/mcr");
         if is_exec(&c) {
@@ -56,13 +69,6 @@ fn find_mcr() -> Result<PathBuf, String> {
     #[cfg(target_os = "macos")]
     {
         let c = PathBuf::from("/Applications/MCR.app/Contents/MacOS/mcr-app");
-        if is_exec(&c) {
-            return Ok(c);
-        }
-    }
-    #[cfg(target_os = "linux")]
-    if let Some(h) = &home {
-        let c = h.join(".local/bin/mcr.AppImage");
         if is_exec(&c) {
             return Ok(c);
         }
@@ -174,13 +180,15 @@ pub struct DiffArgs {
 #[tauri::command]
 pub fn mcr_open_diff(args: DiffArgs) -> Result<(), String> {
     let bin = find_mcr()?;
-    // cwd anchor, not the `[dir]` argument: mcr resolves an explicit dir via its
-    // parent (mergetool-style path handling), which lands one level above the
-    // repo. From the cwd it discovers the repo root correctly.
-    let mut child = Command::new(&bin)
-        .arg("diff")
-        .arg(&args.git_ref)
-        .current_dir(&args.repo_path)
+    // macOS anchors off the cwd (the raw .app keeps it). The Linux AppImage
+    // chdir's into its own /tmp/.mount_* at startup, destroying the cwd, so pass
+    // the repo as the explicit `[dir]` anchor — MCR resolves it correctly now that
+    // upstream compensates for repo_root()'s parent() (lib.rs joins "." first).
+    let mut cmd = Command::new(&bin);
+    cmd.arg("diff").arg(&args.git_ref).current_dir(&args.repo_path);
+    #[cfg(target_os = "linux")]
+    cmd.arg(&args.repo_path);
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("couldn't launch MCR: {e}"))?;
     std::thread::spawn(move || {
