@@ -23,6 +23,27 @@ pub struct McrState {
     in_flight: Arc<Mutex<HashSet<String>>>,
 }
 
+/// fftracking itself runs as an AppImage on Linux, so its process carries the
+/// AppImage runtime's injected vars (APPDIR/APPIMAGE/ARGV0 markers plus prepended
+/// LD_LIBRARY_PATH and GTK/GDK/GST plugin paths pointing into fftracking's own
+/// /tmp/.mount_*). A child AppImage inherits them: MCR's AppRun then mis-detects
+/// an already-mounted image and loads fftracking's libs instead of its own, so it
+/// dies before showing a window — invisible to us, which is why MCR launches from
+/// a terminal but never from inside the app. Drop them so MCR bootstraps clean.
+#[cfg(target_os = "linux")]
+fn strip_appimage_env(cmd: &mut Command) {
+    const VARS: &[&str] = &[
+        "APPDIR", "APPIMAGE", "ARGV0", "OWD", "LD_LIBRARY_PATH", "LD_PRELOAD",
+        "PYTHONPATH", "PYTHONHOME", "PERLLIB", "GSETTINGS_SCHEMA_DIR",
+        "GTK_PATH", "GTK_EXE_PREFIX", "GTK_DATA_PREFIX", "GDK_PIXBUF_MODULE_FILE",
+        "GDK_PIXBUF_MODULEDIR", "GST_PLUGIN_PATH", "GST_PLUGIN_SYSTEM_PATH",
+        "QT_PLUGIN_PATH",
+    ];
+    for v in VARS {
+        cmd.env_remove(v);
+    }
+}
+
 fn is_exec(p: &Path) -> bool {
     #[cfg(unix)]
     {
@@ -146,10 +167,11 @@ fn spawn_merge(
         std::fs::write(&merged, seed).map_err(|e| e2s(&e))?;
     }
 
-    let mut child = Command::new(&bin)
-        .args([local.as_os_str(), base.as_os_str(), remote.as_os_str(), merged.as_os_str()])
-        .spawn()
-        .map_err(|e| format!("couldn't launch MCR: {e}"))?;
+    let mut cmd = Command::new(&bin);
+    cmd.args([local.as_os_str(), base.as_os_str(), remote.as_os_str(), merged.as_os_str()]);
+    #[cfg(target_os = "linux")]
+    strip_appimage_env(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("couldn't launch MCR: {e}"))?;
 
     let (repo, path) = (args.repo_path, args.path);
     std::thread::spawn(move || {
@@ -187,7 +209,10 @@ pub fn mcr_open_diff(args: DiffArgs) -> Result<(), String> {
     let mut cmd = Command::new(&bin);
     cmd.arg("diff").arg(&args.git_ref).current_dir(&args.repo_path);
     #[cfg(target_os = "linux")]
-    cmd.arg(&args.repo_path);
+    {
+        cmd.arg(&args.repo_path);
+        strip_appimage_env(&mut cmd);
+    }
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("couldn't launch MCR: {e}"))?;
