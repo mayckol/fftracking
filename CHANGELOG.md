@@ -4,6 +4,20 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.1.0] — 2026-07-07
+
+### Fixed
+
+- **MCR now actually launches from the Linux app for merge conflicts and git
+  compare.** fftracking ships as an AppImage, whose runtime injects `APPDIR`,
+  `APPIMAGE`, a prepended `LD_LIBRARY_PATH`, and GTK/GDK/GST plugin paths that
+  point into fftracking's own mount. A spawned MCR AppImage inherited them, so
+  its AppRun mis-detected an already-mounted image and loaded fftracking's
+  libraries instead of its own — dying before showing a window. MCR is now
+  spawned with those AppImage-injected variables stripped, so it bootstraps
+  cleanly. This is the missing piece behind the 1.0.28 fix, which switched to
+  the raw AppImage but never sanitized the inherited environment.
+
 ## [1.0.28] — 2026-07-06
 
 ### Fixed
