@@ -44,6 +44,10 @@ fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 if command -v curl >/dev/null 2>&1; then DL='curl -fsSL'; else
   command -v wget >/dev/null 2>&1 || fail "need curl or wget"; DL='wget -qO-'; fi
+# Big asset downloads (AppImage/dmg, ~100MB) show a progress bar on a terminal —
+# a silent multi-minute `curl -s` reads as "nothing happens".
+DLBIG="$DL"
+if [ -t 2 ] && command -v curl >/dev/null 2>&1; then DLBIG='curl -f#SL'; fi
 
 os_raw="$(uname -s)"; arch_raw="$(uname -m)"
 
@@ -58,6 +62,7 @@ uninstall() {
       ;;
     Linux)
       rm -f "$PREFIX/bin/fftracking" "$PREFIX/bin/fftracking.AppImage" 2>/dev/null || true
+      rm -rf "$PREFIX/libexec/fftracking" 2>/dev/null || true
       rm -f "$PREFIX/share/applications/fftracking.desktop" 2>/dev/null || true
       rm -f "$PREFIX/share/icons/hicolor/256x256/apps/fftracking.png" 2>/dev/null || true
       command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$PREFIX/share/applications" >/dev/null 2>&1 || true
@@ -118,9 +123,11 @@ case "$os_raw" in
     [ "$arch_raw" = "arm64" ] || fail "macOS build is Apple Silicon (arm64) only; got $arch_raw"
     ASSET="$(resolve_asset '_aarch64\.dmg')"; [ -n "$ASSET" ] || ASSET="fftracking_${VER_NUM}_aarch64.dmg"
     log "downloading $ASSET"
-    $DL "$BASE/$ASSET" > "$TMP/app.dmg" || fail "download failed: $BASE/$ASSET"
+    $DLBIG "$BASE/$ASSET" > "$TMP/app.dmg" || fail "download failed: $BASE/$ASSET"
     log "mounting"
-    MNT="$(hdiutil attach -nobrowse -quiet "$TMP/app.dmg" | tail -1 | awk '{ $1=""; $2=""; sub(/^  */,""); print }')"
+    # No -quiet: it silences the mount table on stdout, which is what we parse.
+    MNT="$(hdiutil attach -nobrowse "$TMP/app.dmg" | tail -1 | awk '{ $1=""; $2=""; sub(/^  */,""); print }')"
+    [ -n "$MNT" ] || fail "could not determine dmg mount point"
     [ -d "$MNT/fftracking.app" ] || { hdiutil detach -quiet "$MNT" 2>/dev/null || true; fail "fftracking.app not found in dmg"; }
     rm -rf /Applications/fftracking.app 2>/dev/null || true
     cp -R "$MNT/fftracking.app" /Applications/ || { hdiutil detach -quiet "$MNT"; fail "copy to /Applications failed (try sudo)"; }
@@ -144,16 +151,42 @@ case "$os_raw" in
     # Download to a sibling temp file and atomically rename over the old one, so
     # updating works while the app is running (writing a busy executable in place
     # fails with "text file busy" and would force a manual delete first).
-    $DL "$BASE/$ASSET" > "$APP.new" || { rm -f "$APP.new"; fail "download failed: $BASE/$ASSET"; }
+    $DLBIG "$BASE/$ASSET" > "$APP.new" || { rm -f "$APP.new"; fail "download failed: $BASE/$ASSET"; }
     chmod +x "$APP.new"
     mv -f "$APP.new" "$APP"
+
+    # Extract the image once at install time (`--appimage-extract` needs no FUSE):
+    # launching skips both the libfuse2 requirement (absent on modern distros —
+    # the raw AppImage dies silently without it) and the mount cost, so the app
+    # starts fast everywhere.
+    LIBEXEC="$PREFIX/libexec/fftracking"
+    RUN="$APP"
+    EXTMP="$LIBEXEC.new"
+    rm -rf "$EXTMP"; mkdir -p "$EXTMP"
+    if (cd "$EXTMP" && "$APP" --appimage-extract >/dev/null 2>&1) \
+        && [ -x "$EXTMP/squashfs-root/AppRun" ]; then
+      rm -rf "$LIBEXEC"
+      mv "$EXTMP" "$LIBEXEC"
+      RUN="$LIBEXEC/squashfs-root/AppRun"
+      log "extracted for fast FUSE-free launches: $RUN"
+    else
+      rm -rf "$EXTMP"
+      log "could not pre-extract the AppImage — launches use the image directly"
+    fi
 
     # Wrapper: resolve a relative path to absolute before detaching (the AppImage
     # chdir's into its mount, so a relative arg would resolve against /tmp/.mount_*
     # instead of the shell's cwd). No arg → open the app with no project.
     cat > "$BIN.new" <<WRAP
 #!/bin/sh
-app="$APP"
+app="$RUN"
+# Only the raw AppImage needs FUSE; without libfuse2 it can't mount and dies
+# silently — fall back to per-launch self-extraction. The AppRun path skips this.
+case "\$app" in *.AppImage)
+  if ! { command -v ldconfig >/dev/null 2>&1 && ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'; }; then
+    export APPIMAGE_EXTRACT_AND_RUN=1
+  fi
+esac
 if [ "\$#" -eq 0 ]; then
   nohup "\$app" >/dev/null 2>&1 &
 else
@@ -175,10 +208,15 @@ WRAP
     ICON_DIR="$PREFIX/share/icons/hicolor/256x256/apps"
     mkdir -p "$APPS_DIR" "$ICON_DIR"
 
-    # Pull the icon out of the AppImage (extraction needs no FUSE); fall back to
-    # the repo's bundled icon if the runtime can't extract.
-    ( cd "$TMP" && "$APP" --appimage-extract 'usr/share/icons/*' >/dev/null 2>&1 ) || true
-    ICON_SRC="$(find "$TMP/squashfs-root" -name 'fftracking.png' -printf '%s %p\n' 2>/dev/null | sort -rn | head -n1 | cut -d' ' -f2-)"
+    # Icon comes from the pre-extracted AppDir when available, else from a scoped
+    # extraction (needs no FUSE); falls back to the repo's bundled icon.
+    if [ -d "$LIBEXEC/squashfs-root" ]; then
+      ICON_TREE="$LIBEXEC/squashfs-root"
+    else
+      ( cd "$TMP" && "$APP" --appimage-extract 'usr/share/icons/*' >/dev/null 2>&1 ) || true
+      ICON_TREE="$TMP/squashfs-root"
+    fi
+    ICON_SRC="$(find "$ICON_TREE" -name 'fftracking.png' -printf '%s %p\n' 2>/dev/null | sort -rn | head -n1 | cut -d' ' -f2-)"
     if [ -n "${ICON_SRC:-}" ] && [ -f "$ICON_SRC" ]; then
       cp "$ICON_SRC" "$ICON_DIR/fftracking.png"
     else
@@ -192,7 +230,7 @@ WRAP
 Type=Application
 Name=fftracking
 Comment=Local file-history & breaking-point tracker
-Exec="$APP"
+Exec="$BIN"
 Icon=fftracking
 Terminal=false
 Categories=Development;Utility;
