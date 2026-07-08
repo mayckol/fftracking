@@ -4,6 +4,15 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.1.4] — 2026-07-08
+
+### Fixed
+
+- **The embedded Git-tab diff now renders in the pane on Linux.** On WebKitGTK
+  the child webview ignored the position it was created with and parked itself
+  at the bottom of the window, leaving the diff area empty; it is now placed
+  over the pane (with a re-apply once GTK settles layout), matching macOS.
+
 ## [1.1.3] — 2026-07-08
 
 ### Changed
