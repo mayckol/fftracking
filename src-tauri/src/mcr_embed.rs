@@ -18,6 +18,10 @@ const EMBED_LABEL: &str = "mcr-embed";
 const EMBED_URL: &str = "mcr/index.html";
 const MAIN_WINDOW: &str = "main";
 
+/// Off-screen parking spot for the "hidden" embed on WebKitGTK (see `conceal`).
+#[cfg(target_os = "linux")]
+const PARK_OFF_SCREEN: f64 = -32000.0;
+
 type Mgr<'a> = tauri::State<'a, SessionManager>;
 
 /// The file the embedded view should currently show. Re-sent when the webview
@@ -103,15 +107,36 @@ pub fn mcr_embed_show(
         }
     };
 
-    // Always (re)apply after acquiring the webview. On WebKitGTK the position
-    // handed to `add_child` is ignored for a child webview until an explicit
-    // `set_position` lands — without this it stays parked at the window bottom
-    // (correct on macOS, wrong on Linux).
-    place(&webview, &args.bounds)?;
+    // Reveal, THEN position. On WebKitGTK the position handed to `add_child` (and
+    // any `set_position` issued before the webview is on screen) is ignored until a
+    // `set_position` lands *after* show() — the reverse order left it parked at the
+    // window bottom for a frame, the "diff jumps up from the bottom" flash. An
+    // existing webview is already shown here (Linux keeps it mapped and merely
+    // parks it off-screen — see `conceal`), so this just slides it back over the
+    // pane with no re-realize flash.
     webview.show().map_err(|e| e.to_string())?;
+    place(&webview, &args.bounds)?;
 
     let _ = webview.emit_to(EMBED_LABEL, "mcr://embed-open", target);
     Ok(())
+}
+
+/// Hide the embed. On WebKitGTK, `hide()`/`show()` unmaps the child webview and
+/// the next show() re-realizes it at a stale position (the window bottom) for a
+/// frame before an explicit `set_position` lands — a visible jump on every
+/// Git-tab entry. Keeping it mapped and parking it far off-screen instead makes
+/// the next reveal a plain `set_position`, which lands reliably (the same call the
+/// resize path already uses). Other platforms position child webviews correctly up
+/// front, so a real `hide()` there is cheaper and leaves no mapped webview behind.
+#[cfg(target_os = "linux")]
+fn conceal(wv: &tauri::Webview) -> Result<(), String> {
+    wv.set_position(LogicalPosition::new(PARK_OFF_SCREEN, PARK_OFF_SCREEN))
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn conceal(wv: &tauri::Webview) -> Result<(), String> {
+    wv.hide().map_err(|e| e.to_string())
 }
 
 /// Apply a pane rect to the webview, in logical (CSS) pixels. On a debug build,
@@ -149,7 +174,7 @@ pub fn mcr_embed_set_bounds(app: tauri::AppHandle, args: EmbedBounds) -> Result<
 #[tauri::command(async)]
 pub fn mcr_embed_hide(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(wv) = app.get_webview(EMBED_LABEL) {
-        wv.hide().map_err(|e| e.to_string())?;
+        conceal(&wv)?;
     }
     Ok(())
 }
