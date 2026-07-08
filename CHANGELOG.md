@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.1.5] — 2026-07-08
+
+### Fixed
+
+- **The embedded Git-tab diff no longer flashes or opens at the bottom on Linux.**
+  The diff is a native child webview that was hidden and re-shown on every Git-tab
+  entry; on WebKitGTK `hide()`/`show()` unmaps it and re-realizes it at the window
+  bottom for a frame before it snaps to the pane — a visible jump each switch. The
+  webview is now kept mapped and merely parked off-screen while concealed (Linux
+  only), so revealing it is a single reliable reposition, and it is shown before
+  being positioned so a freshly created one never presents at the wrong spot.
+
 ## [1.1.4] — 2026-07-08
 
 ### Fixed
