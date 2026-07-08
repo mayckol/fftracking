@@ -311,6 +311,9 @@ pub struct DiffArgs {
     pub git_ref: String,
 }
 
+// The Git tab embeds per-file diffs as a child webview (mcr_embed.rs). This
+// whole-repo launch stays for the History panel's "open in MCR" compare, which
+// wants MCR's own file sidebar across the entire repo against a ref.
 #[tauri::command(async)]
 pub fn mcr_open_diff(app: tauri::AppHandle, args: DiffArgs) -> Result<(), String> {
     let bin = find_mcr()?;

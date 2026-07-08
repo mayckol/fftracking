@@ -5,9 +5,10 @@
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/bundle-vtsls.mjs && vite",
-    "build": "node scripts/bundle-vtsls.mjs && tsc && vite build",
+    "dev": "node scripts/bundle-vtsls.mjs && node scripts/build-mcr-embed.mjs && vite",
+    "build": "node scripts/bundle-vtsls.mjs && node scripts/build-mcr-embed.mjs && tsc && vite build",
     "vtsls:bundle": "node scripts/bundle-vtsls.mjs",
+    "mcr:embed": "node scripts/build-mcr-embed.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

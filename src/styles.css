@@ -522,6 +522,16 @@ select:focus {
   overflow: hidden;
 }
 
+/* Host region for the embedded MCR diff (a native child webview positioned over
+   it by the backend). The webview paints on top; the matching backdrop hides any
+   sub-frame seam or the brief gap before it is positioned. */
+.mcr-host {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: var(--bg-0);
+}
+
 /* Split editor: primary pane + optional secondary pane, side by side (split-v)
    or stacked (split-h), with a Splitter between them. */
 .editor-area {

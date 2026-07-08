@@ -631,6 +631,14 @@ export default function App() {
           conflictsIntent={conflictsIntent}
           onConflictsHandled={() => setConflictsIntent(false)}
           reloadReq={mergeReload}
+          suppressEmbed={
+            !!search ||
+            settingsPalette ||
+            shortcutsOpen ||
+            execMenu !== null ||
+            confirmDel !== null ||
+            !prefs.keymapStyleChosen
+          }
         />
       </div>
 

@@ -10,7 +10,7 @@ import { buildFileTree, flattenTree } from "../lib/filetree";
 import ChangedTree from "./ChangedTree";
 import CommitTree from "./CommitTree";
 import ConflictsDialog from "./ConflictsDialog";
-import { openMcrDiff, openMcrMerge } from "../lib/mcr";
+import { mcrEmbedHide, mcrEmbedSetBounds, mcrEmbedShow, openMcrMerge, type McrBounds } from "../lib/mcr";
 import { usePlugins } from "../lib/plugins/registry";
 import { pollWhileVisible } from "../lib/poll";
 
@@ -28,6 +28,9 @@ interface Props {
   reloadReq?: number;
   /** False while the view is mounted but hidden (another tab is showing). */
   active?: boolean;
+  /** An app-level overlay (palette/modal) is open: hide the embedded diff, which
+   * as a native child webview would otherwise paint above that DOM overlay. */
+  suppressEmbed?: boolean;
 }
 
 export default function GitView({
@@ -38,6 +41,7 @@ export default function GitView({
   onConflictsHandled,
   reloadReq,
   active = true,
+  suppressEmbed = false,
 }: Props) {
   usePlugins();
   const [repo, setRepo] = useState<string | null>(initialRepo);
@@ -56,6 +60,52 @@ export default function GitView({
   const [discardTarget, setDiscardTarget] = useState<{ paths: string[]; label: string; isDir: boolean } | null>(null);
   const [query, setQuery] = useState("");
   const statusReq = useRef(0);
+  const hostRef = useRef<HTMLDivElement | null>(null);
+
+  // The embedded MCR diff shows when a file is selected in the visible Git tab and
+  // no overlay is up. `from` is the ref to diff against — "HEAD" in commit mode,
+  // the picked ref in compare — and the working tree is always the other side.
+  const localOverlay = !!menu || !!discardTarget || showConflicts;
+  const embedShown = !!repo && !!file && active && !localOverlay && !suppressEmbed;
+
+  const measureBounds = useCallback((): McrBounds | null => {
+    const el = hostRef.current;
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return null;
+    return { x: r.left, y: r.top, width: r.width, height: r.height };
+  }, []);
+
+  // Show / move / hide the child webview to match the host div. A native webview
+  // paints above the DOM, so it must hide the moment the pane isn't the sole
+  // foreground (tab left, no file, or any overlay open).
+  useEffect(() => {
+    if (!embedShown) {
+      mcrEmbedHide();
+      return;
+    }
+    const bounds = measureBounds();
+    if (bounds) mcrEmbedShow(repo!, from, file!, bounds, toast);
+  }, [embedShown, repo, from, file, measureBounds, toast]);
+
+  // Keep the webview glued to the pane as the window resizes or the splitter moves.
+  useEffect(() => {
+    if (!embedShown) return;
+    const push = () => {
+      const b = measureBounds();
+      if (b) mcrEmbedSetBounds(b);
+    };
+    const ro = new ResizeObserver(push);
+    if (hostRef.current) ro.observe(hostRef.current);
+    window.addEventListener("resize", push);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", push);
+    };
+  }, [embedShown, measureBounds]);
+
+  // Belt-and-suspenders: drop the webview if the view unmounts entirely.
+  useEffect(() => () => void mcrEmbedHide(), []);
 
   const loadStatus = useCallback(async (path: string): Promise<WorkingStatus | null> => {
     // Monotonic token: the 3s poll must not clobber a fresher status fetched
@@ -520,17 +570,6 @@ export default function GitView({
               </span>
             </span>
             <div className="dh-tools">
-              <button
-                className="tbtn primary"
-                onClick={() => openMcrDiff(repo!, from, toast)}
-                title={
-                  to === WORKDIR
-                    ? `Open ${from} → working tree in MCR`
-                    : `MCR compares ${from} against your working tree (not against ${to})`
-                }
-              >
-                ⇆ Open diff in MCR
-              </button>
               {mode === "commit" && file && (
                 status?.staged.some((s) => s.path === file) ? (
                   <button className="tbtn" onClick={() => unstage([file])}>
@@ -553,11 +592,7 @@ export default function GitView({
               )}
             </div>
           </div>
-          <div className="empty">
-            <div className="glyph">⇆</div>
-            <h3>Diffs open in MCR</h3>
-            <p>Whole-repo compare with a file sidebar — hit “Open diff in MCR” above.</p>
-          </div>
+          <div className="mcr-host" ref={hostRef} />
         </div>
       ) : (
         <div className="col main">

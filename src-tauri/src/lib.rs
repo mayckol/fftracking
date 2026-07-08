@@ -2,9 +2,12 @@ mod commands;
 mod dap;
 mod lsp;
 mod mcr;
+mod mcr_embed;
 mod redis;
 mod run;
 mod terminal;
+
+use mcr_session::manager::SessionManager;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -143,6 +146,9 @@ pub fn run() {
             app.manage(run::RunManager::default());
             app.manage(redis::RedisManager::default());
             app.manage(mcr::McrState::default());
+            app.manage(SessionManager::new());
+            app.manage(mcr_embed::McrEmbed::default());
+            mcr_embed::setup(app.handle());
             #[cfg(target_os = "macos")]
             setup_app_menu(app.handle())?;
             setup_tray(app.handle())?;
@@ -228,6 +234,24 @@ pub fn run() {
             commands::git_accept_side,
             mcr::mcr_open_merge,
             mcr::mcr_open_diff,
+            mcr_embed::mcr_embed_show,
+            mcr_embed::mcr_embed_set_bounds,
+            mcr_embed::mcr_embed_hide,
+            mcr_embed::compare_open,
+            mcr_embed::select_session,
+            mcr_embed::list_sessions,
+            mcr_embed::save_merged,
+            mcr_embed::apply_change,
+            mcr_embed::apply_both,
+            mcr_embed::revert_change,
+            mcr_embed::apply_non_conflicting,
+            mcr_embed::edit_result,
+            mcr_embed::edit_full_result,
+            mcr_embed::undo,
+            mcr_embed::redo,
+            mcr_embed::navigate,
+            mcr_embed::set_whitespace_mode,
+            mcr_embed::quit,
             commands::pick_folder,
             commands::set_autostart,
             commands::autostart_enabled,

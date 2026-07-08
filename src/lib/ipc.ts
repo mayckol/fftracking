@@ -142,6 +142,15 @@ export const api = {
     invoke<void>("mcr_open_merge", { args: { repoPath, path } }),
   mcrOpenDiff: (repoPath: string, gitRef: string) =>
     invoke<void>("mcr_open_diff", { args: { repoPath, gitRef } }),
+  mcrEmbedShow: (
+    repoRoot: string,
+    refspec: string,
+    path: string,
+    bounds: { x: number; y: number; width: number; height: number },
+  ) => invoke<void>("mcr_embed_show", { args: { repoRoot, refspec, path, bounds } }),
+  mcrEmbedSetBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
+    invoke<void>("mcr_embed_set_bounds", { args: bounds }),
+  mcrEmbedHide: () => invoke<void>("mcr_embed_hide"),
 
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   autostartEnabled: () => invoke<boolean>("autostart_enabled"),

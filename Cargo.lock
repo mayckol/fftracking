@@ -1494,6 +1494,8 @@ dependencies = [
  "base64 0.22.1",
  "ffcore",
  "keyring",
+ "mcr-core",
+ "mcr-session",
  "portable-pty",
  "redis",
  "serde",
@@ -2773,6 +2775,23 @@ dependencies = [
  "log",
  "tendril",
  "web_atoms",
+]
+
+[[package]]
+name = "mcr-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "similar",
+]
+
+[[package]]
+name = "mcr-session"
+version = "0.1.0"
+dependencies = [
+ "mcr-core",
+ "serde",
 ]
 
 [[package]]

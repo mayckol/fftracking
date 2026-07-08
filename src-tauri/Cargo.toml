@@ -14,7 +14,11 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 ffcore = { path = "../crates/ffcore" }
-tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+mcr-core = { path = "../../mcr/crates/mcr-core" }
+mcr-session = { path = "../../mcr/crates/mcr-session" }
+# `unstable` unlocks the multiwebview API (Window::add_child) used to embed MCR's
+# diff view as a child webview over the Git pane (src/mcr_embed.rs).
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api", "unstable"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-os = "2"
