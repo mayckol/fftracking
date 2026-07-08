@@ -83,6 +83,13 @@ never rely on CI sync alone, or `main` drifts from its tags.
 
 ## Notes
 
+- **MCR sibling coupling.** Release CI clones `mayckol/mcr` **main** as a sibling:
+  the Rust side path-depends on `../mcr/crates/*` and the embedded Git-tab diff UI
+  is built from `../mcr/ui` into `public/mcr` (gitignored — never committed). When
+  a fix spans both repos, push/release **mcr first**, then fftracking, or the
+  bundle ships without the mcr half. The Linux Git-tab diff renders that bundle in
+  an iframe (child webviews can't be positioned on Linux, tauri#13071); macOS uses
+  a native child webview.
 - The `cask` CI job needs `HOMEBREW_TAP_GITHUB_TOKEN`; it self-skips if unset.
 - To re-release a botched tag: delete it remote + local, delete the GitHub
   release, fix config, re-tag. `gh release delete vX.Y.Z --cleanup-tag`.
