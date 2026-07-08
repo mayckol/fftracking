@@ -4,6 +4,21 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.1.6] — 2026-07-08
+
+### Fixed
+
+- **The embedded Git-tab diff finally works on Linux — in the pane, no blinking.**
+  Root cause found in the windowing stack: tauri builds child webviews into the
+  window's GtkBox, where repositioning is a silent no-op, so the diff always
+  stacked at the bottom of the window and every show/hide re-laid-out the whole
+  window (tauri-apps/tauri#13071). Linux now renders the diff as a same-origin
+  iframe inside the pane — plain DOM, so it sits exactly where it belongs, menus
+  and modals stack above it, and switching tabs just repaints the already-rendered
+  frame with scroll and edit state preserved. Commands from the frame ride a
+  postMessage bridge to the app (iframes get no Tauri IPC). macOS keeps the native
+  child-webview path; the v1.1.5 off-screen-park workaround is reverted.
+
 ## [1.1.5] — 2026-07-08
 
 ### Fixed
