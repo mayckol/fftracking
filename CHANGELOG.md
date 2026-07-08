@@ -4,6 +4,17 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.1.3] — 2026-07-08
+
+### Changed
+
+- **Git-tab diffs are now inline.** Clicking a changed file in the Git tab
+  renders that file's diff embedded directly in the pane (the MCR renderer,
+  hosted as a child webview) instead of opening the whole repository in a
+  separate MCR window. The "Open diff in MCR" button is gone — selecting a file
+  is enough, and the diff tracks the pane as you resize or drag the splitter.
+  Merge-conflict resolution still opens the standalone MCR window.
+
 ## [1.1.2] — 2026-07-08
 
 ### Fixed
