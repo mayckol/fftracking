@@ -4,6 +4,25 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.1.1] — 2026-07-08
+
+### Fixed
+
+- **MCR reliably opens when spawned from the app — and says why when it can't.**
+  On Linux the raw MCR AppImage needs libfuse2 to mount; on distros without it
+  the child died instantly and invisibly (MCR's own shell wrappers handle this,
+  but the app execs the image directly). The app now prefers MCR's pre-extracted
+  AppDir (`~/.local/libexec/mcr/squashfs-root/AppRun`, installed by MCR ≥
+  0.3.6), sets `APPIMAGE_EXTRACT_AND_RUN=1` itself when falling back to the raw
+  image on a FUSE-less system, scrubs more AppImage-injected variables
+  (GIO/GST/WebKit module paths) and filters fftracking-mount entries out of
+  `PATH`/`XDG_DATA_DIRS`. MCR's stderr is now captured: if it exits non-zero
+  with output (or dies within seconds), the error surfaces as a toast instead
+  of nothing happening.
+- **Opening MCR no longer stalls the UI.** The merge/diff commands run off the
+  main thread, so reconstructing conflict sides on a big repository cannot
+  freeze the window.
+
 ## [1.1.0] — 2026-07-07
 
 ### Fixed
