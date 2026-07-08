@@ -85,16 +85,8 @@ pub fn mcr_embed_show(
     };
     *state.target.lock().unwrap() = Some(target.clone());
 
-    let pos = LogicalPosition::new(args.bounds.x, args.bounds.y);
-    let size = LogicalSize::new(args.bounds.width, args.bounds.height);
-
     let webview = match app.get_webview(EMBED_LABEL) {
-        Some(wv) => {
-            wv.set_position(pos).map_err(|e| e.to_string())?;
-            wv.set_size(size).map_err(|e| e.to_string())?;
-            wv.show().map_err(|e| e.to_string())?;
-            wv
-        }
+        Some(wv) => wv,
         None => {
             let window = app
                 .get_window(MAIN_WINDOW)
@@ -102,13 +94,43 @@ pub fn mcr_embed_show(
             let builder = WebviewBuilder::new(EMBED_LABEL, WebviewUrl::App(EMBED_URL.into()))
                 .initialization_script("window.__FF_EMBED__ = true;");
             window
-                .add_child(builder, pos, size)
+                .add_child(
+                    builder,
+                    LogicalPosition::new(args.bounds.x, args.bounds.y),
+                    LogicalSize::new(args.bounds.width, args.bounds.height),
+                )
                 .map_err(|e| e.to_string())?
         }
     };
 
-    // Best-effort: covered by the embed-ready handshake if the webview is still booting.
+    // Always (re)apply after acquiring the webview. On WebKitGTK the position
+    // handed to `add_child` is ignored for a child webview until an explicit
+    // `set_position` lands — without this it stays parked at the window bottom
+    // (correct on macOS, wrong on Linux).
+    place(&webview, &args.bounds)?;
+    webview.show().map_err(|e| e.to_string())?;
+
     let _ = webview.emit_to(EMBED_LABEL, "mcr://embed-open", target);
+    Ok(())
+}
+
+/// Apply a pane rect to the webview, in logical (CSS) pixels. On a debug build,
+/// log the requested rect against the resulting physical geometry so a
+/// platform coordinate/scale mismatch is diagnosable from the terminal.
+fn place(webview: &tauri::Webview, b: &EmbedBounds) -> Result<(), String> {
+    webview
+        .set_position(LogicalPosition::new(b.x, b.y))
+        .map_err(|e| e.to_string())?;
+    webview
+        .set_size(LogicalSize::new(b.width, b.height))
+        .map_err(|e| e.to_string())?;
+    #[cfg(debug_assertions)]
+    if let (Ok(p), Ok(s)) = (webview.position(), webview.size()) {
+        eprintln!(
+            "[mcr-embed] req logical x={} y={} w={} h={} -> physical pos={:?} size={:?}",
+            b.x, b.y, b.width, b.height, p, s
+        );
+    }
     Ok(())
 }
 
@@ -117,10 +139,7 @@ pub fn mcr_embed_show(
 #[tauri::command(async)]
 pub fn mcr_embed_set_bounds(app: tauri::AppHandle, args: EmbedBounds) -> Result<(), String> {
     if let Some(wv) = app.get_webview(EMBED_LABEL) {
-        wv.set_position(LogicalPosition::new(args.x, args.y))
-            .map_err(|e| e.to_string())?;
-        wv.set_size(LogicalSize::new(args.width, args.height))
-            .map_err(|e| e.to_string())?;
+        place(&wv, &args)?;
     }
     Ok(())
 }

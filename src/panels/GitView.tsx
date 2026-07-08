@@ -85,7 +85,23 @@ export default function GitView({
       return;
     }
     const bounds = measureBounds();
-    if (bounds) mcrEmbedShow(repo!, from, file!, bounds, toast);
+    if (!bounds) return;
+    mcrEmbedShow(repo!, from, file!, bounds, toast);
+    // WebKitGTK lays out the freshly-created child webview a frame late and
+    // ignores its initial position, parking it at the window bottom; re-push the
+    // pane rect once layout settles so it lands over the pane on Linux too.
+    const raf = requestAnimationFrame(() => {
+      const b = measureBounds();
+      if (b) mcrEmbedSetBounds(b);
+    });
+    const timer = window.setTimeout(() => {
+      const b = measureBounds();
+      if (b) mcrEmbedSetBounds(b);
+    }, 150);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
   }, [embedShown, repo, from, file, measureBounds, toast]);
 
   // Keep the webview glued to the pane as the window resizes or the splitter moves.
