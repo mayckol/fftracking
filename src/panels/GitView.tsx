@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import RefPicker from "../components/RefPicker";
 import { api, WORKDIR } from "../lib/ipc";
 import { isConfirmSuppressed } from "../lib/confirmPrefs";
@@ -11,6 +12,7 @@ import ChangedTree from "./ChangedTree";
 import CommitTree from "./CommitTree";
 import ConflictsDialog from "./ConflictsDialog";
 import { mcrEmbedHide, mcrEmbedSetBounds, mcrEmbedShow, openMcrMerge, type McrBounds } from "../lib/mcr";
+import { IS_LINUX } from "../lib/shortcuts";
 import { usePlugins } from "../lib/plugins/registry";
 import { pollWhileVisible } from "../lib/poll";
 
@@ -76,10 +78,60 @@ export default function GitView({
     return { x: r.left, y: r.top, width: r.width, height: r.height };
   }, []);
 
-  // Show / move / hide the child webview to match the host div. A native webview
-  // paints above the DOM, so it must hide the moment the pane isn't the sole
-  // foreground (tab left, no file, or any overlay open).
+  // Linux renders the diff as a same-origin iframe instead of a native child
+  // webview: tauri builds child webviews into the window's GtkBox, where
+  // set_position is a silent no-op and show/hide re-layouts the whole window —
+  // the diff sat at the window bottom and every Git-tab switch made the app
+  // blink (tauri-apps/tauri#13071). An iframe is plain DOM: geometry, stacking
+  // and overlays just work, and tab switches are a display toggle. Tauri injects
+  // IPC into main frames only, so the frame proxies its invokes through us over
+  // postMessage ({mcr:"invoke"} → {mcr:"result"}).
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const frameReady = useRef(false);
+
+  const sendEmbedOpen = useCallback(() => {
+    const w = frameRef.current?.contentWindow;
+    if (!IS_LINUX || !w || !frameReady.current || !repo || !file) return;
+    w.postMessage({ mcr: "open", repoRoot: repo, refspec: from, path: file }, "*");
+  }, [repo, from, file]);
+
   useEffect(() => {
+    if (!IS_LINUX) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== frameRef.current?.contentWindow) return;
+      const d = e.data as { mcr?: string; id?: number; cmd?: string; args?: Record<string, unknown> };
+      if (!d || typeof d !== "object") return;
+      if (d.mcr === "ready") {
+        frameReady.current = true;
+        sendEmbedOpen();
+      } else if (d.mcr === "invoke" && d.cmd) {
+        invoke(d.cmd, d.args ?? {}).then(
+          (value) =>
+            frameRef.current?.contentWindow?.postMessage({ mcr: "result", id: d.id, ok: true, value }, "*"),
+          (err) =>
+            frameRef.current?.contentWindow?.postMessage(
+              { mcr: "result", id: d.id, ok: false, error: String(err) },
+              "*",
+            ),
+        );
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [sendEmbedOpen]);
+
+  // Tell the frame which file to show whenever the selection or ref changes. Sent
+  // even while the tab is hidden so the diff is already rendered when it appears.
+  useEffect(() => {
+    sendEmbedOpen();
+  }, [sendEmbedOpen]);
+
+  // Show / move / hide the child webview to match the host div (macOS/Windows —
+  // Linux uses the iframe above). A native webview paints above the DOM, so it
+  // must hide the moment the pane isn't the sole foreground (tab left, no file,
+  // or any overlay open).
+  useEffect(() => {
+    if (IS_LINUX) return;
     if (!embedShown) {
       mcrEmbedHide();
       return;
@@ -87,9 +139,8 @@ export default function GitView({
     const bounds = measureBounds();
     if (!bounds) return;
     mcrEmbedShow(repo!, from, file!, bounds, toast);
-    // WebKitGTK lays out the freshly-created child webview a frame late and
-    // ignores its initial position, parking it at the window bottom; re-push the
-    // pane rect once layout settles so it lands over the pane on Linux too.
+    // The webview lays out a frame late on some platforms; re-push the pane rect
+    // once layout settles.
     const raf = requestAnimationFrame(() => {
       const b = measureBounds();
       if (b) mcrEmbedSetBounds(b);
@@ -106,7 +157,7 @@ export default function GitView({
 
   // Keep the webview glued to the pane as the window resizes or the splitter moves.
   useEffect(() => {
-    if (!embedShown) return;
+    if (IS_LINUX || !embedShown) return;
     const push = () => {
       const b = measureBounds();
       if (b) mcrEmbedSetBounds(b);
@@ -121,7 +172,10 @@ export default function GitView({
   }, [embedShown, measureBounds]);
 
   // Belt-and-suspenders: drop the webview if the view unmounts entirely.
-  useEffect(() => () => void mcrEmbedHide(), []);
+  useEffect(() => {
+    if (IS_LINUX) return;
+    return () => void mcrEmbedHide();
+  }, []);
 
   const loadStatus = useCallback(async (path: string): Promise<WorkingStatus | null> => {
     // Monotonic token: the 3s poll must not clobber a fresher status fetched
@@ -608,7 +662,28 @@ export default function GitView({
               )}
             </div>
           </div>
-          <div className="mcr-host" ref={hostRef} />
+          <div className="mcr-host" ref={hostRef}>
+            {IS_LINUX && repo && (
+              // Stays mounted across tab switches — the app hides the whole Git
+              // pane via the tab wrapper's display, so leaving and re-entering
+              // the tab neither reloads the frame nor loses scroll/edit state:
+              // the reveal repaints a document that never changed. Unlike the
+              // native webview, the iframe is normal DOM — menus and modals
+              // stack above it, so nothing needs to hide for overlays.
+              <iframe
+                ref={frameRef}
+                src="/mcr/index.html?embed=1"
+                title="diff"
+                style={{
+                  border: 0,
+                  width: "100%",
+                  height: "100%",
+                  display: "block",
+                  background: "transparent",
+                }}
+              />
+            )}
+          </div>
         </div>
       ) : (
         <div className="col main">
