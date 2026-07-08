@@ -28,6 +28,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # fftracking's src-tauri depends on the MCR crates by path (../../mcr/crates/*)
+      # and the Git-tab diff embeds MCR's UI (scripts/build-mcr-embed.mjs builds
+      # ../mcr/ui into public/mcr). CI checks out only fftracking, so clone MCR as a
+      # sibling of the workspace to resolve both.
+      - name: Clone MCR sibling (path deps + embedded diff UI)
+        shell: bash
+        run: git clone --depth 1 https://github.com/mayckol/mcr.git ../mcr
+
       - uses: actions/setup-node@v5
         with:
           node-version: 20
