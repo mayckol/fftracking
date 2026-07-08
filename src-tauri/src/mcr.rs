@@ -187,19 +187,23 @@ fn wait_with_stderr(child: &mut Child) -> (bool, i32, String) {
     (success, code, tail.trim().to_string())
 }
 
-/// A non-zero exit is only user-facing news when MCR itself said something (its
-/// pre-window failures print to stderr) or when it died too fast for any human
-/// interaction — a plain abort (closing the window on an unresolved file) exits 1
-/// quietly and must stay quiet here.
+/// A non-zero exit is only user-facing news when MCR died during startup — the
+/// class of failure that used to look like "nothing happened" (FUSE missing,
+/// poisoned env, webview init crash). A plain abort (closing the window on an
+/// unresolved file) exits 1 after human-scale seconds — and may carry harmless
+/// GTK/WebKit warnings on stderr — so anything past the startup window stays
+/// quiet.
 fn report_death(app: &tauri::AppHandle, code: i32, stderr: &str, started: Instant) {
-    let fast = started.elapsed().as_secs() < 3;
-    if stderr.is_empty() && !fast {
+    let secs = started.elapsed().as_secs();
+    if secs >= 10 {
         return;
     }
-    let detail = if stderr.is_empty() {
+    let detail = if !stderr.is_empty() {
+        format!("MCR failed (status {code}): {stderr}")
+    } else if secs < 3 {
         format!("MCR exited immediately (status {code}) without output")
     } else {
-        format!("MCR failed (status {code}): {stderr}")
+        return;
     };
     let _ = app.emit("mcr-error", detail);
 }
