@@ -4,6 +4,28 @@ All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
+## [1.1.2] — 2026-07-08
+
+### Fixed
+
+- **Installing on Linux no longer produces an app that silently won't start.**
+  The installer's wrapper and desktop entry launched the raw AppImage detached
+  with all output discarded — on distros without libfuse2 the app died
+  invisibly. The installer now pre-extracts the AppImage once (no FUSE needed)
+  into `~/.local/libexec/fftracking` and launches its `AppRun`; when extraction
+  isn't possible it falls back to the AppImage with self-extraction enabled on
+  FUSE-less systems. Menu launches route through the same wrapper.
+- **`curl | sh` install works on macOS again.** `hdiutil attach -quiet`
+  suppressed the mount table the installer parses, so every install failed with
+  "fftracking.app not found in dmg".
+- **Asset downloads show progress.** The ~100MB AppImage/dmg downloads ran
+  fully silent and read as "nothing happens"; a terminal now gets a progress
+  bar.
+- **MCR failure toasts are confined to launch.** Aborting a merge after a few
+  seconds could exit with harmless GTK/WebKit warnings on stderr and trigger a
+  spurious error toast; only failures within the first seconds of launch are
+  reported.
+
 ## [1.1.1] — 2026-07-08
 
 ### Fixed
